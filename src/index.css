@@ -1,0 +1,200 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* BRCG Copilot Design System - Professional, clean, brand-driven */
+
+@layer base {
+  :root {
+    /* BRCG Brand Blue: #0542BF -> hsl(220, 96%, 38%) */
+    --brcg-blue: 220 96% 38%;
+    --brcg-blue-light: 220 96% 48%;
+    --brcg-blue-dark: 220 96% 28%;
+
+    --background: 0 0% 98%;
+    --foreground: 220 20% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 14%;
+
+    --primary: 220 96% 38%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 220 20% 14%;
+
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 220 96% 95%;
+    --accent-foreground: 220 96% 38%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 220 96% 38%;
+
+    --radius: 0.5rem;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --sidebar-background: 220 20% 14%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 220 96% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 20%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 220 20% 22%;
+    --sidebar-ring: 220 96% 55%;
+
+    /* Platform colors */
+    --braze: 14 100% 57%;
+    --klaviyo: 158 64% 52%;
+    --iterable: 220 82% 61%;
+    --customerio: 262 83% 58%;
+    --hubspot: 18 100% 55%;
+  }
+
+  .dark {
+    --background: 220 20% 8%;
+    --foreground: 220 14% 96%;
+
+    --card: 220 20% 11%;
+    --card-foreground: 220 14% 96%;
+
+    --popover: 220 20% 11%;
+    --popover-foreground: 220 14% 96%;
+
+    --primary: 220 96% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 18%;
+    --secondary-foreground: 220 14% 96%;
+
+    --muted: 220 20% 18%;
+    --muted-foreground: 220 9% 60%;
+
+    --accent: 220 20% 22%;
+    --accent-foreground: 220 96% 70%;
+
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 20% 20%;
+    --input: 220 20% 20%;
+    --ring: 220 96% 55%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 220 20% 14%;
+
+    --sidebar-background: 220 20% 6%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 220 96% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 20% 14%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 220 20% 14%;
+    --sidebar-ring: 220 96% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased font-body;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Typography - BRCG Brand Guidelines */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+
+  h1 {
+    @apply text-4xl font-black tracking-tight;
+  }
+
+  h2 {
+    @apply text-2xl font-black tracking-tight;
+  }
+
+  h3 {
+    @apply text-xl font-bold uppercase tracking-wide;
+  }
+
+  h4, h5, h6 {
+    @apply text-base font-bold uppercase tracking-wide;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted/50;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+}
+
+@layer utilities {
+  .text-brcg-blue {
+    color: hsl(var(--brcg-blue));
+  }
+
+  .bg-brcg-blue {
+    background-color: hsl(var(--brcg-blue));
+  }
+
+  .border-brcg-blue {
+    border-color: hsl(var(--brcg-blue));
+  }
+
+  .glass {
+    @apply bg-card/90 backdrop-blur-sm border border-border;
+  }
+}
+
+/* Platform badge colors */
+.platform-braze {
+  @apply bg-[hsl(var(--braze))]/10 text-[hsl(var(--braze))] border-[hsl(var(--braze))]/30;
+}
+
+.platform-klaviyo {
+  @apply bg-[hsl(var(--klaviyo))]/10 text-[hsl(var(--klaviyo))] border-[hsl(var(--klaviyo))]/30;
+}
+
+.platform-iterable {
+  @apply bg-[hsl(var(--iterable))]/10 text-[hsl(var(--iterable))] border-[hsl(var(--iterable))]/30;
+}
+
+.platform-customerio {
+  @apply bg-[hsl(var(--customerio))]/10 text-[hsl(var(--customerio))] border-[hsl(var(--customerio))]/30;
+}
+
+.platform-hubspot {
+  @apply bg-[hsl(var(--hubspot))]/10 text-[hsl(var(--hubspot))] border-[hsl(var(--hubspot))]/30;
+}
