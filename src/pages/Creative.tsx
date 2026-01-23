@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import {
   Select,
   SelectContent,
@@ -14,6 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { 
   Search, 
   FolderOpen, 
@@ -32,20 +41,68 @@ import {
   ChevronRight,
   LayoutGrid,
   List,
+  RefreshCw,
+  AlertCircle,
+  Workflow,
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
-// Mock data for campaigns and lifecycle journeys
-const LIFECYCLE_JOURNEYS = [
+// Type definitions for Braze data
+interface BrazeCanvas {
+  id: string;
+  name: string;
+  description?: string;
+  draft?: boolean;
+  schedule_type?: string;
+  first_entry?: string;
+  last_entry?: string;
+  tags?: string[];
+  archived?: boolean;
+}
+
+interface BrazeCampaign {
+  id: string;
+  name: string;
+  description?: string;
+  draft?: boolean;
+  schedule_type?: string;
+  channels?: string[];
+  first_sent?: string;
+  last_sent?: string;
+  tags?: string[];
+  archived?: boolean;
+}
+
+interface BrazeTemplate {
+  email_template_id: string;
+  template_name: string;
+  description?: string;
+  subject?: string;
+  preheader?: string;
+  tags?: string[];
+  created_at?: string;
+  updated_at?: string;
+  html_preview?: string;
+}
+
+interface BrazeSchemaCache {
+  canvases?: BrazeCanvas[];
+  campaigns?: BrazeCampaign[];
+  templates?: BrazeTemplate[];
+  segments?: Array<{ id: string; name: string; description?: string; tags?: string[] }>;
+  last_sync?: string;
+}
+
+// Fallback mock data when no Braze data is available
+const MOCK_JOURNEYS = [
   {
     id: 'welcome',
     name: 'Welcome Series',
     description: 'Onboard new users and drive first actions',
-    audience: 'New Signups',
-    status: 'live',
+    status: 'live' as const,
+    tags: ['onboarding', 'new-users'],
     channels: ['email', 'push'],
-    emails: 4,
-    icon: Sparkles,
-    color: 'bg-emerald-500',
     steps: [
       { name: 'Welcome Email', delay: '0h', channel: 'email' },
       { name: 'Feature Intro', delay: '24h', channel: 'email' },
@@ -57,177 +114,155 @@ const LIFECYCLE_JOURNEYS = [
     id: 're-engagement',
     name: 'Re-engagement',
     description: 'Win back inactive creators',
-    audience: 'Inactive 30+ Days',
-    status: 'live',
+    status: 'live' as const,
+    tags: ['retention', 'winback'],
     channels: ['email', 'push'],
-    emails: 3,
-    icon: TrendingUp,
-    color: 'bg-blue-500',
     steps: [
       { name: 'We Miss You', delay: '30d', channel: 'email' },
-      { name: 'What\'s New', delay: '37d', channel: 'email' },
+      { name: "What's New", delay: '37d', channel: 'email' },
       { name: 'Last Chance Offer', delay: '45d', channel: 'push' },
     ],
   },
-  {
-    id: 'upgrade',
-    name: 'Pro Upgrade',
-    description: 'Convert free users to paid',
-    audience: 'Free Users - Active',
-    status: 'live',
-    channels: ['email', 'push', 'in-app'],
-    emails: 5,
-    icon: Zap,
-    color: 'bg-purple-500',
-    steps: [
-      { name: 'Pro Benefits Overview', delay: 'Trigger: 10 links added', channel: 'email' },
-      { name: 'Analytics Teaser', delay: '+24h', channel: 'push' },
-      { name: 'Limited Offer', delay: '+48h', channel: 'email' },
-      { name: 'Social Proof', delay: '+72h', channel: 'email' },
-      { name: 'Final Reminder', delay: '+7d', channel: 'push' },
-    ],
-  },
-  {
-    id: 'feature-adoption',
-    name: 'Feature Adoption',
-    description: 'Drive usage of new features',
-    audience: 'All Active Users',
-    status: 'draft',
-    channels: ['email', 'in-app'],
-    emails: 2,
-    icon: Gift,
-    color: 'bg-orange-500',
-    steps: [
-      { name: 'New Feature Announcement', delay: 'Launch Day', channel: 'email' },
-      { name: 'In-App Tutorial', delay: 'On Login', channel: 'in-app' },
-    ],
-  },
-  {
-    id: 'milestone',
-    name: 'Milestone Celebrations',
-    description: 'Celebrate user achievements',
-    audience: 'Milestone Triggers',
-    status: 'live',
-    channels: ['email', 'push'],
-    emails: 4,
-    icon: Heart,
-    color: 'bg-pink-500',
-    steps: [
-      { name: '100 Clicks Celebration', delay: 'Trigger', channel: 'email' },
-      { name: '1K Clicks Achievement', delay: 'Trigger', channel: 'push' },
-      { name: '1 Year Anniversary', delay: 'Trigger', channel: 'email' },
-      { name: 'First Sale Congrats', delay: 'Trigger', channel: 'email' },
-    ],
-  },
 ];
 
-const CAMPAIGN_EMAILS = [
+const MOCK_CAMPAIGNS = [
   {
     id: '1',
     name: 'Welcome to Linktree! 🌳',
-    journey: 'Welcome Series',
-    audience: 'New Signups',
-    channel: 'email',
-    status: 'live',
-    subject: 'Welcome to Linktree – let\'s get you set up!',
-    previewText: 'Your link in bio is ready. Here\'s how to make it yours.',
-    sentDate: '2024-01-15',
-    openRate: '68%',
-    clickRate: '24%',
+    channels: ['email'],
+    status: 'live' as const,
+    subject: "Welcome to Linktree – let's get you set up!",
+    preheader: 'Your link in bio is ready. Here\'s how to make it yours.',
+    tags: ['welcome', 'onboarding'],
   },
   {
     id: '2',
-    name: 'Discover Pro Features',
-    journey: 'Welcome Series',
-    audience: 'New Signups',
-    channel: 'email',
-    status: 'live',
-    subject: 'Unlock the full power of your Linktree',
-    previewText: 'Analytics, customization, and more – see what Pro can do.',
-    sentDate: '2024-01-16',
-    openRate: '52%',
-    clickRate: '18%',
-  },
-  {
-    id: '3',
     name: 'We Miss You! 💚',
-    journey: 'Re-engagement',
-    audience: 'Inactive 30+ Days',
-    channel: 'email',
-    status: 'live',
+    channels: ['email'],
+    status: 'live' as const,
     subject: 'Your Linktree misses you',
-    previewText: 'Come back and see what\'s new – we\'ve been busy!',
-    sentDate: '2024-01-10',
-    openRate: '34%',
-    clickRate: '12%',
-  },
-  {
-    id: '4',
-    name: 'Pro Upgrade: Limited Offer',
-    journey: 'Pro Upgrade',
-    audience: 'Free Users - Active',
-    channel: 'email',
-    status: 'live',
-    subject: '50% off Pro for the next 48 hours',
-    previewText: 'Your best analytics and customization – half price.',
-    sentDate: '2024-01-12',
-    openRate: '45%',
-    clickRate: '22%',
-  },
-  {
-    id: '5',
-    name: 'You Hit 1K Clicks! 🎉',
-    journey: 'Milestone Celebrations',
-    audience: 'Milestone Triggers',
-    channel: 'email',
-    status: 'live',
-    subject: 'Congrats! Your Linktree just hit 1,000 clicks',
-    previewText: 'Your content is connecting. Keep the momentum going.',
-    sentDate: '2024-01-18',
-    openRate: '72%',
-    clickRate: '31%',
-  },
-  {
-    id: '6',
-    name: 'New: Collect Payments',
-    journey: 'Feature Adoption',
-    audience: 'All Active Users',
-    channel: 'email',
-    status: 'draft',
-    subject: 'Start selling directly from your Linktree',
-    previewText: 'Turn your links into income with our new payments feature.',
-    sentDate: null,
-    openRate: null,
-    clickRate: null,
+    preheader: "Come back and see what's new – we've been busy!",
+    tags: ['re-engagement'],
   },
 ];
 
-const AUDIENCES = ['All', 'New Signups', 'Free Users - Active', 'Inactive 30+ Days', 'Pro Users', 'Milestone Triggers'];
-const CHANNELS = ['All', 'email', 'push', 'in-app'];
-
 export default function Creative() {
+  const { data: client } = useLinktreeClient();
+  const { data: platforms, refetch: refetchPlatforms } = useLinktreePlatforms();
+  const { toast } = useToast();
+  
   const [activeTab, setActiveTab] = useState('lifecycle');
   const [searchQuery, setSearchQuery] = useState('');
-  const [audienceFilter, setAudienceFilter] = useState('All');
+  const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [selectedJourney, setSelectedJourney] = useState<typeof LIFECYCLE_JOURNEYS[0] | null>(null);
+  const [selectedJourney, setSelectedJourney] = useState<any>(null);
+  const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
 
-  // Filter campaigns
-  const filteredCampaigns = CAMPAIGN_EMAILS.filter(campaign => {
-    const matchesSearch = campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         campaign.subject.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesAudience = audienceFilter === 'All' || campaign.audience === audienceFilter;
-    const matchesChannel = channelFilter === 'All' || campaign.channel === channelFilter;
-    return matchesSearch && matchesAudience && matchesChannel;
-  });
+  // Get Braze platform data
+  const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
+  const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
+  const hasBrazeData = !!brazeData?.last_sync;
+
+  // Transform Braze canvases to journey format
+  const journeys = useMemo(() => {
+    if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
+    
+    return brazeData.canvases.map(canvas => ({
+      id: canvas.id,
+      name: canvas.name,
+      description: canvas.description || 'Braze Canvas journey',
+      status: canvas.draft ? 'draft' : 'live',
+      tags: canvas.tags || [],
+      channels: ['email', 'push'], // Canvases can have multiple channels
+      first_entry: canvas.first_entry,
+      last_entry: canvas.last_entry,
+      schedule_type: canvas.schedule_type,
+    }));
+  }, [brazeData?.canvases]);
+
+  // Transform Braze campaigns 
+  const campaigns = useMemo(() => {
+    if (!brazeData?.campaigns?.length) return MOCK_CAMPAIGNS;
+    
+    // Combine campaigns with template info
+    const templateMap = new Map(
+      (brazeData.templates || []).map(t => [t.template_name, t])
+    );
+
+    return brazeData.campaigns.map(campaign => {
+      // Try to find matching template for subject/preheader
+      const matchingTemplate = Array.from(templateMap.values()).find(t => 
+        campaign.name.toLowerCase().includes(t.template_name.toLowerCase()) ||
+        t.template_name.toLowerCase().includes(campaign.name.toLowerCase())
+      );
+
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        description: campaign.description,
+        channels: campaign.channels || ['email'],
+        status: campaign.draft ? 'draft' : 'live',
+        subject: matchingTemplate?.subject || '',
+        preheader: matchingTemplate?.preheader || '',
+        tags: campaign.tags || [],
+        first_sent: campaign.first_sent,
+        last_sent: campaign.last_sent,
+        html_preview: matchingTemplate?.html_preview,
+      };
+    });
+  }, [brazeData?.campaigns, brazeData?.templates]);
+
+  // Get unique tags for filter
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    journeys.forEach(j => j.tags?.forEach((t: string) => tags.add(t)));
+    campaigns.forEach(c => c.tags?.forEach((t: string) => tags.add(t)));
+    return ['All', ...Array.from(tags)];
+  }, [journeys, campaigns]);
 
   // Filter journeys
-  const filteredJourneys = LIFECYCLE_JOURNEYS.filter(journey => {
-    const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesAudience = audienceFilter === 'All' || journey.audience === audienceFilter;
-    return matchesSearch && matchesAudience;
-  });
+  const filteredJourneys = useMemo(() => {
+    return journeys.filter(journey => {
+      const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesTag = tagFilter === 'All' || journey.tags?.includes(tagFilter);
+      return matchesSearch && matchesTag;
+    });
+  }, [journeys, searchQuery, tagFilter]);
+
+  // Filter campaigns
+  const filteredCampaigns = useMemo(() => {
+    return campaigns.filter(campaign => {
+      const matchesSearch = campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           campaign.subject?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesTag = tagFilter === 'All' || campaign.tags?.includes(tagFilter);
+      const matchesChannel = channelFilter === 'All' || campaign.channels?.includes(channelFilter);
+      return matchesSearch && matchesTag && matchesChannel;
+    });
+  }, [campaigns, searchQuery, tagFilter, channelFilter]);
+
+  const handleSyncBraze = async () => {
+    if (!client?.id || !brazePlatform?.id) {
+      toast({ title: 'Connect Braze first', description: 'Go to Platforms to connect Braze', variant: 'destructive' });
+      return;
+    }
+    
+    setSyncing(true);
+    try {
+      const { error } = await supabase.functions.invoke('sync-braze', {
+        body: { clientId: client.id, platformId: brazePlatform.id },
+      });
+      if (error) throw error;
+      toast({ title: 'Braze data synced' });
+      refetchPlatforms();
+    } catch (err: any) {
+      toast({ title: 'Sync failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <AppLayout>
@@ -236,29 +271,59 @@ export default function Creative() {
           title="Creative"
           description="Browse live lifecycle journeys and campaign emails"
           actions={
-            <Button asChild>
-              <Link to="/chat">
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate New
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              {brazePlatform && (
+                <Button variant="outline" size="sm" onClick={handleSyncBraze} disabled={syncing}>
+                  {syncing ? <LoadingSpinner size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  Sync Braze
+                </Button>
+              )}
+              <Button asChild>
+                <Link to="/chat">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Generate New
+                </Link>
+              </Button>
+            </div>
           }
         />
+
+        {/* Data Source Indicator */}
+        {!hasBrazeData && (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Showing sample data</p>
+                <p className="text-xs text-muted-foreground">
+                  {brazePlatform 
+                    ? 'Click "Sync Braze" to pull your live canvases and campaigns'
+                    : 'Connect Braze on the Platforms page to see your real data'
+                  }
+                </p>
+              </div>
+              {!brazePlatform && (
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/platforms">Connect Braze</Link>
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <TabsList>
               <TabsTrigger value="lifecycle" className="gap-2">
-                <FolderOpen className="h-4 w-4" />
-                Lifecycle Journeys
+                <Workflow className="h-4 w-4" />
+                Lifecycle Journeys ({filteredJourneys.length})
               </TabsTrigger>
               <TabsTrigger value="campaigns" className="gap-2">
                 <Mail className="h-4 w-4" />
-                Campaigns
+                Campaigns ({filteredCampaigns.length})
               </TabsTrigger>
             </TabsList>
 
-            {/* View Mode Toggle */}
             <div className="flex items-center gap-2">
               <Button
                 variant={viewMode === 'grid' ? 'default' : 'outline'}
@@ -288,49 +353,60 @@ export default function Creative() {
                 className="pl-10"
               />
             </div>
-            <Select value={audienceFilter} onValueChange={setAudienceFilter}>
+            <Select value={tagFilter} onValueChange={setTagFilter}>
               <SelectTrigger className="w-[180px]">
-                <Users className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Audience" />
+                <SelectValue placeholder="Filter by tag" />
               </SelectTrigger>
               <SelectContent>
-                {AUDIENCES.map(audience => (
-                  <SelectItem key={audience} value={audience}>{audience}</SelectItem>
+                {allTags.map(tag => (
+                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Select value={channelFilter} onValueChange={setChannelFilter}>
-              <SelectTrigger className="w-[140px]">
-                <Bell className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Channel" />
-              </SelectTrigger>
-              <SelectContent>
-                {CHANNELS.map(channel => (
-                  <SelectItem key={channel} value={channel}>
-                    {channel === 'All' ? 'All Channels' : channel.charAt(0).toUpperCase() + channel.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {activeTab === 'campaigns' && (
+              <Select value={channelFilter} onValueChange={setChannelFilter}>
+                <SelectTrigger className="w-[140px]">
+                  <Bell className="mr-2 h-4 w-4" />
+                  <SelectValue placeholder="Channel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Channels</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                  <SelectItem value="push">Push</SelectItem>
+                  <SelectItem value="in_app_message">In-App</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {/* Lifecycle Journeys Tab */}
           <TabsContent value="lifecycle" className="mt-0">
             {selectedJourney ? (
-              <JourneyDetail journey={selectedJourney} onBack={() => setSelectedJourney(null)} />
+              <JourneyDetail 
+                journey={selectedJourney} 
+                campaigns={campaigns}
+                onBack={() => setSelectedJourney(null)} 
+              />
             ) : (
               <div className={viewMode === 'grid' 
                 ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' 
                 : 'space-y-3'
               }>
-                {filteredJourneys.map(journey => (
-                  <JourneyCard 
-                    key={journey.id} 
-                    journey={journey} 
-                    viewMode={viewMode}
-                    onClick={() => setSelectedJourney(journey)}
-                  />
-                ))}
+                {filteredJourneys.length === 0 ? (
+                  <div className="col-span-full text-center py-12 text-muted-foreground">
+                    <Workflow className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>No journeys found</p>
+                  </div>
+                ) : (
+                  filteredJourneys.map(journey => (
+                    <JourneyCard 
+                      key={journey.id} 
+                      journey={journey} 
+                      viewMode={viewMode}
+                      onClick={() => setSelectedJourney(journey)}
+                    />
+                  ))
+                )}
               </div>
             )}
           </TabsContent>
@@ -341,34 +417,161 @@ export default function Creative() {
               ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' 
               : 'space-y-3'
             }>
-              {filteredCampaigns.map(campaign => (
-                <CampaignCard key={campaign.id} campaign={campaign} viewMode={viewMode} />
-              ))}
+              {filteredCampaigns.length === 0 ? (
+                <div className="col-span-full text-center py-12 text-muted-foreground">
+                  <Mail className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No campaigns found</p>
+                </div>
+              ) : (
+                filteredCampaigns.map(campaign => (
+                  <CampaignCard 
+                    key={campaign.id} 
+                    campaign={campaign} 
+                    viewMode={viewMode}
+                    onClick={() => setSelectedCampaign(campaign)}
+                  />
+                ))
+              )}
             </div>
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Campaign Detail Modal */}
+      <Dialog open={!!selectedCampaign} onOpenChange={() => setSelectedCampaign(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              {selectedCampaign?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Campaign details and email preview
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedCampaign && (
+            <div className="space-y-6 mt-4">
+              {/* Subject & Preheader */}
+              {(selectedCampaign.subject || selectedCampaign.preheader) && (
+                <div className="space-y-3">
+                  {selectedCampaign.subject && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Subject Line</p>
+                      <p className="text-lg font-medium">{selectedCampaign.subject}</p>
+                    </div>
+                  )}
+                  {selectedCampaign.preheader && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Preheader</p>
+                      <p className="text-sm">{selectedCampaign.preheader}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* HTML Preview */}
+              {selectedCampaign.html_preview && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Email Preview</p>
+                  <div className="border rounded-lg overflow-hidden bg-white">
+                    <iframe
+                      srcDoc={selectedCampaign.html_preview}
+                      className="w-full h-96"
+                      title="Email Preview"
+                      sandbox="allow-same-origin"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Channels & Tags */}
+              <div className="grid grid-cols-2 gap-4">
+                {selectedCampaign.channels?.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Channels</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCampaign.channels.map((ch: string) => (
+                        <Badge key={ch} variant="secondary">{ch}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {selectedCampaign.tags?.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Tags</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCampaign.tags.map((tag: string) => (
+                        <Badge key={tag} variant="outline">{tag}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Dates */}
+              {(selectedCampaign.first_sent || selectedCampaign.last_sent) && (
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                  {selectedCampaign.first_sent && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">First Sent</p>
+                      <p className="text-sm">{new Date(selectedCampaign.first_sent).toLocaleDateString()}</p>
+                    </div>
+                  )}
+                  {selectedCampaign.last_sent && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Last Sent</p>
+                      <p className="text-sm">{new Date(selectedCampaign.last_sent).toLocaleDateString()}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
 
+// Journey Card Component
 function JourneyCard({ 
   journey, 
   viewMode,
   onClick,
 }: { 
-  journey: typeof LIFECYCLE_JOURNEYS[0]; 
+  journey: any; 
   viewMode: 'grid' | 'list';
   onClick: () => void;
 }) {
-  const Icon = journey.icon;
+  const getIcon = () => {
+    const name = journey.name.toLowerCase();
+    if (name.includes('welcome') || name.includes('onboard')) return Sparkles;
+    if (name.includes('re-engage') || name.includes('winback')) return TrendingUp;
+    if (name.includes('upgrade') || name.includes('upsell')) return Zap;
+    if (name.includes('milestone') || name.includes('anniversary')) return Heart;
+    if (name.includes('feature') || name.includes('announce')) return Gift;
+    return Workflow;
+  };
+  
+  const getColor = () => {
+    const name = journey.name.toLowerCase();
+    if (name.includes('welcome')) return 'bg-emerald-500';
+    if (name.includes('re-engage')) return 'bg-blue-500';
+    if (name.includes('upgrade')) return 'bg-purple-500';
+    if (name.includes('milestone')) return 'bg-pink-500';
+    return 'bg-primary';
+  };
+
+  const Icon = getIcon();
+  const color = getColor();
   
   if (viewMode === 'list') {
     return (
       <Card className="hover:border-primary/50 transition-colors cursor-pointer" onClick={onClick}>
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
-            <div className={`h-12 w-12 rounded-xl ${journey.color} flex items-center justify-center flex-shrink-0`}>
+            <div className={`h-12 w-12 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
               <Icon className="h-6 w-6 text-white" />
             </div>
             <div className="flex-1 min-w-0">
@@ -378,18 +581,13 @@ function JourneyCard({
                   {journey.status}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground">{journey.description}</p>
+              <p className="text-sm text-muted-foreground line-clamp-1">{journey.description}</p>
             </div>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Users className="h-4 w-4" />
-                {journey.audience}
-              </span>
-              <span className="flex items-center gap-1">
-                <Mail className="h-4 w-4" />
-                {journey.emails} emails
-              </span>
-              <ChevronRight className="h-5 w-5" />
+            <div className="flex items-center gap-2">
+              {journey.tags?.slice(0, 2).map((tag: string) => (
+                <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+              ))}
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
           </div>
         </CardContent>
@@ -399,39 +597,39 @@ function JourneyCard({
 
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all cursor-pointer overflow-hidden" onClick={onClick}>
-      <div className={`h-2 ${journey.color}`} />
+      <div className={`h-2 ${color}`} />
       <CardContent className="p-5">
         <div className="flex items-start gap-3 mb-4">
-          <div className={`h-10 w-10 rounded-lg ${journey.color} flex items-center justify-center flex-shrink-0`}>
+          <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold group-hover:text-primary transition-colors">{journey.name}</h3>
-              <Badge variant={journey.status === 'live' ? 'default' : 'secondary'} className="text-xs">
+              <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">{journey.name}</h3>
+              <Badge variant={journey.status === 'live' ? 'default' : 'secondary'} className="text-xs flex-shrink-0">
                 {journey.status}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground line-clamp-1">{journey.description}</p>
+            <p className="text-sm text-muted-foreground line-clamp-2">{journey.description}</p>
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <Users className="h-3.5 w-3.5" />
-            <span className="truncate max-w-[100px]">{journey.audience}</span>
+        {journey.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {journey.tags.slice(0, 3).map((tag: string) => (
+              <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+            ))}
           </div>
+        )}
+
+        <div className="flex items-center justify-between pt-3 border-t">
           <div className="flex items-center gap-2">
-            {journey.channels.map(channel => (
+            {journey.channels?.map((channel: string) => (
               <ChannelIcon key={channel} channel={channel} />
             ))}
           </div>
-        </div>
-
-        <div className="flex items-center justify-between mt-4 pt-3 border-t">
-          <span className="text-sm text-muted-foreground">{journey.emails} emails</span>
           <Button variant="ghost" size="sm" className="gap-1">
-            View Journey
+            View
             <ArrowRight className="h-3 w-3" />
           </Button>
         </div>
@@ -440,8 +638,33 @@ function JourneyCard({
   );
 }
 
-function JourneyDetail({ journey, onBack }: { journey: typeof LIFECYCLE_JOURNEYS[0]; onBack: () => void }) {
-  const Icon = journey.icon;
+// Journey Detail Component
+function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns: any[]; onBack: () => void }) {
+  const getIcon = () => {
+    const name = journey.name.toLowerCase();
+    if (name.includes('welcome')) return Sparkles;
+    if (name.includes('re-engage')) return TrendingUp;
+    if (name.includes('upgrade')) return Zap;
+    if (name.includes('milestone')) return Heart;
+    return Workflow;
+  };
+  
+  const getColor = () => {
+    const name = journey.name.toLowerCase();
+    if (name.includes('welcome')) return 'bg-emerald-500';
+    if (name.includes('re-engage')) return 'bg-blue-500';
+    if (name.includes('upgrade')) return 'bg-purple-500';
+    if (name.includes('milestone')) return 'bg-pink-500';
+    return 'bg-primary';
+  };
+
+  const Icon = getIcon();
+  const color = getColor();
+
+  // Find campaigns that might be related (by tag overlap)
+  const relatedCampaigns = campaigns.filter(c => 
+    c.tags?.some((t: string) => journey.tags?.includes(t))
+  );
 
   return (
     <div className="space-y-6">
@@ -450,13 +673,13 @@ function JourneyDetail({ journey, onBack }: { journey: typeof LIFECYCLE_JOURNEYS
       </Button>
 
       <Card className="overflow-hidden">
-        <div className={`h-3 ${journey.color}`} />
+        <div className={`h-3 ${color}`} />
         <CardContent className="p-6">
           <div className="flex items-start gap-4 mb-6">
-            <div className={`h-14 w-14 rounded-xl ${journey.color} flex items-center justify-center flex-shrink-0`}>
+            <div className={`h-14 w-14 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
               <Icon className="h-7 w-7 text-white" />
             </div>
-            <div>
+            <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <h2 className="text-2xl font-bold">{journey.name}</h2>
                 <Badge variant={journey.status === 'live' ? 'default' : 'secondary'}>
@@ -464,69 +687,82 @@ function JourneyDetail({ journey, onBack }: { journey: typeof LIFECYCLE_JOURNEYS
                 </Badge>
               </div>
               <p className="text-muted-foreground">{journey.description}</p>
-              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Users className="h-4 w-4" />
-                  {journey.audience}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Mail className="h-4 w-4" />
-                  {journey.emails} touchpoints
-                </span>
-              </div>
+              
+              {journey.tags?.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {journey.tags.map((tag: string) => (
+                    <Badge key={tag} variant="outline">{tag}</Badge>
+                  ))}
+                </div>
+              )}
+
+              {(journey.first_entry || journey.last_entry) && (
+                <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+                  {journey.first_entry && (
+                    <span>First entry: {new Date(journey.first_entry).toLocaleDateString()}</span>
+                  )}
+                  {journey.last_entry && (
+                    <span>Last entry: {new Date(journey.last_entry).toLocaleDateString()}</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Journey Wireframe */}
-          <div className="mt-8">
-            <h3 className="font-semibold mb-4">Journey Flow</h3>
-            <div className="relative">
-              {/* Connection line */}
-              <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border" />
-              
-              <div className="space-y-4">
-                {journey.steps.map((step, index) => (
-                  <div key={index} className="flex items-center gap-4 relative">
-                    <div className="h-12 w-12 rounded-full bg-card border-2 border-primary flex items-center justify-center z-10 flex-shrink-0">
-                      <ChannelIcon channel={step.channel} size="lg" />
+          {/* Mock Journey Flow for non-Braze data */}
+          {journey.steps && (
+            <div className="mt-8">
+              <h3 className="font-semibold mb-4">Journey Flow</h3>
+              <div className="relative">
+                <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border" />
+                
+                <div className="space-y-4">
+                  {journey.steps.map((step: any, index: number) => (
+                    <div key={index} className="flex items-center gap-4 relative">
+                      <div className="h-12 w-12 rounded-full bg-card border-2 border-primary flex items-center justify-center z-10 flex-shrink-0">
+                        <ChannelIcon channel={step.channel} size="lg" />
+                      </div>
+                      <Card className="flex-1">
+                        <CardContent className="p-4 flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">{step.name}</p>
+                            <p className="text-sm text-muted-foreground">{step.channel}</p>
+                          </div>
+                          <Badge variant="outline" className="gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {step.delay}
+                          </Badge>
+                        </CardContent>
+                      </Card>
                     </div>
-                    <Card className="flex-1">
-                      <CardContent className="p-4 flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">{step.name}</p>
-                          <p className="text-sm text-muted-foreground">{step.channel}</p>
-                        </div>
-                        <Badge variant="outline" className="gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {step.delay}
-                        </Badge>
-                      </CardContent>
-                    </Card>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Related Emails */}
-      <div>
-        <h3 className="font-semibold mb-4">Emails in this Journey</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {CAMPAIGN_EMAILS.filter(e => e.journey === journey.name).map(email => (
-            <CampaignCard key={email.id} campaign={email} viewMode="grid" />
-          ))}
+      {/* Related Campaigns */}
+      {relatedCampaigns.length > 0 && (
+        <div>
+          <h3 className="font-semibold mb-4">Related Campaigns</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {relatedCampaigns.map(campaign => (
+              <CampaignCard key={campaign.id} campaign={campaign} viewMode="grid" onClick={() => {}} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-function CampaignCard({ campaign, viewMode }: { campaign: typeof CAMPAIGN_EMAILS[0]; viewMode: 'grid' | 'list' }) {
+// Campaign Card Component
+function CampaignCard({ campaign, viewMode, onClick }: { campaign: any; viewMode: 'grid' | 'list'; onClick: () => void }) {
   if (viewMode === 'list') {
     return (
-      <Card className="hover:border-primary/50 transition-colors">
+      <Card className="hover:border-primary/50 transition-colors cursor-pointer" onClick={onClick}>
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
             <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -539,17 +775,16 @@ function CampaignCard({ campaign, viewMode }: { campaign: typeof CAMPAIGN_EMAILS
                   {campaign.status}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground truncate">{campaign.subject}</p>
+              {campaign.subject && (
+                <p className="text-sm text-muted-foreground truncate">{campaign.subject}</p>
+              )}
             </div>
-            {campaign.openRate && (
-              <div className="flex items-center gap-4 text-sm">
-                <span className="text-muted-foreground">
-                  <Eye className="h-4 w-4 inline mr-1" />
-                  {campaign.openRate}
-                </span>
-                <span className="text-primary font-medium">{campaign.clickRate} CTR</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {campaign.channels?.map((ch: string) => (
+                <ChannelIcon key={ch} channel={ch} />
+              ))}
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -557,7 +792,7 @@ function CampaignCard({ campaign, viewMode }: { campaign: typeof CAMPAIGN_EMAILS
   }
 
   return (
-    <Card className="group hover:border-primary/50 hover:shadow-md transition-all overflow-hidden">
+    <Card className="group hover:border-primary/50 hover:shadow-md transition-all overflow-hidden cursor-pointer" onClick={onClick}>
       {/* Email Preview Mock */}
       <div className="bg-muted/50 p-4 border-b">
         <div className="bg-card rounded-lg p-3 shadow-sm">
@@ -567,37 +802,47 @@ function CampaignCard({ campaign, viewMode }: { campaign: typeof CAMPAIGN_EMAILS
             </div>
             <span className="text-xs font-medium">Linktree</span>
           </div>
-          <p className="text-sm font-medium line-clamp-1">{campaign.subject}</p>
-          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.previewText}</p>
+          {campaign.subject ? (
+            <>
+              <p className="text-sm font-medium line-clamp-1">{campaign.subject}</p>
+              {campaign.preheader && (
+                <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.preheader}</p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm font-medium line-clamp-1">{campaign.name}</p>
+          )}
         </div>
       </div>
 
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
-          <div>
-            <h3 className="font-semibold group-hover:text-primary transition-colors">{campaign.name}</h3>
-            <p className="text-xs text-muted-foreground">{campaign.journey}</p>
+          <div className="min-w-0">
+            <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">{campaign.name}</h3>
+            {campaign.description && (
+              <p className="text-xs text-muted-foreground line-clamp-1">{campaign.description}</p>
+            )}
           </div>
-          <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'} className="text-xs">
+          <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'} className="text-xs flex-shrink-0">
             {campaign.status}
           </Badge>
         </div>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
-          <span className="flex items-center gap-1">
-            <Users className="h-3 w-3" />
-            {campaign.audience}
-          </span>
-          <ChannelIcon channel={campaign.channel} />
+          {campaign.channels?.map((ch: string) => (
+            <ChannelIcon key={ch} channel={ch} />
+          ))}
+          {campaign.tags?.slice(0, 2).map((tag: string) => (
+            <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+          ))}
         </div>
 
-        {campaign.openRate && (
-          <div className="flex items-center justify-between pt-3 border-t">
-            <span className="text-sm text-muted-foreground flex items-center gap-1">
-              <Eye className="h-3.5 w-3.5" />
-              {campaign.openRate} opens
-            </span>
-            <span className="text-sm text-primary font-medium">{campaign.clickRate} CTR</span>
+        {campaign.last_sent && (
+          <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">
+            <span>Last sent: {new Date(campaign.last_sent).toLocaleDateString()}</span>
+            <Button variant="ghost" size="sm" className="h-auto p-0 text-xs text-primary">
+              View Details →
+            </Button>
           </div>
         )}
       </CardContent>
@@ -605,17 +850,23 @@ function CampaignCard({ campaign, viewMode }: { campaign: typeof CAMPAIGN_EMAILS
   );
 }
 
+// Channel Icon Component
 function ChannelIcon({ channel, size = 'sm' }: { channel: string; size?: 'sm' | 'lg' }) {
   const iconSize = size === 'lg' ? 'h-5 w-5' : 'h-3.5 w-3.5';
+  const normalizedChannel = channel.toLowerCase().replace('_', '-');
   
-  switch (channel) {
+  switch (normalizedChannel) {
     case 'email':
       return <Mail className={`${iconSize} text-blue-500`} />;
     case 'push':
+    case 'ios-push':
+    case 'android-push':
+    case 'web-push':
       return <Bell className={`${iconSize} text-orange-500`} />;
     case 'in-app':
+    case 'in-app-message':
       return <Smartphone className={`${iconSize} text-purple-500`} />;
     default:
-      return null;
+      return <Mail className={`${iconSize} text-muted-foreground`} />;
   }
 }
