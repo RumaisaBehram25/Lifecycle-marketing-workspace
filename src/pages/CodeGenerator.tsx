@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -16,12 +17,11 @@ import {
 } from '@/components/ui/select';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
-import { PlatformBadge } from '@/components/ui/platform-badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Code, Sparkles, Copy, Check, RefreshCw, Plus, X } from 'lucide-react';
-import type { PlatformType, CodeGeneratorInput } from '@/lib/types';
-import { PLATFORM_INFO } from '@/lib/types';
+import { Code, Sparkles, Copy, Check, RefreshCw, Database, Zap, Tag, AlertCircle } from 'lucide-react';
+import type { CodeGeneratorInput } from '@/lib/types';
+import { Link } from 'react-router-dom';
 
 const TRIGGER_TYPES = [
   { value: 'event', label: 'Event-based (user action)' },
@@ -30,6 +30,12 @@ const TRIGGER_TYPES = [
   { value: 'scheduled', label: 'Scheduled/Recurring' },
   { value: 'property', label: 'Property change' },
 ];
+
+interface BrazeSchemaCache {
+  segments?: Array<{ id: string; name: string; description?: string }>;
+  campaigns?: Array<{ id: string; name: string; channels?: string[] }>;
+  canvases?: Array<{ id: string; name: string }>;
+}
 
 interface GeneratedCode {
   logic: string;
@@ -40,24 +46,51 @@ interface GeneratedCode {
   assumptions: string[];
 }
 
+// Common Braze attributes
+const COMMON_BRAZE_ATTRIBUTES = [
+  { name: 'first_name', type: 'string', description: 'User first name' },
+  { name: 'last_name', type: 'string', description: 'User last name' },
+  { name: 'email', type: 'string', description: 'Email address' },
+  { name: 'gender', type: 'string', description: 'User gender' },
+  { name: 'country', type: 'string', description: 'Country code' },
+  { name: 'language', type: 'string', description: 'User language' },
+  { name: 'time_zone', type: 'string', description: 'Timezone' },
+  { name: 'push_subscribe', type: 'boolean', description: 'Push subscription status' },
+  { name: 'email_subscribe', type: 'boolean', description: 'Email subscription status' },
+];
+
+// Common Braze events
+const COMMON_BRAZE_EVENTS = [
+  { name: 'purchase', description: 'User made a purchase' },
+  { name: 'session_start', description: 'App session started' },
+  { name: 'link_click', description: 'User clicked a link' },
+  { name: 'signup_complete', description: 'User completed signup' },
+  { name: 'feature_enabled', description: 'User enabled a feature' },
+];
+
 export default function CodeGenerator() {
   const { data: client, isLoading: clientLoading } = useLinktreeClient();
   const { data: platforms } = useLinktreePlatforms();
   const { toast } = useToast();
 
-  const [platform, setPlatform] = useState<PlatformType>('braze');
   const [triggerType, setTriggerType] = useState('event');
-  const [attributes, setAttributes] = useState<string[]>([]);
-  const [newAttribute, setNewAttribute] = useState('');
-  const [edgeCases, setEdgeCases] = useState<string[]>([]);
-  const [newEdgeCase, setNewEdgeCase] = useState('');
+  const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
+  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [customAttribute, setCustomAttribute] = useState('');
+  const [customEvent, setCustomEvent] = useState('');
   const [additionalContext, setAdditionalContext] = useState('');
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<GeneratedCode | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const connectedPlatforms = platforms?.filter((p) => p.is_connected) || [];
+  // Get Braze platform data
+  const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
+  const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
+  const hasBrazeConnection = !!brazePlatform;
+
+  // Extract segments from Braze data
+  const brazeSegments = useMemo(() => brazeData?.segments || [], [brazeData]);
 
   if (clientLoading) {
     return (
@@ -67,26 +100,30 @@ export default function CodeGenerator() {
     );
   }
 
-  const addAttribute = () => {
-    if (newAttribute.trim() && !attributes.includes(newAttribute.trim())) {
-      setAttributes([...attributes, newAttribute.trim()]);
-      setNewAttribute('');
+  const toggleAttribute = (attr: string) => {
+    setSelectedAttributes(prev => 
+      prev.includes(attr) ? prev.filter(a => a !== attr) : [...prev, attr]
+    );
+  };
+
+  const toggleEvent = (event: string) => {
+    setSelectedEvents(prev => 
+      prev.includes(event) ? prev.filter(e => e !== event) : [...prev, event]
+    );
+  };
+
+  const addCustomAttribute = () => {
+    if (customAttribute.trim() && !selectedAttributes.includes(customAttribute.trim())) {
+      setSelectedAttributes([...selectedAttributes, customAttribute.trim()]);
+      setCustomAttribute('');
     }
   };
 
-  const removeAttribute = (index: number) => {
-    setAttributes(attributes.filter((_, i) => i !== index));
-  };
-
-  const addEdgeCase = () => {
-    if (newEdgeCase.trim() && !edgeCases.includes(newEdgeCase.trim())) {
-      setEdgeCases([...edgeCases, newEdgeCase.trim()]);
-      setNewEdgeCase('');
+  const addCustomEvent = () => {
+    if (customEvent.trim() && !selectedEvents.includes(customEvent.trim())) {
+      setSelectedEvents([...selectedEvents, customEvent.trim()]);
+      setCustomEvent('');
     }
-  };
-
-  const removeEdgeCase = (index: number) => {
-    setEdgeCases(edgeCases.filter((_, i) => i !== index));
   };
 
   const handleGenerate = async () => {
@@ -101,11 +138,15 @@ export default function CodeGenerator() {
     try {
       const input: CodeGeneratorInput = {
         client_id: client.id,
-        platform,
+        platform: 'braze',
         trigger_type: triggerType,
-        available_attributes: attributes,
-        edge_cases: edgeCases,
-        additional_context: additionalContext,
+        available_attributes: selectedAttributes,
+        edge_cases: selectedEvents.map(e => `Handle ${e} event`),
+        additional_context: `
+Events to handle: ${selectedEvents.join(', ')}
+${brazeSegments.length > 0 ? `Available segments: ${brazeSegments.slice(0, 10).map(s => s.name).join(', ')}` : ''}
+${additionalContext}
+        `.trim(),
       };
 
       const { data, error } = await supabase.functions.invoke('generate-code', {
@@ -115,7 +156,7 @@ export default function CodeGenerator() {
       if (error) throw error;
 
       setGeneratedCode(data);
-      toast({ title: 'Code generated!', description: 'Your lifecycle logic is ready.' });
+      toast({ title: 'Code generated!', description: 'Your Braze Liquid code is ready.' });
     } catch (error) {
       console.error('Generation error:', error);
       toast({ 
@@ -141,126 +182,180 @@ export default function CodeGenerator() {
     <AppLayout>
       <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
         <PageHeader
-          title="Code Generator"
-          description="Generate Liquid/Handlebars lifecycle logic for your email templates."
+          title="Braze Code Generator"
+          description="Generate Liquid code for Braze email templates using your synced data"
         />
+
+        {/* Connection Status */}
+        {!hasBrazeConnection && (
+          <Card className="mt-6 border-amber-500/30 bg-amber-500/5">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Braze not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Connect Braze in the Knowledge Base to access your segments and schema data
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/knowledge">Connect Braze</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="mt-6 sm:mt-8 grid gap-6 lg:gap-8 lg:grid-cols-2">
           {/* Input Form */}
           <div className="space-y-6">
-            {/* Platform & Trigger */}
+            {/* Trigger Type */}
             <Card>
-              <CardHeader>
-                <CardTitle>Platform & Trigger</CardTitle>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Zap className="h-4 w-4" />
+                  Trigger Type
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Select value={triggerType} onValueChange={setTriggerType}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRIGGER_TYPES.map((trigger) => (
+                      <SelectItem key={trigger.value} value={trigger.value}>
+                        {trigger.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+
+            {/* Braze Attributes */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  User Attributes
+                </CardTitle>
+                <CardDescription>Select attributes to include in your template</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Platform</Label>
-                  <Select value={platform} onValueChange={(v) => setPlatform(v as PlatformType)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(PLATFORM_INFO).map(([key, info]) => (
-                        <SelectItem key={key} value={key}>
-                          {info.icon} {info.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {connectedPlatforms.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <span className="text-xs text-muted-foreground">Connected:</span>
-                      {connectedPlatforms.map((cp) => (
-                        <PlatformBadge key={cp.id} platform={cp.platform} size="sm" />
+                <div className="flex flex-wrap gap-2">
+                  {COMMON_BRAZE_ATTRIBUTES.map((attr) => (
+                    <button
+                      key={attr.name}
+                      onClick={() => toggleAttribute(attr.name)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-mono transition-colors ${
+                        selectedAttributes.includes(attr.name)
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80'
+                      }`}
+                      title={attr.description}
+                    >
+                      {attr.name}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={customAttribute}
+                    onChange={(e) => setCustomAttribute(e.target.value)}
+                    placeholder="Add custom attribute..."
+                    className="font-mono text-sm"
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomAttribute())}
+                  />
+                  <Button variant="outline" size="sm" onClick={addCustomAttribute}>
+                    Add
+                  </Button>
+                </div>
+                {selectedAttributes.length > 0 && (
+                  <div className="pt-2 border-t">
+                    <p className="text-xs text-muted-foreground mb-2">Selected ({selectedAttributes.length}):</p>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedAttributes.map((attr) => (
+                        <Badge 
+                          key={attr} 
+                          variant="secondary" 
+                          className="font-mono cursor-pointer"
+                          onClick={() => toggleAttribute(attr)}
+                        >
+                          {attr} ×
+                        </Badge>
                       ))}
                     </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Trigger Type</Label>
-                  <Select value={triggerType} onValueChange={setTriggerType}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TRIGGER_TYPES.map((trigger) => (
-                        <SelectItem key={trigger.value} value={trigger.value}>
-                          {trigger.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* Attributes */}
+            {/* Events */}
             <Card>
-              <CardHeader>
-                <CardTitle>Available Attributes</CardTitle>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Tag className="h-4 w-4" />
+                  Events to Handle
+                </CardTitle>
+                <CardDescription>Select events that trigger or affect this template</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex gap-2">
-                  <Input
-                    value={newAttribute}
-                    onChange={(e) => setNewAttribute(e.target.value)}
-                    placeholder="e.g., first_name, last_purchase_date"
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAttribute())}
-                  />
-                  <Button type="button" variant="outline" onClick={addAttribute}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
+              <CardContent className="space-y-4">
                 <div className="flex flex-wrap gap-2">
-                  {attributes.map((attr, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-mono"
+                  {COMMON_BRAZE_EVENTS.map((event) => (
+                    <button
+                      key={event.name}
+                      onClick={() => toggleEvent(event.name)}
+                      className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                        selectedEvents.includes(event.name)
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted hover:bg-muted/80'
+                      }`}
+                      title={event.description}
                     >
-                      {attr}
-                      <button type="button" onClick={() => removeAttribute(index)}>
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
+                      {event.name}
+                    </button>
                   ))}
                 </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={customEvent}
+                    onChange={(e) => setCustomEvent(e.target.value)}
+                    placeholder="Add custom event..."
+                    className="text-sm"
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomEvent())}
+                  />
+                  <Button variant="outline" size="sm" onClick={addCustomEvent}>
+                    Add
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Edge Cases */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Edge Cases to Handle</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex gap-2">
-                  <Input
-                    value={newEdgeCase}
-                    onChange={(e) => setNewEdgeCase(e.target.value)}
-                    placeholder="e.g., missing first_name, invalid date"
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addEdgeCase())}
-                  />
-                  <Button type="button" variant="outline" onClick={addEdgeCase}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {edgeCases.map((ec, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-warning/10 text-warning-foreground text-sm"
-                    >
-                      ⚠️ {ec}
-                      <button type="button" onClick={() => removeEdgeCase(index)}>
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Braze Segments (from synced data) */}
+            {brazeSegments.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Database className="h-4 w-4 text-primary" />
+                    Your Braze Segments
+                  </CardTitle>
+                  <CardDescription>Synced from your Braze account</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                    {brazeSegments.slice(0, 20).map((segment) => (
+                      <Badge key={segment.id} variant="outline" className="text-xs">
+                        {segment.name}
+                      </Badge>
+                    ))}
+                    {brazeSegments.length > 20 && (
+                      <Badge variant="secondary" className="text-xs">
+                        +{brazeSegments.length - 20} more
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Additional Context */}
             <Card>
@@ -270,7 +365,7 @@ export default function CodeGenerator() {
                   <Textarea
                     value={additionalContext}
                     onChange={(e) => setAdditionalContext(e.target.value)}
-                    placeholder="Describe what the logic should do, any specific requirements..."
+                    placeholder="Describe what the logic should do, edge cases to handle..."
                     rows={3}
                   />
                 </div>
@@ -281,7 +376,7 @@ export default function CodeGenerator() {
               className="w-full" 
               size="lg"
               onClick={handleGenerate}
-              disabled={!client || isGenerating}
+              disabled={!client || isGenerating || selectedAttributes.length === 0}
             >
               {isGenerating ? (
                 <>
@@ -291,7 +386,7 @@ export default function CodeGenerator() {
               ) : (
                 <>
                   <Sparkles className="mr-2 h-5 w-5" />
-                  Generate Code
+                  Generate Braze Liquid
                 </>
               )}
             </Button>
@@ -305,7 +400,7 @@ export default function CodeGenerator() {
                   <EmptyState
                     icon={Code}
                     title="No code generated yet"
-                    description="Fill in the parameters and click Generate to create lifecycle logic."
+                    description="Select attributes and events, then click Generate to create Braze Liquid code."
                   />
                 </CardContent>
               </Card>

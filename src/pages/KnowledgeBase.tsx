@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -13,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -21,6 +29,7 @@ import { DocumentPreview } from '@/components/knowledge/DocumentPreview';
 import { SyncStatus } from '@/components/knowledge/SyncStatus';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useLinktreeClient, useLinktreePlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useLinktreeClient';
 import { 
   Database, 
   Plus, 
@@ -33,7 +42,9 @@ import {
   Sparkles,
   Search,
   Filter,
-  FolderOpen
+  FolderOpen,
+  Link as LinkIcon,
+  Unlink,
 } from 'lucide-react';
 import type { KnowledgeDocument, PlatformType } from '@/lib/types';
 import { PLATFORM_INFO } from '@/lib/types';
@@ -61,9 +72,17 @@ const CATEGORY_ICONS: Record<string, string> = {
   'data_management': '🗄️',
 };
 
+const ALL_PLATFORMS: PlatformType[] = ['braze', 'klaviyo', 'iterable', 'customerio', 'hubspot'];
+
 export default function KnowledgeBase() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  
+  // Platform connection hooks
+  const { data: client } = useLinktreeClient();
+  const { data: platforms, refetch: refetchPlatforms } = useLinktreePlatforms();
+  const connectPlatform = useConnectPlatform();
+  const disconnectPlatform = useDisconnectPlatform();
 
   const [url, setUrl] = useState('');
   const [category, setCategory] = useState('');
@@ -72,6 +91,12 @@ export default function KnowledgeBase() {
   const [previewDoc, setPreviewDoc] = useState<KnowledgeDocument | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPlatform, setFilterPlatform] = useState<string>('all');
+  
+  // Platform connection dialog
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformType | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
 
   const { data: documents, isLoading } = useQuery({
     queryKey: ['knowledge-documents'],
@@ -156,6 +181,36 @@ export default function KnowledgeBase() {
     }
     ingestMutation.mutate(url);
   };
+
+  // Platform connection handlers
+  const handleConnectPlatform = useCallback(async () => {
+    if (!selectedPlatform || !apiKey) return;
+    
+    await connectPlatform.mutateAsync({
+      platform: selectedPlatform,
+      apiKey,
+      apiSecret: apiSecret || undefined,
+    });
+    
+    setConnectDialogOpen(false);
+    setSelectedPlatform(null);
+    setApiKey('');
+    setApiSecret('');
+  }, [selectedPlatform, apiKey, apiSecret, connectPlatform]);
+
+  const handleDisconnectPlatform = useCallback(async (platformType: PlatformType) => {
+    await disconnectPlatform.mutateAsync(platformType);
+  }, [disconnectPlatform]);
+
+  const openConnectDialog = useCallback((platformType: PlatformType) => {
+    setSelectedPlatform(platformType);
+    setConnectDialogOpen(true);
+  }, []);
+
+  const connectedPlatforms = platforms?.filter((p) => p.is_connected) || [];
+  const availablePlatforms = ALL_PLATFORMS.filter(
+    (p) => !connectedPlatforms.some((cp) => cp.platform === p)
+  );
 
   // Computed values
   const vendorDocs = useMemo(() => documents?.filter((d) => d.is_vendor_doc) || [], [documents]);
@@ -282,9 +337,13 @@ export default function KnowledgeBase() {
               <Database className="h-4 w-4" />
               Library
             </TabsTrigger>
+            <TabsTrigger value="integrations" className="gap-2">
+              <LinkIcon className="h-4 w-4" />
+              Integrations
+            </TabsTrigger>
             <TabsTrigger value="platforms" className="gap-2">
               <BookOpen className="h-4 w-4" />
-              Platforms
+              Platform Docs
             </TabsTrigger>
             <TabsTrigger value="ingest" className="gap-2">
               <Plus className="h-4 w-4" />
@@ -418,7 +477,93 @@ export default function KnowledgeBase() {
             )}
           </TabsContent>
 
-          {/* Platforms Tab */}
+          {/* Integrations Tab */}
+          <TabsContent value="integrations" className="space-y-6">
+            {/* Connected Platforms */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <LinkIcon className="h-5 w-5" />
+                  Connected Platforms
+                </CardTitle>
+                <CardDescription>
+                  Connect your marketing platforms to sync data and generate platform-specific code.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {connectedPlatforms.length === 0 ? (
+                  <div className="text-center py-8">
+                    <LinkIcon className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
+                    <p className="text-muted-foreground">No platforms connected yet.</p>
+                    <p className="text-sm text-muted-foreground mt-1">Connect a platform below to get started.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {connectedPlatforms.map((cp) => (
+                      <div key={cp.id} className="flex items-center justify-between p-4 rounded-lg border bg-card">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-xl">
+                            {PLATFORM_INFO[cp.platform].icon}
+                          </div>
+                          <div>
+                            <p className="font-medium">{PLATFORM_INFO[cp.platform].name}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>Connected {new Date(cp.created_at).toLocaleDateString()}</span>
+                              {cp.last_sync_at && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-primary">Synced {new Date(cp.last_sync_at).toLocaleString()}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => handleDisconnectPlatform(cp.platform)}
+                        >
+                          <Unlink className="mr-2 h-4 w-4" />
+                          Disconnect
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Available Platforms */}
+            {availablePlatforms.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Add Platform</CardTitle>
+                  <CardDescription>Connect additional marketing platforms.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {availablePlatforms.map((platformType) => (
+                      <button
+                        key={platformType}
+                        onClick={() => openConnectDialog(platformType)}
+                        className="flex items-center gap-3 p-4 rounded-lg border border-dashed hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                      >
+                        <span className="text-2xl">{PLATFORM_INFO[platformType].icon}</span>
+                        <div>
+                          <p className="font-medium">{PLATFORM_INFO[platformType].name}</p>
+                          <p className="text-xs text-muted-foreground">Click to connect</p>
+                        </div>
+                        <LinkIcon className="ml-auto h-4 w-4 text-muted-foreground" />
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* Platform Docs Tab */}
           <TabsContent value="platforms" className="space-y-6">
             <SyncStatus />
             
@@ -612,6 +757,51 @@ export default function KnowledgeBase() {
           open={!!previewDoc} 
           onOpenChange={(open) => !open && setPreviewDoc(null)} 
         />
+
+        {/* Connect Platform Dialog */}
+        <Dialog open={connectDialogOpen} onOpenChange={setConnectDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                Connect {selectedPlatform && PLATFORM_INFO[selectedPlatform].name}
+              </DialogTitle>
+              <DialogDescription>
+                Enter the API credentials for this platform.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">API Key *</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Enter API key"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="apiSecret">API Secret (optional)</Label>
+                <Input
+                  id="apiSecret"
+                  type="password"
+                  value={apiSecret}
+                  onChange={(e) => setApiSecret(e.target.value)}
+                  placeholder="Enter API secret if required"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConnectDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleConnectPlatform} disabled={!apiKey || connectPlatform.isPending}>
+                {connectPlatform.isPending && <LoadingSpinner size="sm" className="mr-2" />}
+                Connect
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
