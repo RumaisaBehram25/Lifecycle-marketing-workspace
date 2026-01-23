@@ -402,58 +402,68 @@ serve(async (req) => {
               });
             }
             
-            // Parse steps graph - each step has next_step_ids for flowchart rendering
-            if (details.steps && typeof details.steps === 'object') {
-              for (const [stepId, stepData] of Object.entries(details.steps)) {
-                const s = stepData as any;
+            // Parse steps - Braze returns steps as an ARRAY, not object
+            // Each step has: id, name, type, channels[], messages{}, next_step_ids[], next_paths[]
+            if (details.steps && Array.isArray(details.steps)) {
+              for (const s of details.steps) {
+                const stepId = s.id;
+                if (!stepId) continue;
                 
-                // Parse messages in this step
+                // Parse messages - Braze returns messages as OBJECT keyed by message_variation_id
+                // Structure: { "message_variation_id": { channel, subject, body, title, ... } }
                 const messages: CanvasStep['messages'] = [];
-                if (s.messages && Array.isArray(s.messages)) {
-                  s.messages.forEach((msg: any) => {
+                if (s.messages && typeof s.messages === 'object' && !Array.isArray(s.messages)) {
+                  for (const [variationId, msgData] of Object.entries(s.messages)) {
+                    const msg = msgData as any;
                     messages.push({
-                      channel: msg.channel || 'email',
+                      channel: msg.channel || (s.channels?.[0]) || 'email',
                       subject: msg.subject,
                       preheader: msg.preheader,
                       title: msg.title,
                       body: msg.body,
                     });
-                  });
+                  }
                 }
                 
-                // Parse next_step_ids - handles branching
-                let nextStepIds: string[] = [];
-                let nextPaths: CanvasStep['next_paths'] = undefined;
+                // Get channels from the step's channels array
+                const stepChannels: string[] = s.channels || [];
+                const primaryChannel = stepChannels[0] || (messages.length > 0 ? messages[0].channel : 'email');
                 
+                // Parse next_step_ids - handles branching for Message steps
+                let nextStepIds: string[] = [];
                 if (s.next_step_ids && Array.isArray(s.next_step_ids)) {
                   nextStepIds = s.next_step_ids;
-                } else if (s.next_step_id) {
-                  nextStepIds = [s.next_step_id];
                 }
                 
-                // For decision splits, capture path info
-                if (s.paths && Array.isArray(s.paths)) {
-                  const parsedPaths = s.paths.map((path: any) => ({
+                // Parse next_paths - for Decision Splits, Audience Paths, Action Paths, Experiment Paths
+                // Structure: [{ name: "Yes/No/Group Name/Path Name", next_step_id: "uuid" }]
+                let nextPaths: CanvasStep['next_paths'] = undefined;
+                if (s.next_paths && Array.isArray(s.next_paths)) {
+                  const pathsArray = s.next_paths as Array<{ name?: string; next_step_id?: string; percentage?: number }>;
+                  nextPaths = pathsArray.map((path) => ({
                     name: path.name || 'Path',
                     next_step_id: path.next_step_id || '',
                     percentage: path.percentage,
                   }));
-                  nextPaths = parsedPaths;
                   // Also add to nextStepIds if not already there
-                  for (const p of parsedPaths) {
+                  for (const p of pathsArray) {
                     if (p.next_step_id && !nextStepIds.includes(p.next_step_id)) {
                       nextStepIds.push(p.next_step_id);
                     }
                   }
                 }
                 
+                // Infer step type from Braze type field
+                const stepType = s.type?.toLowerCase() || 'message';
+                
+                // Get delay info if available
                 const delaySeconds = s.delay_seconds || s.delay || 0;
                 
                 steps[stepId] = {
                   id: stepId,
                   name: s.name || `Step`,
-                  type: s.type || 'message',
-                  channel: inferChannel(s),
+                  type: stepType,
+                  channel: primaryChannel,
                   delay_seconds: delaySeconds,
                   delay_formatted: formatDelay(delaySeconds),
                   next_step_ids: nextStepIds,
@@ -461,6 +471,13 @@ serve(async (req) => {
                   messages: messages.length > 0 ? messages : undefined,
                 };
               }
+            }
+            
+            console.log(`Canvas "${c.name}" parsed: ${variants.length} variants, ${Object.keys(steps).length} steps`);
+            
+            // Log step graph for debugging
+            for (const [id, step] of Object.entries(steps)) {
+              console.log(`  Step ${step.name} (${step.type}): channels=[${step.channel}], next=${step.next_step_ids.join(',') || 'end'}, messages=${step.messages?.length || 0}`);
             }
             
             console.log(`Canvas "${c.name}": ${variants.length} variants, ${Object.keys(steps).length} steps, enabled=${enabled}`);

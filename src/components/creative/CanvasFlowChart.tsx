@@ -150,10 +150,35 @@ function StepNode({
   const colors = getStepColors(step);
   const hasBranches = step.next_step_ids.length > 1 || (step.next_paths && step.next_paths.length > 1);
   
+  // Get step content summary
+  const getContentSummary = () => {
+    const type = step.type?.toLowerCase() || 'message';
+    
+    if (type === 'delay' || type === 'wait') {
+      return step.delay_formatted && step.delay_formatted !== '0h' 
+        ? `Wait ${step.delay_formatted}` 
+        : 'Delay';
+    }
+    
+    if (step.messages && step.messages.length > 0) {
+      const msg = step.messages[0];
+      if (msg.subject) return msg.subject;
+      if (msg.title) return msg.title;
+      if (msg.body) return msg.body.substring(0, 40) + (msg.body.length > 40 ? '...' : '');
+    }
+    
+    return null;
+  };
+  
+  const contentSummary = getContentSummary();
+  const channelLabel = step.type === 'message' 
+    ? step.channel?.replace('_', ' ').replace('in app message', 'In-App') 
+    : step.type?.replace('_', ' ');
+  
   return (
     <div className="flex flex-col items-center">
       <div 
-        className={`relative flex items-center gap-3 px-4 py-3 rounded-lg border-2 ${colors.bg} ${colors.border} min-w-[160px] max-w-[220px] cursor-pointer hover:shadow-md transition-shadow`}
+        className={`relative flex items-center gap-3 px-4 py-3 rounded-lg border-2 ${colors.bg} ${colors.border} min-w-[180px] max-w-[280px] cursor-pointer hover:shadow-md transition-shadow`}
         onClick={onView}
       >
         <div className={`flex-shrink-0 ${colors.text}`}>
@@ -163,14 +188,19 @@ function StepNode({
           <p className="text-sm font-medium truncate">{step.name}</p>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className={`text-xs ${colors.text} capitalize`}>
-              {step.type === 'message' ? step.channel : step.type}
+              {channelLabel}
             </span>
-            {step.delay_formatted && step.delay_formatted !== '0h' && (
+            {step.delay_formatted && step.delay_formatted !== '0h' && step.type !== 'delay' && step.type !== 'wait' && (
               <Badge variant="outline" className="text-[10px] px-1 py-0">
-                {step.delay_formatted}
+                +{step.delay_formatted}
               </Badge>
             )}
           </div>
+          {contentSummary && step.type !== 'delay' && step.type !== 'wait' && (
+            <p className="text-xs text-muted-foreground mt-1 truncate max-w-[200px]" title={contentSummary}>
+              {contentSummary}
+            </p>
+          )}
         </div>
         {hasBranches && (
           <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-violet-500 flex items-center justify-center">
