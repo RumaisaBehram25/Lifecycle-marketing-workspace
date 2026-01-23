@@ -60,6 +60,13 @@ interface BrazeCanvas {
   last_entry?: string;
   tags?: string[];
   archived?: boolean;
+  steps?: Array<{
+    id?: string;
+    name: string;
+    type: string;
+    channel?: string;
+    delay?: string;
+  }>;
 }
 
 interface BrazeCampaign {
@@ -128,10 +135,10 @@ const MOCK_JOURNEYS = [
     name: 'Welcome Series',
     displayName: 'Welcome Series',
     description: 'Onboard new users and drive first actions',
-    status: 'live' as 'live' | 'draft',
+    status: 'active' as 'active' | 'draft',
     tags: ['onboarding', 'new-users'],
     channels: ['email', 'push'],
-    taxonomy: { type: 'Lifecycle' as const, channel: 'email', displayName: 'Welcome Series', dateString: '' },
+    taxonomy: { type: 'lifecycle' as const, channel: 'email', displayName: 'Welcome Series', dateString: '' },
     steps: [
       { name: 'Entry Trigger', delay: '0h', channel: 'email', type: 'trigger' },
       { name: 'Welcome Email', delay: '0h', channel: 'email', type: 'message' },
@@ -145,10 +152,10 @@ const MOCK_JOURNEYS = [
     name: 'Re-engagement',
     displayName: 'Re-engagement',
     description: 'Win back inactive creators',
-    status: 'live' as 'live' | 'draft',
+    status: 'active' as 'active' | 'draft',
     tags: ['retention', 'winback'],
     channels: ['email', 'push', 'in_app_message'],
-    taxonomy: { type: 'Lifecycle' as const, channel: 'email', displayName: 'Re-engagement', dateString: '' },
+    taxonomy: { type: 'lifecycle' as const, channel: 'email', displayName: 'Re-engagement', dateString: '' },
     steps: [
       { name: 'Entry Trigger', delay: '0h', channel: 'email', type: 'trigger' },
       { name: 'We Miss You Email', delay: '0h', channel: 'email', type: 'message' },
@@ -164,7 +171,7 @@ const MOCK_CAMPAIGNS = [
     id: '1',
     name: 'Welcome to Linktree! 🌳',
     channels: ['email'],
-    status: 'live' as const,
+    status: 'active' as const,
     subject: "Welcome to Linktree – let's get you set up!",
     preheader: 'Your link in bio is ready. Here\'s how to make it yours.',
     tags: ['welcome', 'onboarding'],
@@ -174,7 +181,7 @@ const MOCK_CAMPAIGNS = [
     id: '2',
     name: 'We Miss You! 💚',
     channels: ['email'],
-    status: 'live' as const,
+    status: 'active' as const,
     subject: 'Your Linktree misses you',
     preheader: "Come back and see what's new – we've been busy!",
     tags: ['re-engagement'],
@@ -184,7 +191,7 @@ const MOCK_CAMPAIGNS = [
     id: '3',
     name: 'New Feature Alert 🚀',
     channels: ['push'],
-    status: 'live' as const,
+    status: 'active' as const,
     subject: '',
     preheader: '',
     push_title: 'New: QR Codes are here!',
@@ -196,7 +203,7 @@ const MOCK_CAMPAIGNS = [
     id: '4',
     name: 'Pro Upgrade Prompt',
     channels: ['in_app_message'],
-    status: 'live' as const,
+    status: 'active' as const,
     subject: '',
     preheader: '',
     inapp_title: 'Unlock Pro Features',
@@ -209,7 +216,7 @@ const MOCK_CAMPAIGNS = [
     id: '5',
     name: 'Multi-channel Welcome',
     channels: ['email', 'push', 'in_app_message'],
-    status: 'live' as const,
+    status: 'active' as const,
     subject: 'Welcome aboard! 🎉',
     preheader: 'Your journey starts here',
     push_title: 'Welcome to Linktree!',
@@ -231,7 +238,7 @@ export default function Creative() {
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState<string>('live');
+  const [statusFilter, setStatusFilter] = useState<string>('active');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [lastSentFilter, setLastSentFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -254,36 +261,51 @@ export default function Creative() {
       .filter(canvas => !canvas.archived) // Only filter out archived
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
-        // Parse channels from taxonomy or infer from name
-        const inferredChannels: string[] = [];
-        const nameLower = canvas.name.toLowerCase();
-        if (nameLower.includes('email') || taxonomy.channel === 'Email') inferredChannels.push('email');
-        if (nameLower.includes('push')) inferredChannels.push('push');
-        if (nameLower.includes('sms')) inferredChannels.push('sms');
-        if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
-        // Default to email if nothing found
-        if (inferredChannels.length === 0) inferredChannels.push('email');
+        
+        // Use real steps from Braze if available
+        const realSteps = canvas.steps?.map(step => ({
+          name: step.name,
+          type: step.type || 'message',
+          channel: step.channel || 'email',
+          delay: step.delay || '0h',
+        }));
+        
+        // Parse channels from steps, taxonomy, or infer from name
+        let inferredChannels: string[] = [];
+        if (realSteps && realSteps.length > 0) {
+          // Get unique channels from real steps
+          inferredChannels = [...new Set(realSteps.map(s => s.channel))];
+        } else {
+          const nameLower = canvas.name.toLowerCase();
+          if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
+          if (nameLower.includes('push')) inferredChannels.push('push');
+          if (nameLower.includes('sms')) inferredChannels.push('sms');
+          if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
+          if (inferredChannels.length === 0) inferredChannels.push('email');
+        }
+        
+        // Determine status - active if has recent entries and not draft
+        const isActive = !canvas.draft && canvas.last_entry !== undefined;
+        
+        // Fallback steps if no real data
+        const fallbackSteps = [
+          { name: 'Entry', delay: '0h', channel: inferredChannels[0] || 'email', type: 'trigger' },
+          { name: 'Message 1', delay: '0h', channel: inferredChannels[0] || 'email', type: 'message' },
+        ];
         
         return {
           id: canvas.id,
           name: canvas.name,
           displayName: taxonomy.displayName,
           description: canvas.description || 'Braze Canvas journey',
-          status: canvas.draft ? 'draft' : 'live' as 'draft' | 'live',
+          status: isActive ? 'active' : 'draft' as 'active' | 'draft',
           tags: canvas.tags || [],
           channels: inferredChannels,
           first_entry: canvas.first_entry,
           last_entry: canvas.last_entry,
           schedule_type: canvas.schedule_type,
-          taxonomy,
-          // Multi-touch steps - in real use would come from canvas details API
-          steps: [
-            { name: 'Entry Trigger', delay: '0h', channel: inferredChannels[0] || 'email', type: 'trigger' },
-            { name: 'Primary Message', delay: '0h', channel: inferredChannels[0] || 'email', type: 'message' },
-            ...(inferredChannels.length > 1 ? [{ name: 'Secondary Touch', delay: '24h', channel: inferredChannels[1], type: 'message' }] : []),
-            { name: 'Follow-up', delay: '48h', channel: inferredChannels[0] || 'email', type: 'message' },
-            { name: 'Final Nudge', delay: '72h', channel: inferredChannels.includes('push') ? 'push' : 'email', type: 'message' },
-          ],
+          taxonomy: { ...taxonomy, type: 'lifecycle' as const }, // Force lifecycle type for canvases
+          steps: realSteps && realSteps.length > 0 ? realSteps : fallbackSteps,
         };
       });
   }, [brazeData?.canvases]);
@@ -326,7 +348,7 @@ export default function Creative() {
           displayName: taxonomy.displayName,
           description: campaign.description,
           channels: taxonomy.channel ? [taxonomy.channel] : (campaign.channels || ['email']),
-          status: campaign.draft ? 'draft' : 'live',
+          status: campaign.draft ? 'draft' : 'active',
           subject: campaign.subject || matchingTemplate?.subject || '',
           preheader: campaign.preheader || matchingTemplate?.preheader || '',
           tags: campaign.tags || [],
@@ -355,7 +377,7 @@ export default function Creative() {
       }
     });
     journeys.forEach(j => {
-      if (j.taxonomy?.type && j.taxonomy.type !== 'unknown') {
+      if (j.taxonomy?.type) {
         types.add(j.taxonomy.type);
       }
     });
@@ -559,7 +581,7 @@ export default function Creative() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="All">All Status</SelectItem>
-                <SelectItem value="live">Live</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="draft">Draft</SelectItem>
               </SelectContent>
             </Select>
@@ -814,8 +836,8 @@ export default function Creative() {
                 {selectedCampaign.channels?.length > 1 && (
                   <Badge variant="secondary">Multi-channel</Badge>
                 )}
-                <Badge variant={selectedCampaign.status === 'live' ? 'default' : 'secondary'}>
-                  {selectedCampaign.status}
+                <Badge variant={selectedCampaign.status === 'active' ? 'default' : 'secondary'}>
+                  {selectedCampaign.status === 'active' ? 'Active' : 'Draft'}
                 </Badge>
               </div>
 
@@ -1002,8 +1024,8 @@ function JourneyCard({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-semibold">{journey.displayName || journey.name}</h3>
-                <Badge variant={journey.status === 'live' ? 'default' : 'secondary'}>
-                  {journey.status}
+                <Badge variant={journey.status === 'active' ? 'default' : 'secondary'}>
+                  {journey.status === 'active' ? 'Active' : 'Draft'}
                 </Badge>
               </div>
               {/* Taxonomy Tags */}
@@ -1047,8 +1069,8 @@ function JourneyCard({
             {ch === 'in_app_message' ? 'In-App' : ch}
           </Badge>
         ))}
-        <Badge variant={journey.status === 'live' ? 'default' : 'secondary'} className="text-xs ml-auto">
-          {journey.status}
+        <Badge variant={journey.status === 'active' ? 'default' : 'secondary'} className="text-xs ml-auto">
+          {journey.status === 'active' ? 'Active' : 'Draft'}
         </Badge>
       </div>
       
@@ -1153,8 +1175,8 @@ function JourneyDetail({
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h2 className="text-2xl font-bold">{journey.displayName || journey.name}</h2>
-                <Badge variant={journey.status === 'live' ? 'default' : 'secondary'}>
-                  {journey.status}
+                <Badge variant={journey.status === 'active' ? 'default' : 'secondary'}>
+                  {journey.status === 'active' ? 'Active' : 'Draft'}
                 </Badge>
               </div>
               <p className="text-muted-foreground">{journey.description}</p>
@@ -1323,8 +1345,8 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-semibold">{campaign.displayName}</h3>
-                <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'}>
-                  {campaign.status}
+                <Badge variant={campaign.status === 'active' ? 'default' : 'secondary'}>
+                  {campaign.status === 'active' ? 'Active' : 'Draft'}
                 </Badge>
               </div>
               {/* Taxonomy Tags */}
@@ -1377,8 +1399,8 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
             {taxonomy.channel}
           </Badge>
         )}
-        <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'} className="text-xs ml-auto">
-          {campaign.status}
+        <Badge variant={campaign.status === 'active' ? 'default' : 'secondary'} className="text-xs ml-auto">
+          {campaign.status === 'active' ? 'Active' : 'Draft'}
         </Badge>
       </div>
 
