@@ -120,10 +120,12 @@ const MOCK_JOURNEYS = [
   {
     id: 'welcome',
     name: 'Welcome Series',
+    displayName: 'Welcome Series',
     description: 'Onboard new users and drive first actions',
     status: 'live' as const,
     tags: ['onboarding', 'new-users'],
     channels: ['email', 'push'],
+    taxonomy: { type: 'Lifecycle' as const, channel: 'email', displayName: 'Welcome Series', dateString: '' },
     steps: [
       { name: 'Welcome Email', delay: '0h', channel: 'email' },
       { name: 'Feature Intro', delay: '24h', channel: 'email' },
@@ -134,10 +136,12 @@ const MOCK_JOURNEYS = [
   {
     id: 're-engagement',
     name: 'Re-engagement',
+    displayName: 'Re-engagement',
     description: 'Win back inactive creators',
     status: 'live' as const,
     tags: ['retention', 'winback'],
     channels: ['email', 'push'],
+    taxonomy: { type: 'Lifecycle' as const, channel: 'email', displayName: 'Re-engagement', dateString: '' },
     steps: [
       { name: 'We Miss You', delay: '30d', channel: 'email' },
       { name: "What's New", delay: '37d', channel: 'email' },
@@ -176,6 +180,8 @@ export default function Creative() {
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState<string>('live');
+  const [typeFilter, setTypeFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<EnrichedCampaign | null>(null);
@@ -217,7 +223,7 @@ export default function Creative() {
       });
   }, [brazeData?.canvases]);
 
-  // Transform Braze campaigns with taxonomy parsing
+  // Transform Braze campaigns with taxonomy parsing - filter out archived
   const campaigns = useMemo((): EnrichedCampaign[] => {
     if (!brazeData?.campaigns?.length) {
       return MOCK_CAMPAIGNS.map(c => ({
@@ -232,31 +238,33 @@ export default function Creative() {
       (brazeData.templates || []).map(t => [t.template_name, t])
     );
 
-    return brazeData.campaigns.map(campaign => {
-      const taxonomy = parseCampaignTaxonomy(campaign.name);
-      
-      // Try to find matching template for subject/preheader if not in campaign
-      const matchingTemplate = Array.from(templateMap.values()).find(t => 
-        campaign.name.toLowerCase().includes(t.template_name.toLowerCase()) ||
-        t.template_name.toLowerCase().includes(campaign.name.toLowerCase())
-      );
+    return brazeData.campaigns
+      .filter(campaign => !campaign.archived) // Exclude archived campaigns
+      .map(campaign => {
+        const taxonomy = parseCampaignTaxonomy(campaign.name);
+        
+        // Try to find matching template for subject/preheader if not in campaign
+        const matchingTemplate = Array.from(templateMap.values()).find(t => 
+          campaign.name.toLowerCase().includes(t.template_name.toLowerCase()) ||
+          t.template_name.toLowerCase().includes(campaign.name.toLowerCase())
+        );
 
-      return {
-        id: campaign.id,
-        name: campaign.name,
-        displayName: taxonomy.displayName,
-        description: campaign.description,
-        channels: taxonomy.channel ? [taxonomy.channel] : (campaign.channels || ['email']),
-        status: campaign.draft ? 'draft' : 'live',
-        subject: campaign.subject || matchingTemplate?.subject || '',
-        preheader: campaign.preheader || matchingTemplate?.preheader || '',
-        tags: campaign.tags || [],
-        first_sent: campaign.first_sent,
-        last_sent: campaign.last_sent,
-        html_preview: campaign.html_preview || matchingTemplate?.html_preview,
-        taxonomy,
-      };
-    });
+        return {
+          id: campaign.id,
+          name: campaign.name,
+          displayName: taxonomy.displayName,
+          description: campaign.description,
+          channels: taxonomy.channel ? [taxonomy.channel] : (campaign.channels || ['email']),
+          status: campaign.draft ? 'draft' : 'live',
+          subject: campaign.subject || matchingTemplate?.subject || '',
+          preheader: campaign.preheader || matchingTemplate?.preheader || '',
+          tags: campaign.tags || [],
+          first_sent: campaign.first_sent,
+          last_sent: campaign.last_sent,
+          html_preview: campaign.html_preview || matchingTemplate?.html_preview,
+          taxonomy,
+        };
+      });
   }, [brazeData?.campaigns, brazeData?.templates]);
 
   // Get unique tags for filter
@@ -267,15 +275,33 @@ export default function Creative() {
     return ['All', ...Array.from(tags)];
   }, [journeys, campaigns]);
 
-  // Filter journeys
+  // Get unique types from taxonomy for filter
+  const allTypes = useMemo(() => {
+    const types = new Set<string>();
+    campaigns.forEach(c => {
+      if (c.taxonomy?.type && c.taxonomy.type !== 'unknown') {
+        types.add(c.taxonomy.type);
+      }
+    });
+    journeys.forEach(j => {
+      if (j.taxonomy?.type && j.taxonomy.type !== 'unknown') {
+        types.add(j.taxonomy.type);
+      }
+    });
+    return ['All', ...Array.from(types)];
+  }, [campaigns, journeys]);
+
+  // Filter journeys (canvases only)
   const filteredJourneys = useMemo(() => {
     return journeys.filter(journey => {
       const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || journey.tags?.includes(tagFilter);
-      return matchesSearch && matchesTag;
+      const matchesType = typeFilter === 'All' || journey.taxonomy?.type === typeFilter;
+      const matchesChannel = channelFilter === 'All' || journey.channels?.includes(channelFilter);
+      return matchesSearch && matchesTag && matchesType && matchesChannel;
     });
-  }, [journeys, searchQuery, tagFilter]);
+  }, [journeys, searchQuery, tagFilter, typeFilter, channelFilter]);
 
   // Filter campaigns
   const filteredCampaigns = useMemo(() => {
@@ -284,9 +310,11 @@ export default function Creative() {
                            campaign.subject?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || campaign.tags?.includes(tagFilter);
       const matchesChannel = channelFilter === 'All' || campaign.channels?.includes(channelFilter);
-      return matchesSearch && matchesTag && matchesChannel;
+      const matchesType = typeFilter === 'All' || campaign.taxonomy?.type === typeFilter;
+      const matchesStatus = statusFilter === 'All' || campaign.status === statusFilter;
+      return matchesSearch && matchesTag && matchesChannel && matchesType && matchesStatus;
     });
-  }, [campaigns, searchQuery, tagFilter, channelFilter]);
+  }, [campaigns, searchQuery, tagFilter, channelFilter, typeFilter, statusFilter]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {
@@ -388,8 +416,8 @@ export default function Creative() {
           </div>
 
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <div className="relative flex-1 max-w-md">
+          <div className="flex flex-wrap gap-3 mb-6">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search..."
@@ -398,27 +426,55 @@ export default function Creative() {
                 className="pl-10"
               />
             </div>
-            <Select value={tagFilter} onValueChange={setTagFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filter by tag" />
+            
+            <Select value={channelFilter} onValueChange={setChannelFilter}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Channel" />
               </SelectTrigger>
               <SelectContent>
-                {allTags.map(tag => (
-                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                ))}
+                <SelectItem value="All">All Channels</SelectItem>
+                <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="push">Push</SelectItem>
+                <SelectItem value="sms">SMS</SelectItem>
+                <SelectItem value="in_app_message">In-App</SelectItem>
               </SelectContent>
             </Select>
-            {activeTab === 'campaigns' && (
-              <Select value={channelFilter} onValueChange={setChannelFilter}>
+
+            {allTypes.length > 1 && (
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-[140px]">
-                  <Bell className="mr-2 h-4 w-4" />
-                  <SelectValue placeholder="Channel" />
+                  <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="All">All Channels</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="push">Push</SelectItem>
-                  <SelectItem value="in_app_message">In-App</SelectItem>
+                  {allTypes.map(type => (
+                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            
+            {activeTab === 'campaigns' && (
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Status</SelectItem>
+                  <SelectItem value="live">Live</SelectItem>
+                  <SelectItem value="draft">Draft</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            
+            {allTags.length > 1 && (
+              <Select value={tagFilter} onValueChange={setTagFilter}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Tag" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allTags.map(tag => (
+                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
