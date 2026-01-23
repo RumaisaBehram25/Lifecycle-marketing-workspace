@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { parseCampaignTaxonomy, getChannelColor, getTypeColor, ParsedCampaign } from '@/lib/campaign-taxonomy';
 
 // Type definitions for Braze data
 interface BrazeCanvas {
@@ -72,6 +73,9 @@ interface BrazeCampaign {
   last_sent?: string;
   tags?: string[];
   archived?: boolean;
+  subject?: string;
+  preheader?: string;
+  html_preview?: string;
 }
 
 interface BrazeTemplate {
@@ -84,6 +88,23 @@ interface BrazeTemplate {
   created_at?: string;
   updated_at?: string;
   html_preview?: string;
+}
+
+// Enriched campaign with parsed taxonomy
+interface EnrichedCampaign {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  channels: string[];
+  status: string;
+  subject: string;
+  preheader: string;
+  tags: string[];
+  first_sent?: string;
+  last_sent?: string;
+  html_preview?: string;
+  taxonomy: ParsedCampaign;
 }
 
 interface BrazeSchemaCache {
@@ -157,7 +178,7 @@ export default function Creative() {
   const [channelFilter, setChannelFilter] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
-  const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
+  const [selectedCampaign, setSelectedCampaign] = useState<EnrichedCampaign | null>(null);
   const [syncing, setSyncing] = useState(false);
 
   // Get Braze platform data
@@ -165,26 +186,37 @@ export default function Creative() {
   const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
   const hasBrazeData = !!brazeData?.last_sync;
 
-  // Transform Braze canvases to journey format
+  // Transform Braze canvases to journey format with taxonomy parsing
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
-    return brazeData.canvases.map(canvas => ({
-      id: canvas.id,
-      name: canvas.name,
-      description: canvas.description || 'Braze Canvas journey',
-      status: canvas.draft ? 'draft' : 'live',
-      tags: canvas.tags || [],
-      channels: ['email', 'push'], // Canvases can have multiple channels
-      first_entry: canvas.first_entry,
-      last_entry: canvas.last_entry,
-      schedule_type: canvas.schedule_type,
-    }));
+    return brazeData.canvases.map(canvas => {
+      const taxonomy = parseCampaignTaxonomy(canvas.name);
+      return {
+        id: canvas.id,
+        name: canvas.name,
+        displayName: taxonomy.displayName,
+        description: canvas.description || 'Braze Canvas journey',
+        status: canvas.draft ? 'draft' : 'live',
+        tags: canvas.tags || [],
+        channels: taxonomy.channel ? [taxonomy.channel] : ['email', 'push'],
+        first_entry: canvas.first_entry,
+        last_entry: canvas.last_entry,
+        schedule_type: canvas.schedule_type,
+        taxonomy,
+      };
+    });
   }, [brazeData?.canvases]);
 
-  // Transform Braze campaigns 
-  const campaigns = useMemo(() => {
-    if (!brazeData?.campaigns?.length) return MOCK_CAMPAIGNS;
+  // Transform Braze campaigns with taxonomy parsing
+  const campaigns = useMemo((): EnrichedCampaign[] => {
+    if (!brazeData?.campaigns?.length) {
+      return MOCK_CAMPAIGNS.map(c => ({
+        ...c,
+        displayName: c.name,
+        taxonomy: parseCampaignTaxonomy(c.name),
+      }));
+    }
     
     // Combine campaigns with template info
     const templateMap = new Map(
@@ -192,7 +224,9 @@ export default function Creative() {
     );
 
     return brazeData.campaigns.map(campaign => {
-      // Try to find matching template for subject/preheader
+      const taxonomy = parseCampaignTaxonomy(campaign.name);
+      
+      // Try to find matching template for subject/preheader if not in campaign
       const matchingTemplate = Array.from(templateMap.values()).find(t => 
         campaign.name.toLowerCase().includes(t.template_name.toLowerCase()) ||
         t.template_name.toLowerCase().includes(campaign.name.toLowerCase())
@@ -201,15 +235,17 @@ export default function Creative() {
       return {
         id: campaign.id,
         name: campaign.name,
+        displayName: taxonomy.displayName,
         description: campaign.description,
-        channels: campaign.channels || ['email'],
+        channels: taxonomy.channel ? [taxonomy.channel] : (campaign.channels || ['email']),
         status: campaign.draft ? 'draft' : 'live',
-        subject: matchingTemplate?.subject || '',
-        preheader: matchingTemplate?.preheader || '',
+        subject: campaign.subject || matchingTemplate?.subject || '',
+        preheader: campaign.preheader || matchingTemplate?.preheader || '',
         tags: campaign.tags || [],
         first_sent: campaign.first_sent,
         last_sent: campaign.last_sent,
-        html_preview: matchingTemplate?.html_preview,
+        html_preview: campaign.html_preview || matchingTemplate?.html_preview,
+        taxonomy,
       };
     });
   }, [brazeData?.campaigns, brazeData?.templates]);
@@ -443,7 +479,7 @@ export default function Creative() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5" />
-              {selectedCampaign?.name}
+              {selectedCampaign?.displayName || selectedCampaign?.name}
             </DialogTitle>
             <DialogDescription>
               Campaign details and email preview
@@ -452,28 +488,47 @@ export default function Creative() {
           
           {selectedCampaign && (
             <div className="space-y-6 mt-4">
-              {/* Subject & Preheader */}
-              {(selectedCampaign.subject || selectedCampaign.preheader) && (
-                <div className="space-y-3">
-                  {selectedCampaign.subject && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Subject Line</p>
-                      <p className="text-lg font-medium">{selectedCampaign.subject}</p>
-                    </div>
+              {/* Taxonomy Tags */}
+              {selectedCampaign.taxonomy && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedCampaign.taxonomy.dateString && (
+                    <Badge variant="outline" className="bg-muted/50">
+                      <Calendar className="h-3 w-3 mr-1" />
+                      {selectedCampaign.taxonomy.dateString}
+                    </Badge>
                   )}
-                  {selectedCampaign.preheader && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Preheader</p>
-                      <p className="text-sm">{selectedCampaign.preheader}</p>
-                    </div>
+                  {selectedCampaign.taxonomy.type !== 'unknown' && (
+                    <Badge variant="outline" className={getTypeColor(selectedCampaign.taxonomy.type)}>
+                      {selectedCampaign.taxonomy.type}
+                    </Badge>
                   )}
+                  {selectedCampaign.taxonomy.channel && (
+                    <Badge variant="outline" className={getChannelColor(selectedCampaign.taxonomy.channel)}>
+                      {selectedCampaign.taxonomy.channel}
+                    </Badge>
+                  )}
+                  <Badge variant={selectedCampaign.status === 'live' ? 'default' : 'secondary'}>
+                    {selectedCampaign.status}
+                  </Badge>
                 </div>
               )}
 
-              {/* HTML Preview */}
-              {selectedCampaign.html_preview && (
+              {/* Subject & Preheader */}
+              <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-2">Email Preview</p>
+                  <p className="text-sm font-medium text-muted-foreground">Subject Line</p>
+                  <p className="text-lg font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Preheader</p>
+                  <p className="text-sm">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
+                </div>
+              </div>
+
+              {/* HTML Preview */}
+              {selectedCampaign.html_preview ? (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Email Creative</p>
                   <div className="border rounded-lg overflow-hidden bg-white">
                     <iframe
                       srcDoc={selectedCampaign.html_preview}
@@ -482,6 +537,12 @@ export default function Creative() {
                       sandbox="allow-same-origin"
                     />
                   </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed">
+                  <Mail className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Email preview not available</p>
+                  <p className="text-xs text-muted-foreground mt-1">Sync again to fetch email content</p>
                 </div>
               )}
 
@@ -524,6 +585,13 @@ export default function Creative() {
                       <p className="text-sm">{new Date(selectedCampaign.last_sent).toLocaleDateString()}</p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Original name for reference */}
+              {selectedCampaign.name !== selectedCampaign.displayName && (
+                <div className="pt-4 border-t">
+                  <p className="text-xs text-muted-foreground">Original name: {selectedCampaign.name}</p>
                 </div>
               )}
             </div>
@@ -759,7 +827,9 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
 }
 
 // Campaign Card Component
-function CampaignCard({ campaign, viewMode, onClick }: { campaign: any; viewMode: 'grid' | 'list'; onClick: () => void }) {
+function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampaign; viewMode: 'grid' | 'list'; onClick: () => void }) {
+  const { taxonomy } = campaign;
+  
   if (viewMode === 'list') {
     return (
       <Card className="hover:border-primary/50 transition-colors cursor-pointer" onClick={onClick}>
@@ -769,22 +839,36 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: any; viewMode
               <Mail className="h-6 w-6 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold">{campaign.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-semibold">{campaign.displayName}</h3>
                 <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'}>
                   {campaign.status}
                 </Badge>
               </div>
+              {/* Taxonomy Tags */}
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                {taxonomy.dateString && (
+                  <Badge variant="outline" className="text-xs bg-muted/50">
+                    <Calendar className="h-3 w-3 mr-1" />
+                    {taxonomy.dateString}
+                  </Badge>
+                )}
+                {taxonomy.type !== 'unknown' && (
+                  <Badge variant="outline" className={`text-xs ${getTypeColor(taxonomy.type)}`}>
+                    {taxonomy.type}
+                  </Badge>
+                )}
+                {taxonomy.channel && (
+                  <Badge variant="outline" className={`text-xs ${getChannelColor(taxonomy.channel)}`}>
+                    {taxonomy.channel}
+                  </Badge>
+                )}
+              </div>
               {campaign.subject && (
-                <p className="text-sm text-muted-foreground truncate">{campaign.subject}</p>
+                <p className="text-sm text-muted-foreground truncate mt-1">{campaign.subject}</p>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              {campaign.channels?.map((ch: string) => (
-                <ChannelIcon key={ch} channel={ch} />
-              ))}
-              <ChevronRight className="h-5 w-5 text-muted-foreground" />
-            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
           </div>
         </CardContent>
       </Card>
@@ -793,7 +877,30 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: any; viewMode
 
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all overflow-hidden cursor-pointer" onClick={onClick}>
-      {/* Email Preview Mock */}
+      {/* Taxonomy Tags Header */}
+      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5 flex-wrap">
+        {taxonomy.dateString && (
+          <Badge variant="outline" className="text-xs bg-background">
+            <Calendar className="h-3 w-3 mr-1" />
+            {taxonomy.dateString}
+          </Badge>
+        )}
+        {taxonomy.type !== 'unknown' && (
+          <Badge variant="outline" className={`text-xs ${getTypeColor(taxonomy.type)}`}>
+            {taxonomy.type}
+          </Badge>
+        )}
+        {taxonomy.channel && (
+          <Badge variant="outline" className={`text-xs ${getChannelColor(taxonomy.channel)}`}>
+            {taxonomy.channel}
+          </Badge>
+        )}
+        <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'} className="text-xs ml-auto">
+          {campaign.status}
+        </Badge>
+      </div>
+
+      {/* Email Preview */}
       <div className="bg-muted/50 p-4 border-b">
         <div className="bg-card rounded-lg p-3 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
@@ -810,32 +917,27 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: any; viewMode
               )}
             </>
           ) : (
-            <p className="text-sm font-medium line-clamp-1">{campaign.name}</p>
+            <p className="text-sm font-medium line-clamp-1">{campaign.displayName}</p>
           )}
         </div>
       </div>
 
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="min-w-0">
-            <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">{campaign.name}</h3>
-            {campaign.description && (
-              <p className="text-xs text-muted-foreground line-clamp-1">{campaign.description}</p>
-            )}
-          </div>
-          <Badge variant={campaign.status === 'live' ? 'default' : 'secondary'} className="text-xs flex-shrink-0">
-            {campaign.status}
-          </Badge>
+        <div className="mb-3">
+          <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-2">{campaign.displayName}</h3>
+          {campaign.description && (
+            <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.description}</p>
+          )}
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
-          {campaign.channels?.map((ch: string) => (
-            <ChannelIcon key={ch} channel={ch} />
-          ))}
-          {campaign.tags?.slice(0, 2).map((tag: string) => (
-            <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
-          ))}
-        </div>
+        {/* Original tags from Braze */}
+        {campaign.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {campaign.tags.slice(0, 3).map((tag: string) => (
+              <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+            ))}
+          </div>
+        )}
 
         {campaign.last_sent && (
           <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">

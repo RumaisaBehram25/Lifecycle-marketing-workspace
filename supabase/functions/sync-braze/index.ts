@@ -20,6 +20,9 @@ interface BrazeCampaign {
   created_at?: string;
   updated_at?: string;
   archived?: boolean;
+  subject?: string;
+  preheader?: string;
+  html_preview?: string;
 }
 
 interface BrazeCanvas {
@@ -145,10 +148,59 @@ serve(async (req) => {
       subscriptionGroups: [],
     };
 
-    // Fetch campaigns
+    // Fetch campaigns with details
     try {
       const campaignsData = await brazeFetch('campaigns/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
-      results.campaigns = (campaignsData.campaigns || []).map((c: any) => ({
+      const campaignList = campaignsData.campaigns || [];
+      
+      // Fetch campaign details for first 20 campaigns to get message content
+      const campaignsWithDetails = await Promise.all(
+        campaignList.slice(0, 20).map(async (c: any) => {
+          let subject = '';
+          let preheader = '';
+          let htmlPreview = '';
+          
+          // Try to get campaign details
+          try {
+            const details = await brazeFetch(`campaigns/details?campaign_id=${c.id}`, apiKey, brazeRestEndpoint);
+            // Extract email message details if available
+            const messages = details.messages || {};
+            for (const [key, msg] of Object.entries(messages)) {
+              const msgData = msg as any;
+              if (msgData.channel === 'email') {
+                subject = msgData.subject || subject;
+                preheader = msgData.preheader || preheader;
+                htmlPreview = msgData.body ? (msgData.body as string).substring(0, 5000) : htmlPreview;
+                break;
+              }
+            }
+          } catch (err) {
+            console.log(`Could not fetch details for campaign ${c.id}`);
+          }
+          
+          return {
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            draft: c.draft,
+            schedule_type: c.schedule_type,
+            channels: c.channels,
+            first_sent: c.first_sent,
+            last_sent: c.last_sent,
+            tags: c.tags,
+            message_types: c.message_types,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            archived: c.archived,
+            subject,
+            preheader,
+            html_preview: htmlPreview,
+          };
+        })
+      );
+      
+      // Add remaining campaigns without details
+      const remainingCampaigns = campaignList.slice(20).map((c: any) => ({
         id: c.id,
         name: c.name,
         description: c.description,
@@ -163,7 +215,9 @@ serve(async (req) => {
         updated_at: c.updated_at,
         archived: c.archived,
       }));
-      console.log('Fetched campaigns:', results.campaigns.length);
+      
+      results.campaigns = [...campaignsWithDetails, ...remainingCampaigns];
+      console.log('Fetched campaigns:', results.campaigns.length, 'with details:', campaignsWithDetails.filter(c => c.subject).length);
     } catch (e) {
       console.error('Failed to fetch campaigns:', e);
     }
