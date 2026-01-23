@@ -105,6 +105,12 @@ interface EnrichedCampaign {
   last_sent?: string;
   html_preview?: string;
   taxonomy: ParsedCampaign;
+  // Push/In-app specific fields
+  push_title?: string;
+  push_body?: string;
+  inapp_title?: string;
+  inapp_body?: string;
+  inapp_cta?: string;
 }
 
 interface BrazeSchemaCache {
@@ -162,6 +168,7 @@ const MOCK_CAMPAIGNS = [
     subject: "Welcome to Linktree – let's get you set up!",
     preheader: 'Your link in bio is ready. Here\'s how to make it yours.',
     tags: ['welcome', 'onboarding'],
+    last_sent: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
   },
   {
     id: '2',
@@ -171,6 +178,47 @@ const MOCK_CAMPAIGNS = [
     subject: 'Your Linktree misses you',
     preheader: "Come back and see what's new – we've been busy!",
     tags: ['re-engagement'],
+    last_sent: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
+  },
+  {
+    id: '3',
+    name: 'New Feature Alert 🚀',
+    channels: ['push'],
+    status: 'live' as const,
+    subject: '',
+    preheader: '',
+    push_title: 'New: QR Codes are here!',
+    push_body: 'Generate custom QR codes for your Linktree. Try it now!',
+    tags: ['feature', 'announcement'],
+    last_sent: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
+  },
+  {
+    id: '4',
+    name: 'Pro Upgrade Prompt',
+    channels: ['in_app_message'],
+    status: 'live' as const,
+    subject: '',
+    preheader: '',
+    inapp_title: 'Unlock Pro Features',
+    inapp_body: 'Get advanced analytics, custom themes, and priority support.',
+    inapp_cta: 'Upgrade to Pro',
+    tags: ['upsell', 'monetization'],
+    last_sent: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+  },
+  {
+    id: '5',
+    name: 'Multi-channel Welcome',
+    channels: ['email', 'push', 'in_app_message'],
+    status: 'live' as const,
+    subject: 'Welcome aboard! 🎉',
+    preheader: 'Your journey starts here',
+    push_title: 'Welcome to Linktree!',
+    push_body: 'Tap to complete your profile setup',
+    inapp_title: 'Complete Your Profile',
+    inapp_body: 'Add your links, customize your theme, and share with the world.',
+    inapp_cta: 'Get Started',
+    tags: ['welcome', 'onboarding'],
+    last_sent: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
   },
 ];
 
@@ -246,7 +294,13 @@ export default function Creative() {
       return MOCK_CAMPAIGNS.map(c => ({
         ...c,
         displayName: c.name,
+        description: '',
         taxonomy: parseCampaignTaxonomy(c.name),
+        push_title: (c as any).push_title,
+        push_body: (c as any).push_body,
+        inapp_title: (c as any).inapp_title,
+        inapp_body: (c as any).inapp_body,
+        inapp_cta: (c as any).inapp_cta,
       }));
     }
     
@@ -327,22 +381,34 @@ export default function Creative() {
       const matchesSearch = campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            campaign.subject?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || campaign.tags?.includes(tagFilter);
-      const matchesChannel = channelFilter === 'All' || campaign.channels?.includes(channelFilter);
+      
+      // Channel filter with multi support
+      let matchesChannel = true;
+      if (channelFilter !== 'All') {
+        if (channelFilter === 'multi') {
+          matchesChannel = campaign.channels?.length > 1;
+        } else {
+          matchesChannel = campaign.channels?.includes(channelFilter) || false;
+        }
+      }
+      
       const matchesType = typeFilter === 'All' || campaign.taxonomy?.type === typeFilter;
       const matchesStatus = statusFilter === 'All' || campaign.status === statusFilter;
       
-      // Last sent filter
+      // Last sent filter - fixed to work properly
       let matchesLastSent = true;
-      if (lastSentFilter !== 'All' && campaign.last_sent) {
-        const lastSentDate = new Date(campaign.last_sent);
-        const now = new Date();
-        const daysDiff = Math.floor((now.getTime() - lastSentDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (lastSentFilter === '7days') matchesLastSent = daysDiff <= 7;
-        else if (lastSentFilter === '30days') matchesLastSent = daysDiff <= 30;
-        else if (lastSentFilter === '90days') matchesLastSent = daysDiff <= 90;
-      } else if (lastSentFilter !== 'All' && !campaign.last_sent) {
-        matchesLastSent = false;
+      if (lastSentFilter !== 'All') {
+        if (!campaign.last_sent) {
+          matchesLastSent = false;
+        } else {
+          const lastSentDate = new Date(campaign.last_sent);
+          const now = new Date();
+          const daysDiff = Math.floor((now.getTime() - lastSentDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (lastSentFilter === '7days') matchesLastSent = daysDiff <= 7;
+          else if (lastSentFilter === '30days') matchesLastSent = daysDiff <= 30;
+          else if (lastSentFilter === '90days') matchesLastSent = daysDiff <= 90;
+        }
       }
       
       return matchesSearch && matchesTag && matchesChannel && matchesType && matchesStatus && matchesLastSent;
@@ -470,6 +536,7 @@ export default function Creative() {
                 <SelectItem value="push">Push</SelectItem>
                 <SelectItem value="sms">SMS</SelectItem>
                 <SelectItem value="in_app_message">In-App</SelectItem>
+                <SelectItem value="multi">Multi-channel</SelectItem>
               </SelectContent>
             </Select>
 
@@ -718,97 +785,147 @@ export default function Creative() {
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />
+              {selectedCampaign?.channels?.length === 1 ? (
+                <ChannelIcon channel={selectedCampaign.channels[0]} size="lg" />
+              ) : (
+                <Workflow className="h-5 w-5" />
+              )}
               {selectedCampaign?.displayName || selectedCampaign?.name}
             </DialogTitle>
             <DialogDescription>
-              Campaign details and email preview
+              {selectedCampaign?.channels?.length > 1 
+                ? 'Multi-channel campaign details' 
+                : `${selectedCampaign?.channels?.[0] === 'email' ? 'Email' : 
+                    selectedCampaign?.channels?.[0] === 'push' ? 'Push notification' : 
+                    selectedCampaign?.channels?.[0] === 'in_app_message' ? 'In-app message' : 
+                    'Campaign'} details`}
             </DialogDescription>
           </DialogHeader>
           
           {selectedCampaign && (
             <div className="space-y-6 mt-4">
               {/* Taxonomy Tags */}
-              {selectedCampaign.taxonomy && (
-                <div className="flex flex-wrap gap-2">
-                  {selectedCampaign.taxonomy.dateString && (
-                    <Badge variant="outline" className="bg-muted/50">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {selectedCampaign.taxonomy.dateString}
-                    </Badge>
-                  )}
-                  {selectedCampaign.taxonomy.type !== 'unknown' && (
-                    <Badge variant="outline" className={getTypeColor(selectedCampaign.taxonomy.type)}>
-                      {selectedCampaign.taxonomy.type}
-                    </Badge>
-                  )}
-                  {selectedCampaign.taxonomy.channel && (
-                    <Badge variant="outline" className={getChannelColor(selectedCampaign.taxonomy.channel)}>
-                      {selectedCampaign.taxonomy.channel}
-                    </Badge>
-                  )}
-                  <Badge variant={selectedCampaign.status === 'live' ? 'default' : 'secondary'}>
-                    {selectedCampaign.status}
+              <div className="flex flex-wrap gap-2">
+                {selectedCampaign.channels?.map((ch: string) => (
+                  <Badge key={ch} variant="outline" className={getChannelColor(ch)}>
+                    {ch === 'in_app_message' ? 'In-App' : ch}
                   </Badge>
+                ))}
+                {selectedCampaign.channels?.length > 1 && (
+                  <Badge variant="secondary">Multi-channel</Badge>
+                )}
+                <Badge variant={selectedCampaign.status === 'live' ? 'default' : 'secondary'}>
+                  {selectedCampaign.status}
+                </Badge>
+              </div>
+
+              {/* Email Content */}
+              {selectedCampaign.channels?.includes('email') && (
+                <div className="space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-blue-500" />
+                    Email
+                  </h4>
+                  <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+                    <div className="grid gap-2">
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Subject Line</p>
+                        <p className="font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground">Preheader</p>
+                        <p className="text-sm">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
+                      </div>
+                    </div>
+                    {selectedCampaign.html_preview && (
+                      <div className="mt-3 border rounded-lg overflow-hidden bg-white">
+                        <iframe
+                          srcDoc={selectedCampaign.html_preview}
+                          className="w-full h-[300px]"
+                          title="Email Preview"
+                          sandbox="allow-same-origin"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Subject & Preheader - Compact */}
-              <div className="grid grid-cols-1 gap-2 p-3 bg-muted/30 rounded-lg">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Subject Line</p>
-                  <p className="font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Preheader</p>
-                  <p className="text-sm line-clamp-2">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
-                </div>
-              </div>
-
-              {/* HTML Preview - Full height */}
-              {selectedCampaign.html_preview ? (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-2">Email Creative</p>
-                  <div className="border rounded-lg overflow-hidden bg-white">
-                    <iframe
-                      srcDoc={selectedCampaign.html_preview}
-                      className="w-full h-[600px]"
-                      title="Email Preview"
-                      sandbox="allow-same-origin allow-scripts"
-                    />
+              {/* Push Content */}
+              {selectedCampaign.channels?.includes('push') && (
+                <div className="space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-orange-500" />
+                    Push Notification
+                  </h4>
+                  <div className="max-w-sm">
+                    <div className="bg-card border rounded-2xl p-4 shadow-lg">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold text-primary-foreground">L</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-muted-foreground">Linktree • now</p>
+                          <p className="font-semibold text-sm mt-0.5">
+                            {selectedCampaign.push_title || selectedCampaign.displayName}
+                          </p>
+                          {selectedCampaign.push_body && (
+                            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                              {selectedCampaign.push_body}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="text-center py-6 bg-muted/20 rounded-lg border border-dashed">
-                  <Mail className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">Email preview not available</p>
-                  <p className="text-xs text-muted-foreground mt-1">Sync again to fetch email content</p>
+                  {!selectedCampaign.push_title && !selectedCampaign.push_body && (
+                    <p className="text-sm text-muted-foreground">Push content not synced from Braze</p>
+                  )}
                 </div>
               )}
 
-              {/* Channels & Tags */}
-              <div className="grid grid-cols-2 gap-4">
-                {selectedCampaign.channels?.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Channels</p>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedCampaign.channels.map((ch: string) => (
-                        <Badge key={ch} variant="secondary">{ch}</Badge>
-                      ))}
+              {/* In-App Content */}
+              {selectedCampaign.channels?.includes('in_app_message') && (
+                <div className="space-y-3">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Smartphone className="h-4 w-4 text-purple-500" />
+                    In-App Message
+                  </h4>
+                  <div className="max-w-sm">
+                    <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-2 border-purple-500/30 rounded-2xl p-6 text-center">
+                      <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
+                        <Smartphone className="h-6 w-6 text-purple-500" />
+                      </div>
+                      <h4 className="font-bold text-lg">
+                        {selectedCampaign.inapp_title || selectedCampaign.displayName}
+                      </h4>
+                      {selectedCampaign.inapp_body && (
+                        <p className="text-sm text-muted-foreground mt-2">
+                          {selectedCampaign.inapp_body}
+                        </p>
+                      )}
+                      <Button className="mt-4" size="sm">
+                        {selectedCampaign.inapp_cta || 'Take Action'}
+                      </Button>
                     </div>
                   </div>
-                )}
-                {selectedCampaign.tags?.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Tags</p>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedCampaign.tags.map((tag: string) => (
-                        <Badge key={tag} variant="outline">{tag}</Badge>
-                      ))}
-                    </div>
+                  {!selectedCampaign.inapp_title && !selectedCampaign.inapp_body && (
+                    <p className="text-sm text-muted-foreground">In-app content not synced from Braze</p>
+                  )}
+                </div>
+              )}
+
+              {/* Tags */}
+              {selectedCampaign.tags?.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Tags</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCampaign.tags.map((tag: string) => (
+                      <Badge key={tag} variant="outline">{tag}</Badge>
+                    ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Dates */}
               {(selectedCampaign.first_sent || selectedCampaign.last_sent) && (
