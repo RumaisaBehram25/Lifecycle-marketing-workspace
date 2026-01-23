@@ -122,15 +122,16 @@ const MOCK_JOURNEYS = [
     name: 'Welcome Series',
     displayName: 'Welcome Series',
     description: 'Onboard new users and drive first actions',
-    status: 'live' as const,
+    status: 'live' as 'live' | 'draft',
     tags: ['onboarding', 'new-users'],
     channels: ['email', 'push'],
     taxonomy: { type: 'Lifecycle' as const, channel: 'email', displayName: 'Welcome Series', dateString: '' },
     steps: [
-      { name: 'Welcome Email', delay: '0h', channel: 'email' },
-      { name: 'Feature Intro', delay: '24h', channel: 'email' },
-      { name: 'Pro Upgrade Nudge', delay: '72h', channel: 'push' },
-      { name: 'Success Tips', delay: '7d', channel: 'email' },
+      { name: 'Entry Trigger', delay: '0h', channel: 'email', type: 'trigger' },
+      { name: 'Welcome Email', delay: '0h', channel: 'email', type: 'message' },
+      { name: 'Push Reminder', delay: '24h', channel: 'push', type: 'message' },
+      { name: 'Feature Intro', delay: '48h', channel: 'email', type: 'message' },
+      { name: 'Pro Upgrade Nudge', delay: '72h', channel: 'push', type: 'message' },
     ],
   },
   {
@@ -138,14 +139,16 @@ const MOCK_JOURNEYS = [
     name: 'Re-engagement',
     displayName: 'Re-engagement',
     description: 'Win back inactive creators',
-    status: 'live' as const,
+    status: 'live' as 'live' | 'draft',
     tags: ['retention', 'winback'],
-    channels: ['email', 'push'],
+    channels: ['email', 'push', 'in_app_message'],
     taxonomy: { type: 'Lifecycle' as const, channel: 'email', displayName: 'Re-engagement', dateString: '' },
     steps: [
-      { name: 'We Miss You', delay: '30d', channel: 'email' },
-      { name: "What's New", delay: '37d', channel: 'email' },
-      { name: 'Last Chance Offer', delay: '45d', channel: 'push' },
+      { name: 'Entry Trigger', delay: '0h', channel: 'email', type: 'trigger' },
+      { name: 'We Miss You Email', delay: '0h', channel: 'email', type: 'message' },
+      { name: 'In-App Banner', delay: '3d', channel: 'in_app_message', type: 'message' },
+      { name: "What's New Email", delay: '7d', channel: 'email', type: 'message' },
+      { name: 'Last Chance Push', delay: '14d', channel: 'push', type: 'message' },
     ],
   },
 ];
@@ -193,31 +196,43 @@ export default function Creative() {
   const hasBrazeData = !!brazeData?.last_sync;
 
   // Transform Braze canvases to journey format with taxonomy parsing
-  // Filter out archived and stopped canvases by default
+  // Include draft canvases for status filtering
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
     return brazeData.canvases
-      .filter(canvas => !canvas.archived && !canvas.draft) // Only show live, non-archived
+      .filter(canvas => !canvas.archived) // Only filter out archived
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
+        // Parse channels from taxonomy or infer from name
+        const inferredChannels: string[] = [];
+        const nameLower = canvas.name.toLowerCase();
+        if (nameLower.includes('email') || taxonomy.channel === 'Email') inferredChannels.push('email');
+        if (nameLower.includes('push')) inferredChannels.push('push');
+        if (nameLower.includes('sms')) inferredChannels.push('sms');
+        if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
+        // Default to email if nothing found
+        if (inferredChannels.length === 0) inferredChannels.push('email');
+        
         return {
           id: canvas.id,
           name: canvas.name,
           displayName: taxonomy.displayName,
           description: canvas.description || 'Braze Canvas journey',
-          status: 'live' as const,
+          status: canvas.draft ? 'draft' : 'live' as 'draft' | 'live',
           tags: canvas.tags || [],
-          channels: taxonomy.channel ? [taxonomy.channel] : ['email', 'push'],
+          channels: inferredChannels,
           first_entry: canvas.first_entry,
           last_entry: canvas.last_entry,
           schedule_type: canvas.schedule_type,
           taxonomy,
-          // Placeholder steps for visual - in real use would come from canvas details API
+          // Multi-touch steps - in real use would come from canvas details API
           steps: [
-            { name: 'Entry', delay: '0h', channel: taxonomy.channel || 'email' },
-            { name: 'Follow-up', delay: '24h', channel: taxonomy.channel || 'email' },
-            { name: 'Final', delay: '72h', channel: taxonomy.channel || 'push' },
+            { name: 'Entry Trigger', delay: '0h', channel: inferredChannels[0] || 'email', type: 'trigger' },
+            { name: 'Primary Message', delay: '0h', channel: inferredChannels[0] || 'email', type: 'message' },
+            ...(inferredChannels.length > 1 ? [{ name: 'Secondary Touch', delay: '24h', channel: inferredChannels[1], type: 'message' }] : []),
+            { name: 'Follow-up', delay: '48h', channel: inferredChannels[0] || 'email', type: 'message' },
+            { name: 'Final Nudge', delay: '72h', channel: inferredChannels.includes('push') ? 'push' : 'email', type: 'message' },
           ],
         };
       });
@@ -299,9 +314,10 @@ export default function Creative() {
       const matchesTag = tagFilter === 'All' || journey.tags?.includes(tagFilter);
       const matchesType = typeFilter === 'All' || journey.taxonomy?.type === typeFilter;
       const matchesChannel = channelFilter === 'All' || journey.channels?.includes(channelFilter);
-      return matchesSearch && matchesTag && matchesType && matchesChannel;
+      const matchesStatus = statusFilter === 'All' || journey.status === statusFilter;
+      return matchesSearch && matchesTag && matchesType && matchesChannel && matchesStatus;
     });
-  }, [journeys, searchQuery, tagFilter, typeFilter, channelFilter]);
+  }, [journeys, searchQuery, tagFilter, typeFilter, channelFilter, statusFilter]);
 
   // Filter campaigns
   const filteredCampaigns = useMemo(() => {
@@ -453,18 +469,16 @@ export default function Creative() {
               </Select>
             )}
             
-            {activeTab === 'campaigns' && (
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Status</SelectItem>
-                  <SelectItem value="live">Live</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All Status</SelectItem>
+                <SelectItem value="live">Live</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+              </SelectContent>
+            </Select>
             
             {allTags.length > 1 && (
               <Select value={tagFilter} onValueChange={setTagFilter}>
@@ -708,18 +722,31 @@ function JourneyCard({
               <Icon className="h-6 w-6 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold">{journey.name}</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-semibold">{journey.displayName || journey.name}</h3>
                 <Badge variant={journey.status === 'live' ? 'default' : 'secondary'}>
                   {journey.status}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground line-clamp-1">{journey.description}</p>
+              {/* Taxonomy Tags */}
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                {journey.taxonomy?.type && journey.taxonomy.type !== 'unknown' && (
+                  <Badge variant="outline" className={`text-xs ${getTypeColor(journey.taxonomy.type)}`}>
+                    {journey.taxonomy.type}
+                  </Badge>
+                )}
+                {journey.channels?.map((ch: string) => (
+                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
+                    {ch === 'in_app_message' ? 'In-App' : ch}
+                  </Badge>
+                ))}
+              </div>
+              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">{journey.description}</p>
             </div>
             <div className="flex items-center gap-2">
-              {journey.tags?.slice(0, 2).map((tag: string) => (
-                <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
-              ))}
+              <div className="text-right text-xs text-muted-foreground">
+                <span>{journey.steps?.length || 0} touches</span>
+              </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
           </div>
@@ -730,21 +757,42 @@ function JourneyCard({
 
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all cursor-pointer overflow-hidden" onClick={onClick}>
-      <div className={`h-2 ${color}`} />
+      {/* Taxonomy Tags Header */}
+      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5 flex-wrap">
+        {journey.taxonomy?.type && journey.taxonomy.type !== 'unknown' && (
+          <Badge variant="outline" className={`text-xs bg-background ${getTypeColor(journey.taxonomy.type)}`}>
+            {journey.taxonomy.type}
+          </Badge>
+        )}
+        {journey.channels?.map((ch: string) => (
+          <Badge key={ch} variant="outline" className={`text-xs bg-background ${getChannelColor(ch)}`}>
+            {ch === 'in_app_message' ? 'In-App' : ch}
+          </Badge>
+        ))}
+        <Badge variant={journey.status === 'live' ? 'default' : 'secondary'} className="text-xs ml-auto">
+          {journey.status}
+        </Badge>
+      </div>
+      
       <CardContent className="p-5">
         <div className="flex items-start gap-3 mb-4">
           <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">{journey.name}</h3>
-              <Badge variant={journey.status === 'live' ? 'default' : 'secondary'} className="text-xs flex-shrink-0">
-                {journey.status}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground line-clamp-2">{journey.description}</p>
+            <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">
+              {journey.displayName || journey.name}
+            </h3>
+            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{journey.description}</p>
           </div>
+        </div>
+
+        {/* Multi-touch indicator */}
+        <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
+          <Workflow className="h-3.5 w-3.5" />
+          <span>{journey.steps?.length || 0} touchpoints</span>
+          <span className="text-muted-foreground/50">•</span>
+          <span>{journey.channels?.length || 0} channels</span>
         </div>
 
         {journey.tags?.length > 0 && (
@@ -756,13 +804,13 @@ function JourneyCard({
         )}
 
         <div className="flex items-center justify-between pt-3 border-t">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {journey.channels?.map((channel: string) => (
               <ChannelIcon key={channel} channel={channel} />
             ))}
           </div>
           <Button variant="ghost" size="sm" className="gap-1">
-            View
+            View Journey
             <ArrowRight className="h-3 w-3" />
           </Button>
         </div>
@@ -799,6 +847,13 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
     c.tags?.some((t: string) => journey.tags?.includes(t))
   );
 
+  // Count touchpoints by channel
+  const channelCounts = journey.steps?.reduce((acc: Record<string, number>, step: any) => {
+    const ch = step.channel || 'email';
+    acc[ch] = (acc[ch] || 0) + 1;
+    return acc;
+  }, {}) || {};
+
   return (
     <div className="space-y-6">
       <Button variant="ghost" onClick={onBack} className="mb-4">
@@ -813,18 +868,32 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
               <Icon className="h-7 w-7 text-white" />
             </div>
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <h2 className="text-2xl font-bold">{journey.name}</h2>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <h2 className="text-2xl font-bold">{journey.displayName || journey.name}</h2>
                 <Badge variant={journey.status === 'live' ? 'default' : 'secondary'}>
                   {journey.status}
                 </Badge>
               </div>
               <p className="text-muted-foreground">{journey.description}</p>
               
+              {/* Channel breakdown */}
+              <div className="flex flex-wrap gap-2 mt-3">
+                {journey.taxonomy?.type && journey.taxonomy.type !== 'unknown' && (
+                  <Badge variant="outline" className={getTypeColor(journey.taxonomy.type)}>
+                    {journey.taxonomy.type}
+                  </Badge>
+                )}
+                {Object.entries(channelCounts).map(([channel, count]) => (
+                  <Badge key={channel} variant="outline" className={getChannelColor(channel)}>
+                    {channel === 'in_app_message' ? 'In-App' : channel}: {count as number}
+                  </Badge>
+                ))}
+              </div>
+              
               {journey.tags?.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-3">
                   {journey.tags.map((tag: string) => (
-                    <Badge key={tag} variant="outline">{tag}</Badge>
+                    <Badge key={tag} variant="secondary">{tag}</Badge>
                   ))}
                 </div>
               )}
@@ -842,33 +911,63 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
             </div>
           </div>
 
-          {/* Mock Journey Flow for non-Braze data */}
+          {/* Touchpoints Flow */}
           {journey.steps && (
             <div className="mt-8">
-              <h3 className="font-semibold mb-4">Journey Flow</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Workflow className="h-4 w-4" />
+                  Touchpoints ({journey.steps.length})
+                </h3>
+                <div className="flex items-center gap-2">
+                  {Object.entries(channelCounts).map(([channel, count]) => (
+                    <div key={channel} className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <ChannelIcon channel={channel} />
+                      <span>{count as number}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
               <div className="relative">
                 <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border" />
                 
-                <div className="space-y-4">
-                  {journey.steps.map((step: any, index: number) => (
-                    <div key={index} className="flex items-center gap-4 relative">
-                      <div className="h-12 w-12 rounded-full bg-card border-2 border-primary flex items-center justify-center z-10 flex-shrink-0">
-                        <ChannelIcon channel={step.channel} size="lg" />
+                <div className="space-y-3">
+                  {journey.steps.map((step: any, index: number) => {
+                    const channelColor = step.channel === 'email' ? 'border-blue-500 bg-blue-500/10' :
+                                        step.channel === 'push' ? 'border-orange-500 bg-orange-500/10' :
+                                        step.channel === 'in_app_message' ? 'border-purple-500 bg-purple-500/10' :
+                                        step.channel === 'sms' ? 'border-green-500 bg-green-500/10' :
+                                        'border-primary bg-primary/10';
+                    return (
+                      <div key={index} className="flex items-center gap-4 relative">
+                        <div className={`h-12 w-12 rounded-full bg-card border-2 ${channelColor} flex items-center justify-center z-10 flex-shrink-0`}>
+                          <ChannelIcon channel={step.channel} size="lg" />
+                        </div>
+                        <Card className="flex-1 hover:border-primary/50 transition-colors">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium">{step.name}</p>
+                                  {step.type === 'trigger' && (
+                                    <Badge variant="secondary" className="text-xs">Trigger</Badge>
+                                  )}
+                                </div>
+                                <p className="text-sm text-muted-foreground capitalize">
+                                  {step.channel === 'in_app_message' ? 'In-App Message' : step.channel}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="gap-1 ml-2">
+                                <Calendar className="h-3 w-3" />
+                                {step.delay}
+                              </Badge>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
-                      <Card className="flex-1">
-                        <CardContent className="p-4 flex items-center justify-between">
-                          <div>
-                            <p className="font-medium">{step.name}</p>
-                            <p className="text-sm text-muted-foreground">{step.channel}</p>
-                          </div>
-                          <Badge variant="outline" className="gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {step.delay}
-                          </Badge>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
