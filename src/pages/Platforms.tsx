@@ -20,6 +20,7 @@ import {
 import { Link as LinkIcon, Unlink, RefreshCw } from 'lucide-react';
 import { KlaviyoDataViewer } from '@/components/platforms/KlaviyoDataViewer';
 import { IterableDataViewer } from '@/components/platforms/IterableDataViewer';
+import { BrazeDataViewer } from '@/components/platforms/BrazeDataViewer';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import type { PlatformType } from '@/lib/types';
@@ -88,6 +89,18 @@ export default function Platforms() {
 
         {/* Platform Data Viewers */}
         {connectedPlatforms.map((cp) => {
+          if (cp.platform === 'braze' && client) {
+            return (
+              <BrazeDataViewer
+                key={cp.id}
+                clientId={client.id}
+                platformId={cp.id}
+                schemaCache={cp.schema_cache as any}
+                lastSyncAt={cp.last_sync_at || undefined}
+                onSyncComplete={() => refetchPlatforms()}
+              />
+            );
+          }
           if (cp.platform === 'klaviyo' && client) {
             return (
               <KlaviyoDataViewer

@@ -1,1 +1,37 @@
 project_id = "iaviesfcuiorjszceuuw"
+
+[functions.discover-brand]
+verify_jwt = false
+
+[functions.discover-emails]
+verify_jwt = false
+
+[functions.discover-platform-docs]
+verify_jwt = false
+
+[functions.generate-code]
+verify_jwt = false
+
+[functions.generate-copy]
+verify_jwt = false
+
+[functions.ingest-knowledge]
+verify_jwt = false
+
+[functions.ops-chat]
+verify_jwt = false
+
+[functions.refresh-vendor-docs]
+verify_jwt = false
+
+[functions.search-knowledge]
+verify_jwt = false
+
+[functions.sync-iterable]
+verify_jwt = false
+
+[functions.sync-klaviyo]
+verify_jwt = false
+
+[functions.sync-braze]
+verify_jwt = false
