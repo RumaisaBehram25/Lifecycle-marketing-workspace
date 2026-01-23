@@ -74,12 +74,15 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="flex h-20 items-center justify-between px-6 border-b border-sidebar-border">
             <Link to="/dashboard" className="flex items-center gap-3">
               <img 
-                src="/logos/toms-key-company.png" 
+                src="/logos/linktree-logo.png" 
                 alt="Linktree" 
                 className="h-10 w-10 rounded-xl object-contain"
               />
               <div className="flex flex-col">
                 <span className="text-xl font-bold text-sidebar-foreground tracking-tight">
+                  Linktree
+                </span>
+                <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
                   CRM Copilot
                 </span>
               </div>
@@ -171,11 +174,11 @@ export function AppLayout({ children }: AppLayoutProps) {
           </button>
           <div className="flex items-center gap-2">
             <img 
-              src="/logos/toms-key-company.png" 
+              src="/logos/linktree-logo.png" 
               alt="Linktree" 
               className="h-8 w-8 rounded-lg object-contain"
             />
-            <span className="font-bold text-lg">CRM Copilot</span>
+            <span className="font-bold text-lg">Linktree</span>
           </div>
         </header>
 
