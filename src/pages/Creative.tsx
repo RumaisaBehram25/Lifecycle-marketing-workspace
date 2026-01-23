@@ -185,9 +185,11 @@ export default function Creative() {
   const [channelFilter, setChannelFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState<string>('live');
   const [typeFilter, setTypeFilter] = useState<string>('All');
+  const [lastSentFilter, setLastSentFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedCampaign, setSelectedCampaign] = useState<EnrichedCampaign | null>(null);
+  const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
 
   // Get Braze platform data
@@ -328,9 +330,24 @@ export default function Creative() {
       const matchesChannel = channelFilter === 'All' || campaign.channels?.includes(channelFilter);
       const matchesType = typeFilter === 'All' || campaign.taxonomy?.type === typeFilter;
       const matchesStatus = statusFilter === 'All' || campaign.status === statusFilter;
-      return matchesSearch && matchesTag && matchesChannel && matchesType && matchesStatus;
+      
+      // Last sent filter
+      let matchesLastSent = true;
+      if (lastSentFilter !== 'All' && campaign.last_sent) {
+        const lastSentDate = new Date(campaign.last_sent);
+        const now = new Date();
+        const daysDiff = Math.floor((now.getTime() - lastSentDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (lastSentFilter === '7days') matchesLastSent = daysDiff <= 7;
+        else if (lastSentFilter === '30days') matchesLastSent = daysDiff <= 30;
+        else if (lastSentFilter === '90days') matchesLastSent = daysDiff <= 90;
+      } else if (lastSentFilter !== 'All' && !campaign.last_sent) {
+        matchesLastSent = false;
+      }
+      
+      return matchesSearch && matchesTag && matchesChannel && matchesType && matchesStatus && matchesLastSent;
     });
-  }, [campaigns, searchQuery, tagFilter, channelFilter, typeFilter, statusFilter]);
+  }, [campaigns, searchQuery, tagFilter, channelFilter, typeFilter, statusFilter, lastSentFilter]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {
@@ -499,7 +516,8 @@ export default function Creative() {
             {selectedJourney ? (
               <JourneyDetail 
                 journey={selectedJourney} 
-                onBack={() => setSelectedJourney(null)} 
+                onBack={() => setSelectedJourney(null)}
+                onViewTouchpoint={(step: any) => setSelectedTouchpoint(step)}
               />
             ) : (
               <div className={viewMode === 'grid' 
@@ -527,6 +545,22 @@ export default function Creative() {
 
           {/* Campaigns Tab */}
           <TabsContent value="campaigns" className="mt-0">
+            {/* Last Sent Filter for Campaigns */}
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-sm text-muted-foreground">Last scheduled:</span>
+              <Select value={lastSentFilter} onValueChange={setLastSentFilter}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Any time" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">Any time</SelectItem>
+                  <SelectItem value="7days">Last 7 days</SelectItem>
+                  <SelectItem value="30days">Last 30 days</SelectItem>
+                  <SelectItem value="90days">Last 90 days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
             <div className={viewMode === 'grid' 
               ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' 
               : 'space-y-3'
@@ -550,6 +584,134 @@ export default function Creative() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Touchpoint Creative Modal */}
+      <Dialog open={!!selectedTouchpoint} onOpenChange={() => setSelectedTouchpoint(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ChannelIcon channel={selectedTouchpoint?.channel || 'email'} size="lg" />
+              {selectedTouchpoint?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedTouchpoint?.channel === 'email' ? 'Email creative preview' :
+               selectedTouchpoint?.channel === 'push' ? 'Push notification preview' :
+               selectedTouchpoint?.channel === 'in_app_message' ? 'In-app message preview' :
+               'Message preview'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedTouchpoint && (
+            <div className="space-y-4 mt-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className={getChannelColor(selectedTouchpoint.channel)}>
+                  {selectedTouchpoint.channel === 'in_app_message' ? 'In-App' : selectedTouchpoint.channel}
+                </Badge>
+                {selectedTouchpoint.type === 'trigger' && (
+                  <Badge variant="secondary">Trigger</Badge>
+                )}
+                <Badge variant="outline" className="gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {selectedTouchpoint.delay}
+                </Badge>
+              </div>
+
+              {/* Channel-specific preview */}
+              {selectedTouchpoint.channel === 'email' && (
+                <div className="space-y-3">
+                  {selectedTouchpoint.subject && (
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <p className="text-xs text-muted-foreground mb-1">Subject Line</p>
+                      <p className="font-medium">{selectedTouchpoint.subject}</p>
+                    </div>
+                  )}
+                  {selectedTouchpoint.html_preview ? (
+                    <div className="border rounded-lg overflow-hidden bg-white">
+                      <iframe
+                        srcDoc={selectedTouchpoint.html_preview}
+                        className="w-full h-[400px]"
+                        title="Email Preview"
+                        sandbox="allow-same-origin"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed">
+                      <Mail className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">Email preview not available</p>
+                      <p className="text-xs text-muted-foreground mt-1">Creative content would be synced from Braze</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedTouchpoint.channel === 'push' && (
+                <div className="space-y-3">
+                  {/* Push Notification Preview */}
+                  <div className="max-w-sm mx-auto">
+                    <div className="bg-card border rounded-2xl p-4 shadow-lg">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold text-primary-foreground">L</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-muted-foreground">Linktree • now</p>
+                          <p className="font-semibold text-sm mt-0.5">{selectedTouchpoint.title || selectedTouchpoint.name}</p>
+                          {selectedTouchpoint.body && (
+                            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{selectedTouchpoint.body}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-xs text-center text-muted-foreground mt-3">Push notification preview</p>
+                  </div>
+                  {!selectedTouchpoint.title && !selectedTouchpoint.body && (
+                    <div className="text-center py-4 text-sm text-muted-foreground">
+                      Push content would be synced from Braze canvas details
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedTouchpoint.channel === 'in_app_message' && (
+                <div className="space-y-3">
+                  {/* In-App Message Preview */}
+                  <div className="max-w-sm mx-auto">
+                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center">
+                      <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                        <Smartphone className="h-6 w-6 text-primary" />
+                      </div>
+                      <h4 className="font-bold text-lg">{selectedTouchpoint.title || selectedTouchpoint.name}</h4>
+                      {selectedTouchpoint.body && (
+                        <p className="text-sm text-muted-foreground mt-2">{selectedTouchpoint.body}</p>
+                      )}
+                      <Button className="mt-4" size="sm">
+                        {selectedTouchpoint.cta || 'Take Action'}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-center text-muted-foreground mt-3">In-app message preview</p>
+                  </div>
+                  {!selectedTouchpoint.title && !selectedTouchpoint.body && (
+                    <div className="text-center py-4 text-sm text-muted-foreground">
+                      In-app content would be synced from Braze canvas details
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedTouchpoint.channel === 'sms' && (
+                <div className="space-y-3">
+                  <div className="max-w-sm mx-auto">
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
+                      <p className="text-sm">{selectedTouchpoint.body || 'SMS message content would appear here'}</p>
+                    </div>
+                    <p className="text-xs text-center text-muted-foreground mt-3">SMS preview</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Campaign Detail Modal */}
       <Dialog open={!!selectedCampaign} onOpenChange={() => setSelectedCampaign(null)}>
@@ -819,7 +981,15 @@ function JourneyCard({
 }
 
 // Journey Detail Component
-function JourneyDetail({ journey, onBack }: { journey: any; onBack: () => void }) {
+function JourneyDetail({ 
+  journey, 
+  onBack,
+  onViewTouchpoint 
+}: { 
+  journey: any; 
+  onBack: () => void;
+  onViewTouchpoint: (step: any) => void;
+}) {
   const [selectedStep, setSelectedStep] = useState<number | null>(null);
 
   const getIcon = () => {
@@ -915,7 +1085,7 @@ function JourneyDetail({ journey, onBack }: { journey: any; onBack: () => void }
                   <Workflow className="h-4 w-4" />
                   Touchpoints ({journey.steps.length})
                 </h3>
-                <p className="text-xs text-muted-foreground">Click a touchpoint for details</p>
+                <p className="text-xs text-muted-foreground">Click a touchpoint to expand, then view creative</p>
               </div>
               
               {/* Horizontal Touchpoints */}
@@ -990,15 +1160,25 @@ function JourneyDetail({ journey, onBack }: { journey: any; onBack: () => void }
                       </div>
                     </div>
                     
-                    <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Step Number</p>
-                        <p className="font-medium">{selectedStep + 1} of {journey.steps.length}</p>
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="flex gap-6 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Step</p>
+                          <p className="font-medium">{selectedStep + 1} of {journey.steps.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Type</p>
+                          <p className="font-medium capitalize">{journey.steps[selectedStep].type || 'Message'}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1">Type</p>
-                        <p className="font-medium capitalize">{journey.steps[selectedStep].type || 'Message'}</p>
-                      </div>
+                      <Button 
+                        size="sm" 
+                        onClick={() => onViewTouchpoint(journey.steps[selectedStep])}
+                        className="gap-2"
+                      >
+                        <Eye className="h-4 w-4" />
+                        View Creative
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
