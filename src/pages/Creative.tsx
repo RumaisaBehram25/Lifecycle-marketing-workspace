@@ -541,9 +541,9 @@ export default function Creative() {
                   <div className="border rounded-lg overflow-hidden bg-white">
                     <iframe
                       srcDoc={selectedCampaign.html_preview}
-                      className="w-full h-[500px]"
+                      className="w-full h-[600px]"
                       title="Email Preview"
-                      sandbox="allow-same-origin"
+                      sandbox="allow-same-origin allow-scripts"
                     />
                   </div>
                 </div>

@@ -161,7 +161,8 @@ serve(async (req) => {
         templateList.slice(0, 50).map(async (t: any) => {
           try {
             const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
-            const htmlContent = details.body ? details.body.substring(0, 8000) : undefined;
+            // Store full HTML - emails typically 50-150KB max, and we need complete HTML for proper rendering
+            const htmlContent = details.body || undefined;
             
             // Store in map for campaign matching
             if (htmlContent) {
@@ -242,9 +243,9 @@ serve(async (req) => {
                 preheader = msgData.preheader || preheader;
                 templateId = msgData.email_template_id || msgData.template_id || '';
                 
-                // Check if body is directly available
+                // Check if body is directly available - store full HTML for proper rendering
                 if (msgData.body) {
-                  htmlPreview = (msgData.body as string).substring(0, 8000);
+                  htmlPreview = msgData.body as string;
                 }
                 // If no body but we have a template ID, look it up
                 else if (templateId && templateHtmlMap.has(templateId)) {
