@@ -125,24 +125,16 @@ export default function Dashboard() {
         <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
           <CardContent className="p-6">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/25">
-                <svg viewBox="0 0 24 24" className="h-8 w-8 text-primary-foreground" fill="currentColor">
-                  <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
-                </svg>
-              </div>
+              <img 
+                src="/logos/toms-key-company.png" 
+                alt="Linktree" 
+                className="h-14 w-14 rounded-2xl object-contain"
+              />
               <div className="flex-1">
                 <h2 className="text-xl font-bold">Linktree</h2>
-                {clientLoading ? (
-                  <Skeleton className="h-4 w-48 mt-1" />
-                ) : client?.brand_voice ? (
-                  <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                    {client.brand_voice}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground/60 italic mt-1">
-                    Brand voice not configured yet
-                  </p>
-                )}
+                <p className="text-sm text-muted-foreground mt-1">
+                  We help 70M+ creators share everything they are with a single link.
+                </p>
               </div>
               <Button asChild>
                 <Link to="/brand">
@@ -154,32 +146,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Stats */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {stats.map((stat) => (
-            <Link key={stat.name} to={stat.href}>
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
-                        {stat.name}
-                      </p>
-                      {stat.isLoading ? (
-                        <Skeleton className="h-8 w-12 mt-1" />
-                      ) : (
-                        <p className="font-bold text-2xl mt-1">{stat.value}</p>
-                      )}
-                    </div>
-                    <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center">
-                      <stat.icon className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
 
         {/* Quick actions */}
         <div>

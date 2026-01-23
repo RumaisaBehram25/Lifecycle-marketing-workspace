@@ -73,17 +73,14 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Logo */}
           <div className="flex h-20 items-center justify-between px-6 border-b border-sidebar-border">
             <Link to="/dashboard" className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-                <svg viewBox="0 0 24 24" className="h-6 w-6 text-primary-foreground" fill="currentColor">
-                  <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
-                </svg>
-              </div>
+              <img 
+                src="/logos/toms-key-company.png" 
+                alt="Linktree" 
+                className="h-10 w-10 rounded-xl object-contain"
+              />
               <div className="flex flex-col">
                 <span className="text-xl font-bold text-sidebar-foreground tracking-tight">
-                  Linktree
-                </span>
-                <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
-                  Lifecycle Copilot
+                  CRM Copilot
                 </span>
               </div>
             </Link>
@@ -173,12 +170,12 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary-foreground" fill="currentColor">
-                <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
-              </svg>
-            </div>
-            <span className="font-bold text-lg">Linktree</span>
+            <img 
+              src="/logos/toms-key-company.png" 
+              alt="Linktree" 
+              className="h-8 w-8 rounded-lg object-contain"
+            />
+            <span className="font-bold text-lg">CRM Copilot</span>
           </div>
         </header>
 
