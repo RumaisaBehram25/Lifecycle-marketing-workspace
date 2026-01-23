@@ -53,6 +53,7 @@ interface BrazeTemplate {
   tags?: string[];
   created_at?: string;
   updated_at?: string;
+  html_preview?: string;
 }
 
 interface BrazeSegment {
@@ -148,17 +149,86 @@ serve(async (req) => {
       subscriptionGroups: [],
     };
 
+    // First fetch templates with HTML content - we'll need these to map to campaigns
+    const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
+    
+    try {
+      const templatesData = await brazeFetch('templates/email/list?limit=100', apiKey, brazeRestEndpoint);
+      const templateList = templatesData.templates || [];
+      
+      // Fetch full template details including HTML for templates (up to 50 for better coverage)
+      const templatesWithContent = await Promise.all(
+        templateList.slice(0, 50).map(async (t: any) => {
+          try {
+            const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
+            const htmlContent = details.body ? details.body.substring(0, 8000) : undefined;
+            
+            // Store in map for campaign matching
+            if (htmlContent) {
+              templateHtmlMap.set(t.email_template_id, {
+                subject: details.subject || t.subject || '',
+                preheader: details.preheader || t.preheader || '',
+                html: htmlContent,
+              });
+            }
+            
+            return {
+              email_template_id: t.email_template_id,
+              template_name: t.template_name,
+              description: t.description,
+              subject: details.subject || t.subject,
+              preheader: details.preheader || t.preheader,
+              tags: t.tags,
+              created_at: t.created_at,
+              updated_at: t.updated_at,
+              html_preview: htmlContent,
+            };
+          } catch (err) {
+            console.log(`Could not fetch details for template ${t.email_template_id}`);
+            return {
+              email_template_id: t.email_template_id,
+              template_name: t.template_name,
+              description: t.description,
+              subject: t.subject,
+              preheader: t.preheader,
+              tags: t.tags,
+              created_at: t.created_at,
+              updated_at: t.updated_at,
+            };
+          }
+        })
+      );
+      
+      // Add remaining templates without HTML content
+      const remainingTemplates = templateList.slice(50).map((t: any) => ({
+        email_template_id: t.email_template_id,
+        template_name: t.template_name,
+        description: t.description,
+        subject: t.subject,
+        preheader: t.preheader,
+        tags: t.tags,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+      }));
+      
+      results.templates = [...templatesWithContent, ...remainingTemplates];
+      console.log('Fetched templates:', results.templates.length, 'with HTML preview:', templatesWithContent.filter(t => t.html_preview).length);
+    } catch (e) {
+      console.error('Failed to fetch templates:', e);
+    }
+
     // Fetch campaigns with details
     try {
       const campaignsData = await brazeFetch('campaigns/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
       const campaignList = campaignsData.campaigns || [];
       
-      // Fetch campaign details for first 20 campaigns to get message content
+      // Fetch campaign details for first 50 campaigns to get message content
       const campaignsWithDetails = await Promise.all(
-        campaignList.slice(0, 20).map(async (c: any) => {
+        campaignList.slice(0, 50).map(async (c: any) => {
           let subject = '';
           let preheader = '';
           let htmlPreview = '';
+          let templateId = '';
           
           // Try to get campaign details
           try {
@@ -170,12 +240,39 @@ serve(async (req) => {
               if (msgData.channel === 'email') {
                 subject = msgData.subject || subject;
                 preheader = msgData.preheader || preheader;
-                htmlPreview = msgData.body ? (msgData.body as string).substring(0, 5000) : htmlPreview;
+                templateId = msgData.email_template_id || msgData.template_id || '';
+                
+                // Check if body is directly available
+                if (msgData.body) {
+                  htmlPreview = (msgData.body as string).substring(0, 8000);
+                }
+                // If no body but we have a template ID, look it up
+                else if (templateId && templateHtmlMap.has(templateId)) {
+                  const templateData = templateHtmlMap.get(templateId)!;
+                  htmlPreview = templateData.html;
+                  subject = subject || templateData.subject;
+                  preheader = preheader || templateData.preheader;
+                }
                 break;
               }
             }
           } catch (err) {
-            console.log(`Could not fetch details for campaign ${c.id}`);
+            console.log(`Could not fetch details for campaign ${c.id}: ${err}`);
+          }
+          
+          // If still no HTML, try matching by campaign name to template name
+          if (!htmlPreview) {
+            for (const template of results.templates) {
+              if (template.html_preview && (
+                c.name.toLowerCase().includes(template.template_name.toLowerCase()) ||
+                template.template_name.toLowerCase().includes(c.name.toLowerCase())
+              )) {
+                htmlPreview = template.html_preview;
+                subject = subject || template.subject || '';
+                preheader = preheader || template.preheader || '';
+                break;
+              }
+            }
           }
           
           return {
@@ -200,7 +297,7 @@ serve(async (req) => {
       );
       
       // Add remaining campaigns without details
-      const remainingCampaigns = campaignList.slice(20).map((c: any) => ({
+      const remainingCampaigns = campaignList.slice(50).map((c: any) => ({
         id: c.id,
         name: c.name,
         description: c.description,
@@ -217,7 +314,7 @@ serve(async (req) => {
       }));
       
       results.campaigns = [...campaignsWithDetails, ...remainingCampaigns];
-      console.log('Fetched campaigns:', results.campaigns.length, 'with details:', campaignsWithDetails.filter(c => c.subject).length);
+      console.log('Fetched campaigns:', results.campaigns.length, 'with HTML:', campaignsWithDetails.filter(c => c.html_preview).length);
     } catch (e) {
       console.error('Failed to fetch campaigns:', e);
     }
@@ -242,61 +339,7 @@ serve(async (req) => {
     } catch (e) {
       console.error('Failed to fetch canvases:', e);
     }
-
-    // Fetch email templates with content
-    try {
-      const templatesData = await brazeFetch('templates/email/list?limit=100', apiKey, brazeRestEndpoint);
-      const templateList = templatesData.templates || [];
-      
-      // Fetch full template details including HTML for each template (up to 10 for performance)
-      const templatesWithContent = await Promise.all(
-        templateList.slice(0, 10).map(async (t: any) => {
-          try {
-            const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
-            return {
-              email_template_id: t.email_template_id,
-              template_name: t.template_name,
-              description: t.description,
-              subject: details.subject || t.subject,
-              preheader: details.preheader || t.preheader,
-              tags: t.tags,
-              created_at: t.created_at,
-              updated_at: t.updated_at,
-              html_preview: details.body ? details.body.substring(0, 5000) : undefined, // Truncate for storage
-            };
-          } catch (err) {
-            console.log(`Could not fetch details for template ${t.email_template_id}`);
-            return {
-              email_template_id: t.email_template_id,
-              template_name: t.template_name,
-              description: t.description,
-              subject: t.subject,
-              preheader: t.preheader,
-              tags: t.tags,
-              created_at: t.created_at,
-              updated_at: t.updated_at,
-            };
-          }
-        })
-      );
-      
-      // Add remaining templates without HTML content
-      const remainingTemplates = templateList.slice(10).map((t: any) => ({
-        email_template_id: t.email_template_id,
-        template_name: t.template_name,
-        description: t.description,
-        subject: t.subject,
-        preheader: t.preheader,
-        tags: t.tags,
-        created_at: t.created_at,
-        updated_at: t.updated_at,
-      }));
-      
-      results.templates = [...templatesWithContent, ...remainingTemplates];
-      console.log('Fetched templates:', results.templates.length, 'with HTML preview:', templatesWithContent.filter(t => t.html_preview).length);
-    } catch (e) {
-      console.error('Failed to fetch templates:', e);
-    }
+    // Templates already fetched above - no need to fetch again
 
     // Fetch segments
     try {
