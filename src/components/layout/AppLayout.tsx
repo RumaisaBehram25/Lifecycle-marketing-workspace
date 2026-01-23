@@ -13,8 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   LayoutDashboard,
-  Users,
-  FileText,
+  MessageSquare,
   Code,
   Database,
   Settings,
@@ -22,9 +21,9 @@ import {
   Menu,
   X,
   ChevronRight,
-  MessageSquare,
+  Palette,
+  Link as LinkIcon,
 } from 'lucide-react';
-import brcgLogo from '@/assets/brcg-logo.png';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -32,17 +31,18 @@ interface AppLayoutProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Clients', href: '/clients', icon: Users },
+  { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   { name: 'Code Generator', href: '/generate/code', icon: Code },
   { name: 'Knowledge Base', href: '/knowledge', icon: Database },
+  { name: 'Platforms', href: '/platforms', icon: LinkIcon },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, isAdmin, signOut } = useAuth();
+  const { profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleSignOut = async () => {
@@ -70,16 +70,20 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div className="flex h-full flex-col">
           {/* Logo */}
           <div className="flex h-20 items-center justify-between px-6 border-b border-sidebar-border">
-            <Link to="/dashboard" className="flex flex-col">
-              <div className="flex items-center gap-3">
-                <img src={brcgLogo} alt="BRCG" className="h-8 w-auto" />
-                <span className="text-xl font-heading font-black text-sidebar-foreground tracking-tight">
-                  Copilot
+            <Link to="/dashboard" className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 text-primary-foreground" fill="currentColor">
+                  <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
+                </svg>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xl font-bold text-sidebar-foreground tracking-tight">
+                  Linktree
+                </span>
+                <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
+                  Lifecycle Copilot
                 </span>
               </div>
-              <span className="text-[10px] font-heading font-bold uppercase tracking-widest text-sidebar-foreground/50 mt-1">
-                A BRCG Labs Product
-              </span>
             </Link>
             <button
               className="lg:hidden text-sidebar-foreground"
@@ -100,7 +104,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     <Link
                       to={item.href}
                       className={cn(
-                        "flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-all",
+                        "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all",
                         isActive
                           ? "bg-sidebar-primary text-sidebar-primary-foreground"
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -121,10 +125,10 @@ export function AppLayout({ children }: AppLayoutProps) {
           <div className="border-t border-sidebar-border p-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 hover:bg-sidebar-accent transition-colors">
+                <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-sidebar-accent transition-colors">
                   <Avatar className="h-9 w-9">
                     <AvatarImage src={profile?.avatar_url || undefined} />
-                    <AvatarFallback className="bg-primary text-primary-foreground font-heading font-bold">
+                    <AvatarFallback className="bg-primary text-primary-foreground font-bold">
                       {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || '?'}
                     </AvatarFallback>
                   </Avatar>
@@ -132,8 +136,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                     <p className="text-sm font-medium text-sidebar-foreground">
                       {profile?.full_name || 'User'}
                     </p>
-                    <p className="text-xs text-sidebar-foreground/60">
-                      {isAdmin ? 'Admin' : 'Member'}
+                    <p className="text-xs text-sidebar-foreground/60 truncate">
+                      {profile?.email}
                     </p>
                   </div>
                 </button>
@@ -167,8 +171,12 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Menu className="h-6 w-6" />
           </button>
           <div className="flex items-center gap-2">
-            <img src={brcgLogo} alt="BRCG" className="h-6 w-auto" />
-            <span className="font-heading font-black text-lg">Copilot</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary-foreground" fill="currentColor">
+                <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
+              </svg>
+            </div>
+            <span className="font-bold text-lg">Linktree</span>
           </div>
         </header>
 

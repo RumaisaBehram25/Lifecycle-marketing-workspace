@@ -1,20 +1,12 @@
-import { useSearchParams, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClientChat } from '@/components/chat/ClientChat';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useClients, useClientPlatforms } from '@/hooks/useClients';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Button } from '@/components/ui/button';
-import { Plus, Sparkles } from 'lucide-react';
-import brcgLogo from '@/assets/brcg-logo.png';
+import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { LoadingPage } from '@/components/ui/loading-spinner';
+import { Sparkles } from 'lucide-react';
 
 export default function Chat() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const selectedClientId = searchParams.get('client');
-  const { data: clients, isLoading: clientsLoading } = useClients();
-  const { data: platforms } = useClientPlatforms(selectedClientId || undefined);
-
-  const selectedClient = clients?.find(c => c.id === selectedClientId);
+  const { data: client, isLoading: clientLoading } = useLinktreeClient();
+  const { data: platforms } = useLinktreePlatforms();
 
   // Build platform context from ALL connected platforms
   const connectedPlatforms = platforms?.filter(p => p.is_connected) || [];
@@ -33,68 +25,45 @@ export default function Chat() {
       last_sync_at: cp.last_sync_at || undefined,
     }));
 
-  const handleClientChange = (clientId: string) => {
-    setSearchParams({ client: clientId });
-  };
+  if (clientLoading) {
+    return (
+      <AppLayout>
+        <LoadingPage />
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
       <div className="flex h-[calc(100vh-4rem)] lg:h-screen bg-sidebar">
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col bg-background overflow-hidden">
-          {selectedClient ? (
+          {client ? (
             <ClientChat
-              key={selectedClient.id}
+              key={client.id}
               client={{
-                id: selectedClient.id,
-                name: selectedClient.name,
-                brand_voice: selectedClient.brand_voice || undefined,
-                do_rules: selectedClient.do_rules as string[] | undefined,
-                dont_rules: selectedClient.dont_rules as string[] | undefined,
-                tone_presets: selectedClient.tone_presets as string[] | undefined,
-                legal_requirements: selectedClient.legal_requirements || undefined,
+                id: client.id,
+                name: client.name,
+                brand_voice: client.brand_voice || undefined,
+                do_rules: client.do_rules as string[] | undefined,
+                dont_rules: client.dont_rules as string[] | undefined,
+                tone_presets: client.tone_presets as string[] | undefined,
+                legal_requirements: client.legal_requirements || undefined,
               }}
               platformContext={platformContexts.length > 0 ? platformContexts : undefined}
               showHistory={true}
             />
           ) : (
-            /* Welcome Screen - ChatGPT Style */
+            /* Welcome Screen */
             <div className="flex-1 flex flex-col">
-              {/* Top bar with client selector */}
+              {/* Top bar */}
               <div className="flex items-center justify-between p-3 sm:p-4 border-b gap-2">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                   <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
                     <Sparkles className="h-4 w-4 text-primary-foreground" />
                   </div>
-                  <span className="font-heading font-bold text-base sm:text-lg truncate">BRCG Copilot</span>
+                  <span className="font-bold text-base sm:text-lg truncate">Linktree Copilot</span>
                 </div>
-                <Select value={selectedClientId || ''} onValueChange={handleClientChange}>
-                  <SelectTrigger className="w-[140px] sm:w-[200px] flex-shrink-0">
-                    <SelectValue placeholder="Select client..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clientsLoading ? (
-                      <div className="p-2 flex items-center justify-center">
-                        <LoadingSpinner size="sm" />
-                      </div>
-                    ) : clients?.length === 0 ? (
-                      <div className="p-2 text-center text-sm text-muted-foreground">
-                        No clients yet
-                      </div>
-                    ) : (
-                      clients?.map(client => (
-                        <SelectItem key={client.id} value={client.id}>
-                          <div className="flex items-center gap-2">
-                            <div className="h-5 w-5 rounded bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                              {client.name.charAt(0)}
-                            </div>
-                            {client.name}
-                          </div>
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
               </div>
 
               {/* Centered welcome content */}
@@ -102,20 +71,20 @@ export default function Chat() {
                 <div className="max-w-2xl w-full text-center space-y-6 sm:space-y-8">
                   {/* Logo */}
                   <div className="flex justify-center">
-                    <img 
-                      src={brcgLogo} 
-                      alt="BRCG" 
-                      className="h-16 w-auto opacity-90"
-                    />
+                    <div className="h-20 w-20 rounded-2xl bg-primary flex items-center justify-center shadow-2xl shadow-primary/30">
+                      <svg viewBox="0 0 24 24" className="h-12 w-12 text-primary-foreground" fill="currentColor">
+                        <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
+                      </svg>
+                    </div>
                   </div>
                   
                   {/* Title */}
                   <div className="space-y-2">
-                    <h1 className="text-2xl sm:text-4xl font-heading font-black tracking-tight">
+                    <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">
                       How can I help you today?
                     </h1>
                     <p className="text-base sm:text-lg text-muted-foreground px-2">
-                      Select a client to start generating marketing copy, building journeys, and more.
+                      Generate on-brand lifecycle marketing copy and build customer journeys.
                     </p>
                   </div>
 
@@ -127,29 +96,17 @@ export default function Chat() {
                     />
                     <QuickActionCard
                       title="Build customer journeys"
-                      description="Multi-channel flows"
+                      description="Welcome, re-engagement flows"
                     />
                     <QuickActionCard
-                      title="Segment audiences"
-                      description="Entry criteria & targeting"
+                      title="Upgrade messaging"
+                      description="Convert free to paid"
                     />
                     <QuickActionCard
-                      title="Platform questions"
-                      description="Klaviyo, Braze, & more"
+                      title="Platform templates"
+                      description="Liquid/Handlebars code"
                     />
                   </div>
-
-                  {/* No clients CTA */}
-                  {!clientsLoading && clients?.length === 0 && (
-                    <div className="pt-4">
-                      <Button asChild size="lg">
-                        <Link to="/clients/new">
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Your First Client
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>

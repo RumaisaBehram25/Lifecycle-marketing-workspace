@@ -1,29 +1,30 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { useClients } from '@/hooks/useClients';
+import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { 
-  Users, 
   FileText, 
   Code, 
   Database, 
   ArrowRight, 
-  Plus,
-  Shield,
+  MessageSquare,
   Zap,
   Target,
-  CheckCircle2
+  Sparkles,
+  Link as LinkIcon,
+  Palette,
+  TrendingUp,
 } from 'lucide-react';
 
 export default function Dashboard() {
-  const { profile, isAdmin } = useAuth();
-  const { data: clients, isLoading: clientsLoading } = useClients();
+  const { profile } = useAuth();
+  const { data: client, isLoading: clientLoading } = useLinktreeClient();
+  const { data: platforms, isLoading: platformsLoading } = useLinktreePlatforms();
 
   // Fetch real stats
   const { data: copyCount, isLoading: copyLoading } = useQuery({
@@ -61,42 +62,34 @@ export default function Dashboard() {
     },
   });
 
+  const connectedPlatforms = platforms?.filter(p => p.is_connected) || [];
+
   const stats = [
-    { name: 'Total Clients', value: clients?.length || 0, icon: Users, href: '/clients', isLoading: clientsLoading },
     { name: 'Copy Generated', value: copyCount || 0, icon: FileText, href: '/chat', isLoading: copyLoading },
     { name: 'Code Generated', value: codeCount || 0, icon: Code, href: '/generate/code', isLoading: codeLoading },
     { name: 'Knowledge Docs', value: docsCount || 0, icon: Database, href: '/knowledge', isLoading: docsLoading },
-  ];
-
-  const valueProps = [
-    {
-      icon: Shield,
-      title: 'Brand Guidelines First',
-      description: 'Upload your brand voice, tone presets, do\'s and don\'ts. Every piece of content stays on-brand, every time.',
-    },
-    {
-      icon: Target,
-      title: 'Platform-Native Output',
-      description: 'Generate Liquid for Braze, Django syntax for Klaviyo, Handlebars for Iterable. No manual translation needed.',
-    },
-    {
-      icon: Zap,
-      title: 'AI-Powered, Human-Guided',
-      description: 'Leverage AI to accelerate output while your guardrails ensure quality. Copy and code that passes QA.',
-    },
-    {
-      icon: CheckCircle2,
-      title: 'Knowledge-Grounded',
-      description: 'Ingest vendor docs and client assets. Outputs cite sources and flag assumptions for full transparency.',
-    },
+    { name: 'Platforms', value: connectedPlatforms.length, icon: LinkIcon, href: '/platforms', isLoading: platformsLoading },
   ];
 
   const quickActions = [
     { 
-      name: 'Generate Lifecycle Code', 
-      description: 'Build Liquid/Handlebars logic',
+      name: 'Generate Lifecycle Copy', 
+      description: 'Create on-brand email & push messaging',
+      href: '/chat',
+      icon: MessageSquare,
+      gradient: true,
+    },
+    { 
+      name: 'Generate Template Code', 
+      description: 'Build Liquid/Handlebars for your platform',
       href: '/generate/code',
       icon: Code,
+    },
+    { 
+      name: 'Update Brand Voice', 
+      description: 'Refine your messaging guidelines',
+      href: '/brand',
+      icon: Palette,
     },
     { 
       name: 'Add Knowledge', 
@@ -106,74 +99,79 @@ export default function Dashboard() {
     },
   ];
 
+  const lifecycleJourneys = [
+    { name: 'Welcome Series', description: 'Onboard new users with warmth', icon: Sparkles },
+    { name: 'Re-engagement', description: 'Win back inactive creators', icon: TrendingUp },
+    { name: 'Feature Adoption', description: 'Drive usage of new features', icon: Target },
+    { name: 'Upgrade Nudges', description: 'Convert free to paid', icon: Zap },
+  ];
+
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8 space-y-8 sm:space-y-10">
+      <div className="p-4 sm:p-6 lg:p-8 space-y-8 sm:space-y-10 max-w-6xl mx-auto">
         {/* Welcome section */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4">
           <div className="min-w-0">
-            <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight break-words">
-              Welcome Back, {profile?.full_name?.split(' ')[0] || 'There'}
+            <h1 className="font-bold text-2xl sm:text-3xl tracking-tight break-words">
+              Welcome back, {profile?.full_name?.split(' ')[0] || 'there'} 👋
             </h1>
             <p className="text-muted-foreground mt-1">
-              Your lifecycle marketing ops command center.
+              Your Linktree lifecycle marketing command center.
             </p>
           </div>
-          {isAdmin && (
-            <Button asChild>
-              <Link to="/clients/new">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Client
-              </Link>
-            </Button>
-          )}
         </div>
 
-        {/* Value Props Section */}
-        <section className="bg-primary/5 border border-primary/20 rounded-lg p-6 lg:p-8">
-          <div className="text-center mb-8">
-            <h2 className="font-heading font-black text-2xl tracking-tight mb-2">
-              How Copilot Works
-            </h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              Brand guidelines are the key to generating quality copy and code. Set up your clients with their voice, rules, and platform connections.
-            </p>
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {valueProps.map((prop, i) => (
-              <div key={prop.title} className="text-center">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground mb-4">
-                  <prop.icon className="h-6 w-6" />
-                </div>
-                <h3 className="font-heading font-bold text-sm uppercase tracking-wide mb-2">
-                  {prop.title}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {prop.description}
-                </p>
+        {/* Brand Status Card */}
+        <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardContent className="p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/25">
+                <svg viewBox="0 0 24 24" className="h-8 w-8 text-primary-foreground" fill="currentColor">
+                  <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
+                </svg>
               </div>
-            ))}
-          </div>
-        </section>
+              <div className="flex-1">
+                <h2 className="text-xl font-bold">Linktree</h2>
+                {clientLoading ? (
+                  <Skeleton className="h-4 w-48 mt-1" />
+                ) : client?.brand_voice ? (
+                  <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                    {client.brand_voice}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground/60 italic mt-1">
+                    Brand voice not configured yet
+                  </p>
+                )}
+              </div>
+              <Button asChild>
+                <Link to="/brand">
+                  <Palette className="mr-2 h-4 w-4" />
+                  View Brand
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Stats */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
             <Link key={stat.name} to={stat.href}>
-              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-heading font-bold text-xs uppercase tracking-wide text-muted-foreground">
+                      <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
                         {stat.name}
                       </p>
                       {stat.isLoading ? (
                         <Skeleton className="h-8 w-12 mt-1" />
                       ) : (
-                        <p className="font-heading font-black text-2xl mt-1">{stat.value}</p>
+                        <p className="font-bold text-2xl mt-1">{stat.value}</p>
                       )}
                     </div>
-                    <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+                    <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center">
                       <stat.icon className="h-5 w-5 text-muted-foreground" />
                     </div>
                   </div>
@@ -185,18 +183,18 @@ export default function Dashboard() {
 
         {/* Quick actions */}
         <div>
-          <h2 className="font-heading font-bold text-sm uppercase tracking-wide mb-4">Quick Actions</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <h2 className="font-semibold text-sm uppercase tracking-wide mb-4 text-muted-foreground">Quick Actions</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
             {quickActions.map((action) => (
               <Link key={action.name} to={action.href}>
-                <Card className="group hover:border-primary transition-all cursor-pointer">
+                <Card className={`group hover:border-primary transition-all cursor-pointer h-full ${action.gradient ? 'border-primary/30 bg-gradient-to-br from-primary/10 to-transparent' : ''}`}>
                   <CardContent className="p-5">
                     <div className="flex items-start gap-4">
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <action.icon className="h-5 w-5 text-primary" />
+                      <div className={`h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0 ${action.gradient ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25' : 'bg-primary/10'}`}>
+                        <action.icon className={`h-6 w-6 ${action.gradient ? '' : 'text-primary'}`} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-heading font-bold text-sm group-hover:text-primary transition-colors">
+                        <h3 className="font-semibold group-hover:text-primary transition-colors">
                           {action.name}
                         </h3>
                         <p className="text-sm text-muted-foreground mt-0.5">{action.description}</p>
@@ -210,93 +208,36 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Clients overview */}
+        {/* Lifecycle Journeys */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-heading font-bold text-sm uppercase tracking-wide">Recent Clients</h2>
+            <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Lifecycle Journeys</h2>
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/clients">
-                View All
+              <Link to="/chat">
+                Start Building
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
           </div>
-          
-          {clientsLoading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {[...Array(3)].map((_, i) => (
-                <Card key={i}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {lifecycleJourneys.map((journey) => (
+              <Link key={journey.name} to="/chat">
+                <Card className="hover:border-primary/50 hover:bg-accent/50 transition-all cursor-pointer">
                   <CardContent className="p-4">
                     <div className="flex items-center gap-3">
-                      <Skeleton className="h-10 w-10 rounded-lg" />
-                      <div className="flex-1">
-                        <Skeleton className="h-4 w-24 mb-2" />
-                        <Skeleton className="h-3 w-16" />
+                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <journey.icon className="h-4 w-4 text-primary" />
                       </div>
-                      <Skeleton className="h-6 w-14 rounded-full" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm">{journey.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{journey.description}</p>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-          ) : !clients || clients.length === 0 ? (
-            <Card>
-              <CardContent className="py-8">
-                <EmptyState
-                  icon={Users}
-                  title="No Clients Yet"
-                  description="Add your first client to get started with generating content."
-                  action={
-                    isAdmin && (
-                      <Button asChild>
-                        <Link to="/clients/new">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Client
-                        </Link>
-                      </Button>
-                    )
-                  }
-                />
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {clients.slice(0, 6).map((client) => (
-                <Link key={client.id} to={`/clients/${client.id}`}>
-                  <Card className="hover:border-primary/50 transition-colors cursor-pointer">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        {client.logo_url ? (
-                          <img 
-                            src={client.logo_url} 
-                            alt={client.name} 
-                            className="h-10 w-10 object-contain rounded-lg bg-muted p-1"
-                          />
-                        ) : (
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-heading font-bold">
-                            {client.name.charAt(0)}
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{client.name}</p>
-                          <p className="text-xs text-muted-foreground">{client.slug}</p>
-                        </div>
-                        {client.is_active ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-                            Inactive
-                          </span>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          )}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </AppLayout>

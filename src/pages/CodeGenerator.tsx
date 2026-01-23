@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useClients, useClientPlatforms } from '@/hooks/useClients';
+import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PlatformBadge } from '@/components/ui/platform-badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Code, Sparkles, Copy, Check, Users, RefreshCw, Plus, X } from 'lucide-react';
+import { Code, Sparkles, Copy, Check, RefreshCw, Plus, X } from 'lucide-react';
 import type { PlatformType, CodeGeneratorInput } from '@/lib/types';
 import { PLATFORM_INFO } from '@/lib/types';
 
@@ -41,10 +41,10 @@ interface GeneratedCode {
 }
 
 export default function CodeGenerator() {
-  const { data: clients, isLoading: clientsLoading } = useClients();
+  const { data: client, isLoading: clientLoading } = useLinktreeClient();
+  const { data: platforms } = useLinktreePlatforms();
   const { toast } = useToast();
 
-  const [selectedClient, setSelectedClient] = useState('');
   const [platform, setPlatform] = useState<PlatformType>('braze');
   const [triggerType, setTriggerType] = useState('event');
   const [attributes, setAttributes] = useState<string[]>([]);
@@ -53,16 +53,13 @@ export default function CodeGenerator() {
   const [newEdgeCase, setNewEdgeCase] = useState('');
   const [additionalContext, setAdditionalContext] = useState('');
 
-  const { data: clientPlatforms } = useClientPlatforms(selectedClient);
-
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<GeneratedCode | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const selectedClientData = clients?.find((c) => c.id === selectedClient);
-  const connectedPlatforms = clientPlatforms?.filter((p) => p.is_connected) || [];
+  const connectedPlatforms = platforms?.filter((p) => p.is_connected) || [];
 
-  if (clientsLoading) {
+  if (clientLoading) {
     return (
       <AppLayout>
         <LoadingPage />
@@ -93,8 +90,8 @@ export default function CodeGenerator() {
   };
 
   const handleGenerate = async () => {
-    if (!selectedClient) {
-      toast({ title: 'Select a client', description: 'Please select a client first.', variant: 'destructive' });
+    if (!client) {
+      toast({ title: 'Loading...', description: 'Please wait for the brand to load.', variant: 'destructive' });
       return;
     }
 
@@ -103,7 +100,7 @@ export default function CodeGenerator() {
 
     try {
       const input: CodeGeneratorInput = {
-        client_id: selectedClient,
+        client_id: client.id,
         platform,
         trigger_type: triggerType,
         available_attributes: attributes,
@@ -112,7 +109,7 @@ export default function CodeGenerator() {
       };
 
       const { data, error } = await supabase.functions.invoke('generate-code', {
-        body: { input, client: selectedClientData },
+        body: { input, client },
       });
 
       if (error) throw error;
@@ -142,46 +139,15 @@ export default function CodeGenerator() {
 
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
         <PageHeader
           title="Code Generator"
-          description="Generate Liquid/Handlebars lifecycle logic for your clients."
+          description="Generate Liquid/Handlebars lifecycle logic for your email templates."
         />
 
         <div className="mt-6 sm:mt-8 grid gap-6 lg:gap-8 lg:grid-cols-2">
           {/* Input Form */}
           <div className="space-y-6">
-            {/* Client Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Select Client
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!clients || clients.length === 0 ? (
-                  <EmptyState
-                    title="No clients available"
-                    description="Add a client first to generate code."
-                  />
-                ) : (
-                  <Select value={selectedClient} onValueChange={setSelectedClient}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((client) => (
-                        <SelectItem key={client.id} value={client.id}>
-                          {client.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </CardContent>
-            </Card>
-
             {/* Platform & Trigger */}
             <Card>
               <CardHeader>
@@ -315,7 +281,7 @@ export default function CodeGenerator() {
               className="w-full" 
               size="lg"
               onClick={handleGenerate}
-              disabled={!selectedClient || isGenerating}
+              disabled={!client || isGenerating}
             >
               {isGenerating ? (
                 <>
