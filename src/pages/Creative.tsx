@@ -499,7 +499,6 @@ export default function Creative() {
             {selectedJourney ? (
               <JourneyDetail 
                 journey={selectedJourney} 
-                campaigns={campaigns}
                 onBack={() => setSelectedJourney(null)} 
               />
             ) : (
@@ -820,7 +819,9 @@ function JourneyCard({
 }
 
 // Journey Detail Component
-function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns: any[]; onBack: () => void }) {
+function JourneyDetail({ journey, onBack }: { journey: any; onBack: () => void }) {
+  const [selectedStep, setSelectedStep] = useState<number | null>(null);
+
   const getIcon = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome')) return Sparkles;
@@ -841,11 +842,6 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
 
   const Icon = getIcon();
   const color = getColor();
-
-  // Find campaigns that might be related (by tag overlap)
-  const relatedCampaigns = campaigns.filter(c => 
-    c.tags?.some((t: string) => journey.tags?.includes(t))
-  );
 
   // Count touchpoints by channel
   const channelCounts = journey.steps?.reduce((acc: Record<string, number>, step: any) => {
@@ -911,7 +907,7 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
             </div>
           </div>
 
-          {/* Touchpoints Flow */}
+          {/* Touchpoints Row */}
           {journey.steps && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-4">
@@ -919,73 +915,98 @@ function JourneyDetail({ journey, campaigns, onBack }: { journey: any; campaigns
                   <Workflow className="h-4 w-4" />
                   Touchpoints ({journey.steps.length})
                 </h3>
-                <div className="flex items-center gap-2">
-                  {Object.entries(channelCounts).map(([channel, count]) => (
-                    <div key={channel} className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <ChannelIcon channel={channel} />
-                      <span>{count as number}</span>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-xs text-muted-foreground">Click a touchpoint for details</p>
               </div>
               
-              <div className="relative">
-                <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border" />
-                
-                <div className="space-y-3">
+              {/* Horizontal Touchpoints */}
+              <div className="overflow-x-auto pb-4">
+                <div className="flex items-center gap-2 min-w-max">
                   {journey.steps.map((step: any, index: number) => {
-                    const channelColor = step.channel === 'email' ? 'border-blue-500 bg-blue-500/10' :
-                                        step.channel === 'push' ? 'border-orange-500 bg-orange-500/10' :
-                                        step.channel === 'in_app_message' ? 'border-purple-500 bg-purple-500/10' :
-                                        step.channel === 'sms' ? 'border-green-500 bg-green-500/10' :
-                                        'border-primary bg-primary/10';
+                    const isSelected = selectedStep === index;
+                    const channelBorder = step.channel === 'email' ? 'border-blue-500' :
+                                          step.channel === 'push' ? 'border-orange-500' :
+                                          step.channel === 'in_app_message' ? 'border-purple-500' :
+                                          step.channel === 'sms' ? 'border-green-500' :
+                                          'border-primary';
+                    const channelBg = step.channel === 'email' ? 'bg-blue-500/10' :
+                                      step.channel === 'push' ? 'bg-orange-500/10' :
+                                      step.channel === 'in_app_message' ? 'bg-purple-500/10' :
+                                      step.channel === 'sms' ? 'bg-green-500/10' :
+                                      'bg-primary/10';
                     return (
-                      <div key={index} className="flex items-center gap-4 relative">
-                        <div className={`h-12 w-12 rounded-full bg-card border-2 ${channelColor} flex items-center justify-center z-10 flex-shrink-0`}>
-                          <ChannelIcon channel={step.channel} size="lg" />
-                        </div>
-                        <Card className="flex-1 hover:border-primary/50 transition-colors">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="font-medium">{step.name}</p>
-                                  {step.type === 'trigger' && (
-                                    <Badge variant="secondary" className="text-xs">Trigger</Badge>
-                                  )}
-                                </div>
-                                <p className="text-sm text-muted-foreground capitalize">
-                                  {step.channel === 'in_app_message' ? 'In-App Message' : step.channel}
-                                </p>
-                              </div>
-                              <Badge variant="outline" className="gap-1 ml-2">
-                                <Calendar className="h-3 w-3" />
-                                {step.delay}
-                              </Badge>
-                            </div>
-                          </CardContent>
-                        </Card>
+                      <div key={index} className="flex items-center">
+                        <button
+                          onClick={() => setSelectedStep(isSelected ? null : index)}
+                          className={`flex flex-col items-center p-3 rounded-xl border-2 transition-all min-w-[100px] ${
+                            isSelected 
+                              ? `${channelBorder} ${channelBg} ring-2 ring-offset-2 ring-primary/20` 
+                              : 'border-border hover:border-muted-foreground/50 bg-card'
+                          }`}
+                        >
+                          <div className={`h-10 w-10 rounded-full border-2 ${channelBorder} ${channelBg} flex items-center justify-center mb-2`}>
+                            <ChannelIcon channel={step.channel} size="lg" />
+                          </div>
+                          <span className="text-xs font-medium text-center line-clamp-2">{step.name}</span>
+                          <span className="text-[10px] text-muted-foreground mt-1">{step.delay}</span>
+                        </button>
+                        {index < journey.steps.length - 1 && (
+                          <ArrowRight className="h-4 w-4 text-muted-foreground mx-1 flex-shrink-0" />
+                        )}
                       </div>
                     );
                   })}
                 </div>
               </div>
+
+              {/* Selected Touchpoint Details */}
+              {selectedStep !== null && journey.steps[selectedStep] && (
+                <Card className="mt-4 border-primary/30 bg-primary/5">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${
+                          journey.steps[selectedStep].channel === 'email' ? 'bg-blue-500/20' :
+                          journey.steps[selectedStep].channel === 'push' ? 'bg-orange-500/20' :
+                          journey.steps[selectedStep].channel === 'in_app_message' ? 'bg-purple-500/20' :
+                          'bg-primary/20'
+                        }`}>
+                          <ChannelIcon channel={journey.steps[selectedStep].channel} size="lg" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold">{journey.steps[selectedStep].name}</h4>
+                          <p className="text-sm text-muted-foreground capitalize">
+                            {journey.steps[selectedStep].channel === 'in_app_message' ? 'In-App Message' : journey.steps[selectedStep].channel}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {journey.steps[selectedStep].type === 'trigger' && (
+                          <Badge variant="secondary">Trigger</Badge>
+                        )}
+                        <Badge variant="outline" className="gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {journey.steps[selectedStep].delay}
+                        </Badge>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Step Number</p>
+                        <p className="font-medium">{selectedStep + 1} of {journey.steps.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Type</p>
+                        <p className="font-medium capitalize">{journey.steps[selectedStep].type || 'Message'}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
-
-      {/* Related Campaigns */}
-      {relatedCampaigns.length > 0 && (
-        <div>
-          <h3 className="font-semibold mb-4">Related Campaigns</h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {relatedCampaigns.map(campaign => (
-              <CampaignCard key={campaign.id} campaign={campaign} viewMode="grid" onClick={() => {}} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
