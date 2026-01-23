@@ -25,11 +25,38 @@ interface BrazeCampaign {
   html_preview?: string;
 }
 
+// Canvas step with full graph structure for flowchart visualization
+interface CanvasStep {
+  id: string;
+  name: string;
+  type: string; // message, delay, decision_split, experiment_paths, action_paths, etc.
+  channel?: string; // email, push, in_app_message, sms, webhook, content_card
+  delay_seconds?: number;
+  delay_formatted?: string;
+  next_step_ids: string[];
+  next_paths?: Array<{ name: string; next_step_id: string; percentage?: number }>;
+  messages?: Array<{
+    channel: string;
+    subject?: string;
+    preheader?: string;
+    title?: string;
+    body?: string;
+  }>;
+}
+
+// Canvas variant (entry point into the canvas)
+interface CanvasVariant {
+  name: string;
+  percentage: number;
+  first_step_id: string | null;
+}
+
 interface BrazeCanvas {
   id: string;
   name: string;
   description?: string;
   draft?: boolean;
+  enabled?: boolean; // Key field for "active" status
   schedule_type?: string;
   first_entry?: string;
   last_entry?: string;
@@ -37,16 +64,10 @@ interface BrazeCanvas {
   created_at?: string;
   updated_at?: string;
   archived?: boolean;
+  // Hierarchical structure: Canvas -> Variants -> Steps (graph)
+  variants: CanvasVariant[];
+  steps: Record<string, CanvasStep>;
   total_steps?: number;
-  variants?: any[];
-  // Canvas details
-  steps?: Array<{
-    name: string;
-    type: string;
-    channel?: string;
-    delay?: string;
-    id?: string;
-  }>;
 }
 
 interface BrazeTemplate {
@@ -97,6 +118,38 @@ async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string
   }
 
   return response.json();
+}
+
+// Format delay seconds to human-readable string
+function formatDelay(seconds: number | undefined): string {
+  if (!seconds || seconds === 0) return '0h';
+  if (seconds >= 86400) {
+    const days = Math.floor(seconds / 86400);
+    return `${days}d`;
+  } else if (seconds >= 3600) {
+    const hours = Math.floor(seconds / 3600);
+    return `${hours}h`;
+  } else if (seconds >= 60) {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
+// Determine the primary channel from a step
+function inferChannel(step: any): string {
+  if (step.messages && step.messages.length > 0) {
+    return step.messages[0]?.channel || 'email';
+  }
+  // Infer from step type
+  const type = (step.type || '').toLowerCase();
+  if (type.includes('email')) return 'email';
+  if (type.includes('push')) return 'push';
+  if (type.includes('sms')) return 'sms';
+  if (type.includes('in_app') || type.includes('in-app')) return 'in_app_message';
+  if (type.includes('webhook')) return 'webhook';
+  if (type.includes('content_card')) return 'content_card';
+  return 'email';
 }
 
 serve(async (req) => {
@@ -169,10 +222,8 @@ serve(async (req) => {
         templateList.slice(0, 50).map(async (t: any) => {
           try {
             const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
-            // Store full HTML - emails typically 50-150KB max, and we need complete HTML for proper rendering
             const htmlContent = details.body || undefined;
             
-            // Store in map for campaign matching
             if (htmlContent) {
               templateHtmlMap.set(t.email_template_id, {
                 subject: details.subject || t.subject || '',
@@ -208,7 +259,6 @@ serve(async (req) => {
         })
       );
       
-      // Add remaining templates without HTML content
       const remainingTemplates = templateList.slice(50).map((t: any) => ({
         email_template_id: t.email_template_id,
         template_name: t.template_name,
@@ -231,7 +281,6 @@ serve(async (req) => {
       const campaignsData = await brazeFetch('campaigns/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
       const campaignList = campaignsData.campaigns || [];
       
-      // Fetch campaign details for first 50 campaigns to get message content
       const campaignsWithDetails = await Promise.all(
         campaignList.slice(0, 50).map(async (c: any) => {
           let subject = '';
@@ -239,10 +288,8 @@ serve(async (req) => {
           let htmlPreview = '';
           let templateId = '';
           
-          // Try to get campaign details
           try {
             const details = await brazeFetch(`campaigns/details?campaign_id=${c.id}`, apiKey, brazeRestEndpoint);
-            // Extract email message details if available
             const messages = details.messages || {};
             for (const [key, msg] of Object.entries(messages)) {
               const msgData = msg as any;
@@ -251,12 +298,9 @@ serve(async (req) => {
                 preheader = msgData.preheader || preheader;
                 templateId = msgData.email_template_id || msgData.template_id || '';
                 
-                // Check if body is directly available - store full HTML for proper rendering
                 if (msgData.body) {
                   htmlPreview = msgData.body as string;
-                }
-                // If no body but we have a template ID, look it up
-                else if (templateId && templateHtmlMap.has(templateId)) {
+                } else if (templateId && templateHtmlMap.has(templateId)) {
                   const templateData = templateHtmlMap.get(templateId)!;
                   htmlPreview = templateData.html;
                   subject = subject || templateData.subject;
@@ -269,7 +313,6 @@ serve(async (req) => {
             console.log(`Could not fetch details for campaign ${c.id}: ${err}`);
           }
           
-          // If still no HTML, try matching by campaign name to template name
           if (!htmlPreview) {
             for (const template of results.templates) {
               if (template.html_preview && (
@@ -305,7 +348,6 @@ serve(async (req) => {
         })
       );
       
-      // Add remaining campaigns without details
       const remainingCampaigns = campaignList.slice(50).map((c: any) => ({
         id: c.id,
         name: c.name,
@@ -328,73 +370,100 @@ serve(async (req) => {
       console.error('Failed to fetch campaigns:', e);
     }
 
-    // Fetch canvases (user journeys) with step details
+    // Fetch canvases with FULL hierarchical structure: variants -> steps graph
     try {
       const canvasesData = await brazeFetch('canvas/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
       const canvasList = canvasesData.canvases || [];
       
-      // Fetch canvas details for first 30 canvases to get steps
+      console.log(`Found ${canvasList.length} canvases, fetching details for up to 50...`);
+      
       const canvasesWithDetails = await Promise.all(
-        canvasList.slice(0, 30).map(async (c: any) => {
-          let steps: Array<{ name: string; type: string; channel?: string; delay?: string; id?: string }> = [];
+        canvasList.slice(0, 50).map(async (c: any): Promise<BrazeCanvas> => {
+          const variants: CanvasVariant[] = [];
+          const steps: Record<string, CanvasStep> = {};
+          let enabled = false;
           
           try {
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
             
-            // Parse steps from canvas details
-            if (details.steps) {
-              steps = Object.entries(details.steps).map(([stepId, step]: [string, any]) => {
-                // Determine channel from message type
-                let channel = 'email';
-                if (step.type === 'message') {
-                  const messages = step.messages || [];
-                  if (messages.length > 0) {
-                    const msgChannel = messages[0]?.channel;
-                    if (msgChannel) channel = msgChannel;
-                  }
-                }
-                
-                // Parse delay
-                let delay = '0h';
-                if (step.delay) {
-                  const seconds = step.delay;
-                  if (seconds >= 86400) {
-                    delay = `${Math.floor(seconds / 86400)}d`;
-                  } else if (seconds >= 3600) {
-                    delay = `${Math.floor(seconds / 3600)}h`;
-                  } else if (seconds >= 60) {
-                    delay = `${Math.floor(seconds / 60)}m`;
-                  }
-                }
-                
-                return {
-                  id: stepId,
-                  name: step.name || `Step ${stepId.slice(0, 4)}`,
-                  type: step.type || 'message',
-                  channel,
-                  delay,
-                };
+            // Capture enabled status - this is the key field for "active"
+            enabled = details.enabled === true;
+            
+            console.log(`Canvas "${c.name}" (${c.id}): enabled=${enabled}, draft=${c.draft}`);
+            
+            // Parse variants - these are entry points with percentage allocations
+            if (details.variants && Array.isArray(details.variants)) {
+              details.variants.forEach((v: any, index: number) => {
+                variants.push({
+                  name: v.name || `Variant ${index + 1}`,
+                  percentage: v.percentage || (100 / details.variants.length),
+                  first_step_id: v.first_step_id || null,
+                });
               });
             }
             
-            // Also try to parse from variants if steps aren't available
-            if (steps.length === 0 && details.variants) {
-              details.variants.forEach((variant: any, vIndex: number) => {
-                if (variant.steps) {
-                  variant.steps.forEach((step: any, sIndex: number) => {
-                    steps.push({
-                      id: `v${vIndex}-s${sIndex}`,
-                      name: step.name || `Step ${sIndex + 1}`,
-                      type: step.type || 'message',
-                      channel: step.channel || 'email',
-                      delay: step.delay || '0h',
+            // Parse steps graph - each step has next_step_ids for flowchart rendering
+            if (details.steps && typeof details.steps === 'object') {
+              for (const [stepId, stepData] of Object.entries(details.steps)) {
+                const s = stepData as any;
+                
+                // Parse messages in this step
+                const messages: CanvasStep['messages'] = [];
+                if (s.messages && Array.isArray(s.messages)) {
+                  s.messages.forEach((msg: any) => {
+                    messages.push({
+                      channel: msg.channel || 'email',
+                      subject: msg.subject,
+                      preheader: msg.preheader,
+                      title: msg.title,
+                      body: msg.body,
                     });
                   });
                 }
-              });
+                
+                // Parse next_step_ids - handles branching
+                let nextStepIds: string[] = [];
+                let nextPaths: CanvasStep['next_paths'] = undefined;
+                
+                if (s.next_step_ids && Array.isArray(s.next_step_ids)) {
+                  nextStepIds = s.next_step_ids;
+                } else if (s.next_step_id) {
+                  nextStepIds = [s.next_step_id];
+                }
+                
+                // For decision splits, capture path info
+                if (s.paths && Array.isArray(s.paths)) {
+                  const parsedPaths = s.paths.map((path: any) => ({
+                    name: path.name || 'Path',
+                    next_step_id: path.next_step_id || '',
+                    percentage: path.percentage,
+                  }));
+                  nextPaths = parsedPaths;
+                  // Also add to nextStepIds if not already there
+                  for (const p of parsedPaths) {
+                    if (p.next_step_id && !nextStepIds.includes(p.next_step_id)) {
+                      nextStepIds.push(p.next_step_id);
+                    }
+                  }
+                }
+                
+                const delaySeconds = s.delay_seconds || s.delay || 0;
+                
+                steps[stepId] = {
+                  id: stepId,
+                  name: s.name || `Step`,
+                  type: s.type || 'message',
+                  channel: inferChannel(s),
+                  delay_seconds: delaySeconds,
+                  delay_formatted: formatDelay(delaySeconds),
+                  next_step_ids: nextStepIds,
+                  next_paths: nextPaths,
+                  messages: messages.length > 0 ? messages : undefined,
+                };
+              }
             }
             
-            console.log(`Canvas ${c.name}: found ${steps.length} steps`);
+            console.log(`Canvas "${c.name}": ${variants.length} variants, ${Object.keys(steps).length} steps, enabled=${enabled}`);
           } catch (err) {
             console.log(`Could not fetch details for canvas ${c.id}: ${err}`);
           }
@@ -404,6 +473,7 @@ serve(async (req) => {
             name: c.name,
             description: c.description,
             draft: c.draft,
+            enabled, // Key field for active status
             schedule_type: c.schedule_type,
             first_entry: c.first_entry,
             last_entry: c.last_entry,
@@ -411,17 +481,20 @@ serve(async (req) => {
             created_at: c.created_at,
             updated_at: c.updated_at,
             archived: c.archived,
-            steps: steps.length > 0 ? steps : undefined,
+            variants,
+            steps,
+            total_steps: Object.keys(steps).length,
           };
         })
       );
       
-      // Add remaining canvases without step details
-      const remainingCanvases = canvasList.slice(30).map((c: any) => ({
+      // Add remaining canvases without full details
+      const remainingCanvases: BrazeCanvas[] = canvasList.slice(50).map((c: any) => ({
         id: c.id,
         name: c.name,
         description: c.description,
         draft: c.draft,
+        enabled: false, // Can't determine without details
         schedule_type: c.schedule_type,
         first_entry: c.first_entry,
         last_entry: c.last_entry,
@@ -429,14 +502,19 @@ serve(async (req) => {
         created_at: c.created_at,
         updated_at: c.updated_at,
         archived: c.archived,
+        variants: [],
+        steps: {},
+        total_steps: 0,
       }));
       
       results.canvases = [...canvasesWithDetails, ...remainingCanvases];
-      console.log('Fetched canvases:', results.canvases.length, 'with steps:', canvasesWithDetails.filter(c => c.steps && c.steps.length > 0).length);
+      
+      const enabledCount = canvasesWithDetails.filter(c => c.enabled).length;
+      const withStepsCount = canvasesWithDetails.filter(c => Object.keys(c.steps).length > 0).length;
+      console.log(`Fetched canvases: ${results.canvases.length} total, ${enabledCount} enabled, ${withStepsCount} with steps`);
     } catch (e) {
       console.error('Failed to fetch canvases:', e);
     }
-    // Templates already fetched above - no need to fetch again
 
     // Fetch segments
     try {
@@ -495,11 +573,14 @@ serve(async (req) => {
         metadata: {
           id: c.id,
           draft: c.draft,
+          enabled: c.enabled,
           schedule_type: c.schedule_type,
           first_entry: c.first_entry,
           last_entry: c.last_entry,
           tags: c.tags,
           archived: c.archived,
+          variants_count: c.variants?.length || 0,
+          steps_count: Object.keys(c.steps || {}).length,
         },
       })),
       ...results.templates.map(t => ({
@@ -551,21 +632,22 @@ serve(async (req) => {
 
     // Update the schema_cache on the platform with full data for chat context
     const schemaCache = {
-      cache_version: 1,
+      cache_version: 2, // Bumped for new structure
       saved_at: new Date().toISOString(),
       rest_endpoint: brazeRestEndpoint,
       
       // Counts for quick reference
       campaigns_count: results.campaigns.length,
       canvases_count: results.canvases.length,
+      canvases_enabled_count: results.canvases.filter(c => c.enabled).length,
       templates_count: results.templates.length,
       segments_count: results.segments.length,
       subscription_groups_count: results.subscriptionGroups.length,
       last_sync: new Date().toISOString(),
       
-      // Full data for AI context
+      // Full data for AI context and UI
       campaigns: results.campaigns,
-      canvases: results.canvases,
+      canvases: results.canvases, // Now includes full variants + steps graph
       templates: results.templates,
       segments: results.segments,
       subscription_groups: results.subscriptionGroups,
