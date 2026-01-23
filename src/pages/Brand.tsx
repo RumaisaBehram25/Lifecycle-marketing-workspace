@@ -74,12 +74,16 @@ export default function Brand() {
     { id: 'voice-tone', label: 'Voice & Tone', icon: Volume2 },
   ];
 
-  // Parse data from client
-  const valueProps = (client as any).value_propositions as string[] | null;
+  // Parse data from client - ensure arrays
+  const rawValueProps = (client as any).value_propositions;
+  const valueProps: string[] | null = Array.isArray(rawValueProps) ? rawValueProps : null;
   const targetAudience = (client as any).target_audience as any;
-  const doRules = client.do_rules as string[] | null;
-  const dontRules = client.dont_rules as string[] | null;
-  const keyPillars = (client as any).key_messaging_pillars as string[] | null;
+  const rawDoRules = client.do_rules;
+  const doRules: string[] | null = Array.isArray(rawDoRules) ? rawDoRules : null;
+  const rawDontRules = client.dont_rules;
+  const dontRules: string[] | null = Array.isArray(rawDontRules) ? rawDontRules : null;
+  const rawKeyPillars = (client as any).key_messaging_pillars;
+  const keyPillars: string[] | null = Array.isArray(rawKeyPillars) ? rawKeyPillars : null;
 
   return (
     <AppLayout>
