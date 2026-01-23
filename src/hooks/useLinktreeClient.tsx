@@ -6,6 +6,70 @@ import { useToast } from '@/hooks/use-toast';
 const LINKTREE_SLUG = 'linktree';
 const LINKTREE_NAME = 'Linktree';
 
+// Linktree brand defaults based on website research
+const LINKTREE_BRAND_DEFAULTS = {
+  name: LINKTREE_NAME,
+  slug: LINKTREE_SLUG,
+  website_url: 'https://linktr.ee',
+  industry: 'Technology / Creator Economy',
+  is_active: true,
+  tagline: 'A link in bio built for you',
+  primary_color: '#43E660',
+  secondary_color: '#254F1A',
+  brand_voice: `Friendly, empowering, and inclusive. We help 70M+ creators share everything they are with a single link. Our tone is approachable and encouraging—we celebrate self-expression and make complex things feel simple. We speak directly to creators, influencers, small businesses, and anyone building their online presence.`,
+  value_propositions: JSON.stringify([
+    'One link to share everything you create, curate, and sell',
+    'Trusted by 70M+ creators, influencers, and businesses',
+    'The original and most popular link in bio tool since 2016',
+    'Customize every detail to match your brand',
+    'Powerful analytics to understand your audience',
+    'Monetization features to sell products and collect payments',
+  ]),
+  differentiators: JSON.stringify([
+    'Invented the link-in-bio category in 2016',
+    'Used by celebrities like Selena Gomez, Tony Hawk, and major brands like HBO',
+    'Trusted URL that audiences recognize and feel safe clicking',
+    'Works seamlessly across Instagram, TikTok, Twitter, YouTube',
+    'QR codes for offline-to-online traffic',
+  ]),
+  target_audience: JSON.stringify([
+    { segment: 'Creators & Influencers', description: 'YouTubers, TikTokers, streamers, vloggers building their personal brand' },
+    { segment: 'Small Businesses', description: 'Entrepreneurs, ecommerce sellers, and retailers monetizing online' },
+    { segment: 'Musicians & Artists', description: 'Bands, DJs, fashion designers sharing their work' },
+    { segment: 'Fitness & Wellness', description: 'Coaches, health educators, and wellness leaders' },
+    { segment: 'Enterprise & Media', description: 'Brands like HBO, Comedy Central using Linktree at scale' },
+  ]),
+  key_messaging_pillars: JSON.stringify([
+    'Simplicity - Never compromise or remove links; share everything in one place',
+    'Self-expression - Reflect your personality and brand in seconds',
+    'Monetization - Turn followers into revenue with seamless selling',
+    'Analytics - Understand what converts your audience',
+    'Trust - The original, most recognized link in bio tool',
+  ]),
+  do_rules: JSON.stringify([
+    'Speak directly to creators with "you" language',
+    'Celebrate self-expression and individuality',
+    'Keep messaging simple, friendly, and encouraging',
+    'Highlight ease of use and time savings',
+    'Use social proof (70M+ users, celebrity examples)',
+    'Emphasize monetization possibilities',
+  ]),
+  dont_rules: JSON.stringify([
+    'Avoid corporate jargon or overly formal language',
+    'Don\'t be condescending about tech skills',
+    'Never make creators feel limited by the platform',
+    'Avoid comparing negatively to competitors',
+    'Don\'t use complex technical terms without explanation',
+  ]),
+  tone_presets: JSON.stringify([
+    'Friendly & Approachable',
+    'Empowering & Encouraging',
+    'Simple & Direct',
+    'Celebratory',
+    'Inclusive',
+  ]),
+};
+
 // Hook to get or create the single Linktree client
 export function useLinktreeClient() {
   const { toast } = useToast();
@@ -23,20 +87,23 @@ export function useLinktreeClient() {
       if (fetchError) throw fetchError;
       
       if (existing) {
+        // Update with brand defaults if brand voice is missing or basic
+        if (!existing.value_propositions || !existing.target_audience) {
+          const { data: updated } = await supabase
+            .from('clients')
+            .update(LINKTREE_BRAND_DEFAULTS)
+            .eq('id', existing.id)
+            .select()
+            .single();
+          return (updated || existing) as Client;
+        }
         return existing as Client;
       }
       
       // Create Linktree client if it doesn't exist
       const { data: created, error: createError } = await supabase
         .from('clients')
-        .insert({
-          name: LINKTREE_NAME,
-          slug: LINKTREE_SLUG,
-          website_url: 'https://linktr.ee',
-          industry: 'Technology',
-          is_active: true,
-          brand_voice: 'Friendly, empowering, and inclusive. We celebrate self-expression and help creators share everything they are with a single link.',
-        })
+        .insert(LINKTREE_BRAND_DEFAULTS)
         .select()
         .single();
       
