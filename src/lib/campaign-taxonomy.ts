@@ -76,6 +76,8 @@ export function getChannelColor(channel: string | null): string {
       return 'bg-green-500/10 text-green-600 border-green-500/30';
     case 'in-app':
     case 'in_app':
+    case 'in-app-message':
+    case 'in_app_message':
       return 'bg-purple-500/10 text-purple-600 border-purple-500/30';
     default:
       return 'bg-muted text-muted-foreground';
