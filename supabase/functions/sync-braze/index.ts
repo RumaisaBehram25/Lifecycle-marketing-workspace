@@ -39,6 +39,14 @@ interface BrazeCanvas {
   archived?: boolean;
   total_steps?: number;
   variants?: any[];
+  // Canvas details
+  steps?: Array<{
+    name: string;
+    type: string;
+    channel?: string;
+    delay?: string;
+    id?: string;
+  }>;
 }
 
 interface BrazeTemplate {
@@ -320,10 +328,96 @@ serve(async (req) => {
       console.error('Failed to fetch campaigns:', e);
     }
 
-    // Fetch canvases (user journeys)
+    // Fetch canvases (user journeys) with step details
     try {
       const canvasesData = await brazeFetch('canvas/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
-      results.canvases = (canvasesData.canvases || []).map((c: any) => ({
+      const canvasList = canvasesData.canvases || [];
+      
+      // Fetch canvas details for first 30 canvases to get steps
+      const canvasesWithDetails = await Promise.all(
+        canvasList.slice(0, 30).map(async (c: any) => {
+          let steps: Array<{ name: string; type: string; channel?: string; delay?: string; id?: string }> = [];
+          
+          try {
+            const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
+            
+            // Parse steps from canvas details
+            if (details.steps) {
+              steps = Object.entries(details.steps).map(([stepId, step]: [string, any]) => {
+                // Determine channel from message type
+                let channel = 'email';
+                if (step.type === 'message') {
+                  const messages = step.messages || [];
+                  if (messages.length > 0) {
+                    const msgChannel = messages[0]?.channel;
+                    if (msgChannel) channel = msgChannel;
+                  }
+                }
+                
+                // Parse delay
+                let delay = '0h';
+                if (step.delay) {
+                  const seconds = step.delay;
+                  if (seconds >= 86400) {
+                    delay = `${Math.floor(seconds / 86400)}d`;
+                  } else if (seconds >= 3600) {
+                    delay = `${Math.floor(seconds / 3600)}h`;
+                  } else if (seconds >= 60) {
+                    delay = `${Math.floor(seconds / 60)}m`;
+                  }
+                }
+                
+                return {
+                  id: stepId,
+                  name: step.name || `Step ${stepId.slice(0, 4)}`,
+                  type: step.type || 'message',
+                  channel,
+                  delay,
+                };
+              });
+            }
+            
+            // Also try to parse from variants if steps aren't available
+            if (steps.length === 0 && details.variants) {
+              details.variants.forEach((variant: any, vIndex: number) => {
+                if (variant.steps) {
+                  variant.steps.forEach((step: any, sIndex: number) => {
+                    steps.push({
+                      id: `v${vIndex}-s${sIndex}`,
+                      name: step.name || `Step ${sIndex + 1}`,
+                      type: step.type || 'message',
+                      channel: step.channel || 'email',
+                      delay: step.delay || '0h',
+                    });
+                  });
+                }
+              });
+            }
+            
+            console.log(`Canvas ${c.name}: found ${steps.length} steps`);
+          } catch (err) {
+            console.log(`Could not fetch details for canvas ${c.id}: ${err}`);
+          }
+          
+          return {
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            draft: c.draft,
+            schedule_type: c.schedule_type,
+            first_entry: c.first_entry,
+            last_entry: c.last_entry,
+            tags: c.tags,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            archived: c.archived,
+            steps: steps.length > 0 ? steps : undefined,
+          };
+        })
+      );
+      
+      // Add remaining canvases without step details
+      const remainingCanvases = canvasList.slice(30).map((c: any) => ({
         id: c.id,
         name: c.name,
         description: c.description,
@@ -336,7 +430,9 @@ serve(async (req) => {
         updated_at: c.updated_at,
         archived: c.archived,
       }));
-      console.log('Fetched canvases:', results.canvases.length);
+      
+      results.canvases = [...canvasesWithDetails, ...remainingCanvases];
+      console.log('Fetched canvases:', results.canvases.length, 'with steps:', canvasesWithDetails.filter(c => c.steps && c.steps.length > 0).length);
     } catch (e) {
       console.error('Failed to fetch canvases:', e);
     }
