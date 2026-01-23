@@ -586,7 +586,7 @@ export default function Creative() {
                 </div>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Preheader</p>
-                  <p className="text-sm">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
+                  <p className="text-sm line-clamp-2">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
                 </div>
               </div>
 
