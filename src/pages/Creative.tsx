@@ -44,29 +44,52 @@ import {
   RefreshCw,
   AlertCircle,
   Workflow,
+  GitBranch,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor, ParsedCampaign } from '@/lib/campaign-taxonomy';
+import { CanvasFlowChart } from '@/components/creative/CanvasFlowChart';
 
-// Type definitions for Braze data
+// Type definitions for Braze data - matches sync-braze output
+interface CanvasStep {
+  id: string;
+  name: string;
+  type: string;
+  channel?: string;
+  delay_seconds?: number;
+  delay_formatted?: string;
+  next_step_ids: string[];
+  next_paths?: Array<{ name: string; next_step_id: string; percentage?: number }>;
+  messages?: Array<{
+    channel: string;
+    subject?: string;
+    preheader?: string;
+    title?: string;
+    body?: string;
+  }>;
+}
+
+interface CanvasVariant {
+  name: string;
+  percentage: number;
+  first_step_id: string | null;
+}
+
 interface BrazeCanvas {
   id: string;
   name: string;
   description?: string;
   draft?: boolean;
+  enabled?: boolean; // Key field for active status
   schedule_type?: string;
   first_entry?: string;
   last_entry?: string;
   tags?: string[];
   archived?: boolean;
-  steps?: Array<{
-    id?: string;
-    name: string;
-    type: string;
-    channel?: string;
-    delay?: string;
-  }>;
+  variants: CanvasVariant[];
+  steps: Record<string, CanvasStep>;
+  total_steps?: number;
 }
 
 interface BrazeCampaign {
@@ -129,40 +152,61 @@ interface BrazeSchemaCache {
 }
 
 // Fallback mock data when no Braze data is available
-const MOCK_JOURNEYS = [
+const MOCK_JOURNEYS: Array<{
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  status: 'active' | 'draft';
+  enabled?: boolean;
+  tags: string[];
+  channels: string[];
+  taxonomy: { type: 'lifecycle'; channel: string; displayName: string; dateString: string };
+  variants: CanvasVariant[];
+  steps: Record<string, CanvasStep>;
+  total_steps: number;
+}> = [
   {
     id: 'welcome',
     name: 'Welcome Series',
     displayName: 'Welcome Series',
     description: 'Onboard new users and drive first actions',
-    status: 'active' as 'active' | 'draft',
+    status: 'active',
+    enabled: true,
     tags: ['onboarding', 'new-users'],
     channels: ['email', 'push'],
-    taxonomy: { type: 'lifecycle' as const, channel: 'email', displayName: 'Welcome Series', dateString: '' },
-    steps: [
-      { name: 'Entry Trigger', delay: '0h', channel: 'email', type: 'trigger' },
-      { name: 'Welcome Email', delay: '0h', channel: 'email', type: 'message' },
-      { name: 'Push Reminder', delay: '24h', channel: 'push', type: 'message' },
-      { name: 'Feature Intro', delay: '48h', channel: 'email', type: 'message' },
-      { name: 'Pro Upgrade Nudge', delay: '72h', channel: 'push', type: 'message' },
+    taxonomy: { type: 'lifecycle', channel: 'email', displayName: 'Welcome Series', dateString: '' },
+    variants: [
+      { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
+    steps: {
+      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'] },
+      'step2': { id: 'step2', name: 'Push Reminder', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['step3'] },
+      'step3': { id: 'step3', name: 'Feature Intro', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['step4'] },
+      'step4': { id: 'step4', name: 'Pro Upgrade Nudge', type: 'message', channel: 'push', delay_formatted: '72h', next_step_ids: [] },
+    },
+    total_steps: 4,
   },
   {
     id: 're-engagement',
     name: 'Re-engagement',
     displayName: 'Re-engagement',
     description: 'Win back inactive creators',
-    status: 'active' as 'active' | 'draft',
+    status: 'active',
+    enabled: true,
     tags: ['retention', 'winback'],
     channels: ['email', 'push', 'in_app_message'],
-    taxonomy: { type: 'lifecycle' as const, channel: 'email', displayName: 'Re-engagement', dateString: '' },
-    steps: [
-      { name: 'Entry Trigger', delay: '0h', channel: 'email', type: 'trigger' },
-      { name: 'We Miss You Email', delay: '0h', channel: 'email', type: 'message' },
-      { name: 'In-App Banner', delay: '3d', channel: 'in_app_message', type: 'message' },
-      { name: "What's New Email", delay: '7d', channel: 'email', type: 'message' },
-      { name: 'Last Chance Push', delay: '14d', channel: 'push', type: 'message' },
+    taxonomy: { type: 'lifecycle', channel: 'email', displayName: 'Re-engagement', dateString: '' },
+    variants: [
+      { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
+    steps: {
+      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'] },
+      'step2': { id: 'step2', name: 'In-App Banner', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['step3'] },
+      'step3': { id: 'step3', name: "What's New Email", type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['step4'] },
+      'step4': { id: 'step4', name: 'Last Chance Push', type: 'message', channel: 'push', delay_formatted: '14d', next_step_ids: [] },
+    },
+    total_steps: 4,
   },
 ];
 
@@ -253,7 +297,7 @@ export default function Creative() {
   const hasBrazeData = !!brazeData?.last_sync;
 
   // Transform Braze canvases to journey format with taxonomy parsing
-  // Include draft canvases for status filtering
+  // Now uses `enabled` field for active status instead of draft+last_entry
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
@@ -262,20 +306,20 @@ export default function Creative() {
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
         
-        // Use real steps from Braze if available
-        const realSteps = canvas.steps?.map(step => ({
-          name: step.name,
-          type: step.type || 'message',
-          channel: step.channel || 'email',
-          delay: step.delay || '0h',
-        }));
+        // Get steps from the new Record<string, CanvasStep> format
+        const stepsRecord = canvas.steps || {};
+        const stepsList = Object.values(stepsRecord);
         
-        // Parse channels from steps, taxonomy, or infer from name
+        // Parse channels from steps
         let inferredChannels: string[] = [];
-        if (realSteps && realSteps.length > 0) {
+        if (stepsList.length > 0) {
           // Get unique channels from real steps
-          inferredChannels = [...new Set(realSteps.map(s => s.channel))];
-        } else {
+          const channels = stepsList
+            .filter((s): s is CanvasStep => s.channel !== undefined)
+            .map(s => s.channel as string);
+          inferredChannels = [...new Set(channels)];
+        }
+        if (inferredChannels.length === 0) {
           const nameLower = canvas.name.toLowerCase();
           if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
           if (nameLower.includes('push')) inferredChannels.push('push');
@@ -284,14 +328,8 @@ export default function Creative() {
           if (inferredChannels.length === 0) inferredChannels.push('email');
         }
         
-        // Determine status - active if has recent entries and not draft
-        const isActive = !canvas.draft && canvas.last_entry !== undefined;
-        
-        // Fallback steps if no real data
-        const fallbackSteps = [
-          { name: 'Entry', delay: '0h', channel: inferredChannels[0] || 'email', type: 'trigger' },
-          { name: 'Message 1', delay: '0h', channel: inferredChannels[0] || 'email', type: 'message' },
-        ];
+        // Determine status - ENABLED is the key field from Braze
+        const isActive = canvas.enabled === true;
         
         return {
           id: canvas.id,
@@ -299,13 +337,18 @@ export default function Creative() {
           displayName: taxonomy.displayName,
           description: canvas.description || 'Braze Canvas journey',
           status: isActive ? 'active' : 'draft' as 'active' | 'draft',
+          enabled: canvas.enabled,
+          draft: canvas.draft,
           tags: canvas.tags || [],
           channels: inferredChannels,
           first_entry: canvas.first_entry,
           last_entry: canvas.last_entry,
           schedule_type: canvas.schedule_type,
-          taxonomy: { ...taxonomy, type: 'lifecycle' as const }, // Force lifecycle type for canvases
-          steps: realSteps && realSteps.length > 0 ? realSteps : fallbackSteps,
+          taxonomy: { ...taxonomy, type: 'lifecycle' as const },
+          // Keep full canvas data for flowchart
+          variants: canvas.variants || [],
+          steps: stepsRecord,
+          total_steps: canvas.total_steps || stepsList.length,
         };
       });
   }, [brazeData?.canvases]);
@@ -1090,7 +1133,7 @@ function JourneyCard({
         {/* Multi-touch indicator */}
         <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
           <Workflow className="h-3.5 w-3.5" />
-          <span>{journey.steps?.length || 0} touchpoints</span>
+          <span>{journey.total_steps || Object.keys(journey.steps || {}).length} touchpoints</span>
           <span className="text-muted-foreground/50">•</span>
           <span>{journey.channels?.length || 0} channels</span>
         </div>
@@ -1129,7 +1172,7 @@ function JourneyDetail({
   onBack: () => void;
   onViewTouchpoint: (step: any) => void;
 }) {
-  const [selectedStep, setSelectedStep] = useState<number | null>(null);
+  
 
   const getIcon = () => {
     const name = journey.name.toLowerCase();
@@ -1152,12 +1195,13 @@ function JourneyDetail({
   const Icon = getIcon();
   const color = getColor();
 
-  // Count touchpoints by channel
-  const channelCounts = journey.steps?.reduce((acc: Record<string, number>, step: any) => {
+  // Count touchpoints by channel - steps is now a Record
+  const stepsList = journey.steps ? Object.values(journey.steps) : [];
+  const channelCounts = stepsList.reduce((acc: Record<string, number>, step: any) => {
     const ch = step.channel || 'email';
     acc[ch] = (acc[ch] || 0) + 1;
     return acc;
-  }, {}) || {};
+  }, {});
 
   return (
     <div className="space-y-6">
@@ -1216,112 +1260,27 @@ function JourneyDetail({
             </div>
           </div>
 
-          {/* Touchpoints Row */}
-          {journey.steps && (
+          {/* Canvas Flowchart Visualization */}
+          {journey.steps && Object.keys(journey.steps).length > 0 && (
             <div className="mt-8">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <Workflow className="h-4 w-4" />
-                  Touchpoints ({journey.steps.length})
-                </h3>
-                <p className="text-xs text-muted-foreground">Click a touchpoint to expand, then view creative</p>
-              </div>
-              
-              {/* Horizontal Touchpoints */}
-              <div className="overflow-x-auto pb-4">
-                <div className="flex items-center gap-2 min-w-max">
-                  {journey.steps.map((step: any, index: number) => {
-                    const isSelected = selectedStep === index;
-                    const channelBorder = step.channel === 'email' ? 'border-blue-500' :
-                                          step.channel === 'push' ? 'border-orange-500' :
-                                          step.channel === 'in_app_message' ? 'border-purple-500' :
-                                          step.channel === 'sms' ? 'border-green-500' :
-                                          'border-primary';
-                    const channelBg = step.channel === 'email' ? 'bg-blue-500/10' :
-                                      step.channel === 'push' ? 'bg-orange-500/10' :
-                                      step.channel === 'in_app_message' ? 'bg-purple-500/10' :
-                                      step.channel === 'sms' ? 'bg-green-500/10' :
-                                      'bg-primary/10';
-                    return (
-                      <div key={index} className="flex items-center">
-                        <button
-                          onClick={() => setSelectedStep(isSelected ? null : index)}
-                          className={`flex flex-col items-center p-3 rounded-xl border-2 transition-all min-w-[100px] ${
-                            isSelected 
-                              ? `${channelBorder} ${channelBg} ring-2 ring-offset-2 ring-primary/20` 
-                              : 'border-border hover:border-muted-foreground/50 bg-card'
-                          }`}
-                        >
-                          <div className={`h-10 w-10 rounded-full border-2 ${channelBorder} ${channelBg} flex items-center justify-center mb-2`}>
-                            <ChannelIcon channel={step.channel} size="lg" />
-                          </div>
-                          <span className="text-xs font-medium text-center line-clamp-2">{step.name}</span>
-                          <span className="text-[10px] text-muted-foreground mt-1">{step.delay}</span>
-                        </button>
-                        {index < journey.steps.length - 1 && (
-                          <ArrowRight className="h-4 w-4 text-muted-foreground mx-1 flex-shrink-0" />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Selected Touchpoint Details */}
-              {selectedStep !== null && journey.steps[selectedStep] && (
-                <Card className="mt-4 border-primary/30 bg-primary/5">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${
-                          journey.steps[selectedStep].channel === 'email' ? 'bg-blue-500/20' :
-                          journey.steps[selectedStep].channel === 'push' ? 'bg-orange-500/20' :
-                          journey.steps[selectedStep].channel === 'in_app_message' ? 'bg-purple-500/20' :
-                          'bg-primary/20'
-                        }`}>
-                          <ChannelIcon channel={journey.steps[selectedStep].channel} size="lg" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold">{journey.steps[selectedStep].name}</h4>
-                          <p className="text-sm text-muted-foreground capitalize">
-                            {journey.steps[selectedStep].channel === 'in_app_message' ? 'In-App Message' : journey.steps[selectedStep].channel}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {journey.steps[selectedStep].type === 'trigger' && (
-                          <Badge variant="secondary">Trigger</Badge>
-                        )}
-                        <Badge variant="outline" className="gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {journey.steps[selectedStep].delay}
-                        </Badge>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="flex gap-6 text-sm">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Step</p>
-                          <p className="font-medium">{selectedStep + 1} of {journey.steps.length}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Type</p>
-                          <p className="font-medium capitalize">{journey.steps[selectedStep].type || 'Message'}</p>
-                        </div>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        onClick={() => onViewTouchpoint(journey.steps[selectedStep])}
-                        className="gap-2"
-                      >
-                        <Eye className="h-4 w-4" />
-                        View Creative
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+              <CanvasFlowChart 
+                canvas={{
+                  id: journey.id,
+                  name: journey.name,
+                  description: journey.description,
+                  enabled: journey.enabled,
+                  draft: journey.draft,
+                  variants: journey.variants || [],
+                  steps: journey.steps,
+                  tags: journey.tags,
+                  first_entry: journey.first_entry,
+                  last_entry: journey.last_entry,
+                }}
+                onViewStep={(step) => onViewTouchpoint({
+                  ...step,
+                  delay: step.delay_formatted,
+                })}
+              />
             </div>
           )}
         </CardContent>
