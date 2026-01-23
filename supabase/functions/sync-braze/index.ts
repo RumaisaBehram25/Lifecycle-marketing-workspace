@@ -189,10 +189,45 @@ serve(async (req) => {
       console.error('Failed to fetch canvases:', e);
     }
 
-    // Fetch email templates
+    // Fetch email templates with content
     try {
       const templatesData = await brazeFetch('templates/email/list?limit=100', apiKey, brazeRestEndpoint);
-      results.templates = (templatesData.templates || []).map((t: any) => ({
+      const templateList = templatesData.templates || [];
+      
+      // Fetch full template details including HTML for each template (up to 10 for performance)
+      const templatesWithContent = await Promise.all(
+        templateList.slice(0, 10).map(async (t: any) => {
+          try {
+            const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
+            return {
+              email_template_id: t.email_template_id,
+              template_name: t.template_name,
+              description: t.description,
+              subject: details.subject || t.subject,
+              preheader: details.preheader || t.preheader,
+              tags: t.tags,
+              created_at: t.created_at,
+              updated_at: t.updated_at,
+              html_preview: details.body ? details.body.substring(0, 5000) : undefined, // Truncate for storage
+            };
+          } catch (err) {
+            console.log(`Could not fetch details for template ${t.email_template_id}`);
+            return {
+              email_template_id: t.email_template_id,
+              template_name: t.template_name,
+              description: t.description,
+              subject: t.subject,
+              preheader: t.preheader,
+              tags: t.tags,
+              created_at: t.created_at,
+              updated_at: t.updated_at,
+            };
+          }
+        })
+      );
+      
+      // Add remaining templates without HTML content
+      const remainingTemplates = templateList.slice(10).map((t: any) => ({
         email_template_id: t.email_template_id,
         template_name: t.template_name,
         description: t.description,
@@ -202,7 +237,9 @@ serve(async (req) => {
         created_at: t.created_at,
         updated_at: t.updated_at,
       }));
-      console.log('Fetched templates:', results.templates.length);
+      
+      results.templates = [...templatesWithContent, ...remainingTemplates];
+      console.log('Fetched templates:', results.templates.length, 'with HTML preview:', templatesWithContent.filter(t => t.html_preview).length);
     } catch (e) {
       console.error('Failed to fetch templates:', e);
     }
