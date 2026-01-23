@@ -187,25 +187,34 @@ export default function Creative() {
   const hasBrazeData = !!brazeData?.last_sync;
 
   // Transform Braze canvases to journey format with taxonomy parsing
+  // Filter out archived and stopped canvases by default
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
-    return brazeData.canvases.map(canvas => {
-      const taxonomy = parseCampaignTaxonomy(canvas.name);
-      return {
-        id: canvas.id,
-        name: canvas.name,
-        displayName: taxonomy.displayName,
-        description: canvas.description || 'Braze Canvas journey',
-        status: canvas.draft ? 'draft' : 'live',
-        tags: canvas.tags || [],
-        channels: taxonomy.channel ? [taxonomy.channel] : ['email', 'push'],
-        first_entry: canvas.first_entry,
-        last_entry: canvas.last_entry,
-        schedule_type: canvas.schedule_type,
-        taxonomy,
-      };
-    });
+    return brazeData.canvases
+      .filter(canvas => !canvas.archived && !canvas.draft) // Only show live, non-archived
+      .map(canvas => {
+        const taxonomy = parseCampaignTaxonomy(canvas.name);
+        return {
+          id: canvas.id,
+          name: canvas.name,
+          displayName: taxonomy.displayName,
+          description: canvas.description || 'Braze Canvas journey',
+          status: 'live' as const,
+          tags: canvas.tags || [],
+          channels: taxonomy.channel ? [taxonomy.channel] : ['email', 'push'],
+          first_entry: canvas.first_entry,
+          last_entry: canvas.last_entry,
+          schedule_type: canvas.schedule_type,
+          taxonomy,
+          // Placeholder steps for visual - in real use would come from canvas details API
+          steps: [
+            { name: 'Entry', delay: '0h', channel: taxonomy.channel || 'email' },
+            { name: 'Follow-up', delay: '24h', channel: taxonomy.channel || 'email' },
+            { name: 'Final', delay: '72h', channel: taxonomy.channel || 'push' },
+          ],
+        };
+      });
   }, [brazeData?.canvases]);
 
   // Transform Braze campaigns with taxonomy parsing
@@ -513,34 +522,34 @@ export default function Creative() {
                 </div>
               )}
 
-              {/* Subject & Preheader */}
-              <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
+              {/* Subject & Preheader - Compact */}
+              <div className="grid grid-cols-1 gap-2 p-3 bg-muted/30 rounded-lg">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Subject Line</p>
-                  <p className="text-lg font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
+                  <p className="text-xs font-medium text-muted-foreground">Subject Line</p>
+                  <p className="font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Preheader</p>
+                  <p className="text-xs font-medium text-muted-foreground">Preheader</p>
                   <p className="text-sm">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
                 </div>
               </div>
 
-              {/* HTML Preview */}
+              {/* HTML Preview - Full height */}
               {selectedCampaign.html_preview ? (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-2">Email Creative</p>
                   <div className="border rounded-lg overflow-hidden bg-white">
                     <iframe
                       srcDoc={selectedCampaign.html_preview}
-                      className="w-full h-96"
+                      className="w-full h-[500px]"
                       title="Email Preview"
                       sandbox="allow-same-origin"
                     />
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed">
-                  <Mail className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <div className="text-center py-6 bg-muted/20 rounded-lg border border-dashed">
+                  <Mail className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">Email preview not available</p>
                   <p className="text-xs text-muted-foreground mt-1">Sync again to fetch email content</p>
                 </div>

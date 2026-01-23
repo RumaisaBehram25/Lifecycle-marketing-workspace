@@ -9,7 +9,6 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Brand from "./pages/Brand";
 import Creative from "./pages/Creative";
-import Platforms from "./pages/Platforms";
 import CodeGenerator from "./pages/CodeGenerator";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
@@ -33,14 +32,14 @@ function AppRoutes() {
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/brand" element={<ProtectedRoute><Brand /></ProtectedRoute>} />
       <Route path="/creative" element={<ProtectedRoute><Creative /></ProtectedRoute>} />
-      <Route path="/platforms" element={<ProtectedRoute><Platforms /></ProtectedRoute>} />
       <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />
       <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-      {/* Redirect old client routes */}
+      {/* Redirect old routes */}
       <Route path="/clients" element={<Navigate to="/brand" replace />} />
       <Route path="/clients/:id" element={<Navigate to="/brand" replace />} />
+      <Route path="/platforms" element={<Navigate to="/knowledge" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

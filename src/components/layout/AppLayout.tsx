@@ -38,7 +38,6 @@ const navigation = [
   { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   { name: 'Code Generator', href: '/generate/code', icon: Code },
   { name: 'Knowledge Base', href: '/knowledge', icon: Database },
-  { name: 'Platforms', href: '/platforms', icon: LinkIcon },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
