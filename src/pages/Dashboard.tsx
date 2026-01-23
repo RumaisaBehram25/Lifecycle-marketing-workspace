@@ -126,7 +126,7 @@ export default function Dashboard() {
           <CardContent className="p-6">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <img 
-                src="/logos/toms-key-company.png" 
+                src="/logos/linktree-logo.png" 
                 alt="Linktree" 
                 className="h-14 w-14 rounded-2xl object-contain"
               />
