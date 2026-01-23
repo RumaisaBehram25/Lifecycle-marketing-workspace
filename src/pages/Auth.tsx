@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Mail, Lock, User } from 'lucide-react';
-import brcgLogo from '@/assets/brcg-logo.png';
 
 export default function Auth() {
   const { user, isLoading, signIn, signUp } = useAuth();
@@ -52,19 +51,23 @@ export default function Auth() {
   return (
     <div className="flex min-h-screen">
       {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-primary items-center justify-center p-12">
+      <div className="hidden lg:flex lg:w-1/2 bg-[#0a0a0a] items-center justify-center p-12">
         <div className="max-w-md text-center">
-          <div className="mx-auto mb-8 bg-white p-6 rounded-lg inline-block">
-            <img src={brcgLogo} alt="BRCG" className="h-16 w-auto" />
+          <div className="mx-auto mb-8 inline-flex items-center justify-center">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary shadow-2xl shadow-primary/30">
+              <svg viewBox="0 0 24 24" className="h-12 w-12 text-primary-foreground" fill="currentColor">
+                <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
+              </svg>
+            </div>
           </div>
-          <h1 className="font-heading font-black text-5xl text-primary-foreground mb-2 tracking-tight">
-            Copilot
+          <h1 className="font-bold text-5xl text-white mb-2 tracking-tight">
+            Linktree
           </h1>
-          <p className="font-heading font-bold text-sm uppercase tracking-widest text-primary-foreground/70 mb-8">
-            A BRCG Labs Product
+          <p className="font-semibold text-sm uppercase tracking-widest text-white/50 mb-8">
+            Lifecycle Copilot
           </p>
-          <p className="text-lg text-primary-foreground/90">
-            AI-powered lifecycle marketing operations. Generate on-brand copy and code for Braze, Klaviyo, Iterable, Customer.io, and HubSpot.
+          <p className="text-lg text-white/70">
+            AI-powered lifecycle marketing. Generate on-brand copy and template code for your email platform.
           </p>
         </div>
       </div>
@@ -73,11 +76,15 @@ export default function Auth() {
       <div className="flex w-full lg:w-1/2 items-center justify-center p-4 sm:p-8 bg-background">
         <Card className="w-full max-w-md border-0 shadow-none lg:border lg:shadow-sm">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 lg:hidden">
-              <img src={brcgLogo} alt="BRCG" className="h-10 w-auto mx-auto" />
-              <span className="font-heading font-black text-xl mt-2 block">Copilot</span>
+            <div className="mx-auto mb-4 lg:hidden flex items-center justify-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
+                <svg viewBox="0 0 24 24" className="h-6 w-6 text-primary-foreground" fill="currentColor">
+                  <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
+                </svg>
+              </div>
+              <span className="font-bold text-xl">Linktree</span>
             </div>
-            <CardTitle className="font-heading font-black text-2xl">Welcome Back</CardTitle>
+            <CardTitle className="font-bold text-2xl">Welcome Back</CardTitle>
             <CardDescription>
               Sign in to your account to continue
             </CardDescription>
@@ -85,14 +92,14 @@ export default function Auth() {
           <CardContent>
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'signin' | 'signup')}>
               <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger value="signin" className="font-heading font-bold uppercase text-xs tracking-wide">Sign In</TabsTrigger>
-                <TabsTrigger value="signup" className="font-heading font-bold uppercase text-xs tracking-wide">Sign Up</TabsTrigger>
+                <TabsTrigger value="signin" className="font-semibold text-xs">Sign In</TabsTrigger>
+                <TabsTrigger value="signup" className="font-semibold text-xs">Sign Up</TabsTrigger>
               </TabsList>
 
               <form onSubmit={handleSubmit}>
                 <TabsContent value="signin" className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="font-heading font-bold uppercase text-xs tracking-wide">Email</Label>
+                    <Label htmlFor="email" className="font-medium text-xs">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -107,7 +114,7 @@ export default function Auth() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="password" className="font-heading font-bold uppercase text-xs tracking-wide">Password</Label>
+                    <Label htmlFor="password" className="font-medium text-xs">Password</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -125,7 +132,7 @@ export default function Auth() {
 
                 <TabsContent value="signup" className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="fullName" className="font-heading font-bold uppercase text-xs tracking-wide">Full Name</Label>
+                    <Label htmlFor="fullName" className="font-medium text-xs">Full Name</Label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -140,7 +147,7 @@ export default function Auth() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signupEmail" className="font-heading font-bold uppercase text-xs tracking-wide">Email</Label>
+                    <Label htmlFor="signupEmail" className="font-medium text-xs">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -155,7 +162,7 @@ export default function Auth() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signupPassword" className="font-heading font-bold uppercase text-xs tracking-wide">Password</Label>
+                    <Label htmlFor="signupPassword" className="font-medium text-xs">Password</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -176,7 +183,7 @@ export default function Auth() {
                   <p className="text-sm text-destructive mt-4">{error}</p>
                 )}
 
-                <Button type="submit" className="w-full mt-6 font-heading font-bold uppercase tracking-wide" disabled={loading}>
+                <Button type="submit" className="w-full mt-6 font-semibold" disabled={loading}>
                   {loading && <LoadingSpinner size="sm" className="mr-2" />}
                   {activeTab === 'signin' ? 'Sign In' : 'Create Account'}
                 </Button>

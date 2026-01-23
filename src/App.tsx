@@ -7,9 +7,8 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { LoadingPage } from "@/components/ui/loading-spinner";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import Clients from "./pages/Clients";
-import NewClient from "./pages/NewClient";
-import ClientDetail from "./pages/ClientDetail";
+import Brand from "./pages/Brand";
+import Platforms from "./pages/Platforms";
 import CodeGenerator from "./pages/CodeGenerator";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
@@ -31,13 +30,15 @@ function AppRoutes() {
       <Route path="/auth" element={<Auth />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-      <Route path="/clients/new" element={<ProtectedRoute><NewClient /></ProtectedRoute>} />
-      <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
+      <Route path="/brand" element={<ProtectedRoute><Brand /></ProtectedRoute>} />
+      <Route path="/platforms" element={<ProtectedRoute><Platforms /></ProtectedRoute>} />
       <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />
       <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+      {/* Redirect old client routes */}
+      <Route path="/clients" element={<Navigate to="/brand" replace />} />
+      <Route path="/clients/:id" element={<Navigate to="/brand" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
