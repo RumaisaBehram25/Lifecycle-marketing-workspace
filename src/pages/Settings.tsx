@@ -372,9 +372,16 @@ export default function Settings() {
                                 <div key={segment.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-muted/50">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
+                                      {segment.is_starred ? (
+                                        <Star className="h-4 w-4 text-amber-500 fill-amber-500 flex-shrink-0" />
+                                      ) : (
+                                        <Star className="h-4 w-4 text-muted-foreground/30 flex-shrink-0" />
+                                      )}
                                       <p className="text-sm font-medium truncate">{segment.name}</p>
                                       {segment.is_starred && (
-                                        <Star className="h-3 w-3 text-amber-500 fill-amber-500" />
+                                        <Badge variant="outline" className="text-xs text-amber-600 border-amber-500/30">
+                                          Starred in Braze
+                                        </Badge>
                                       )}
                                     </div>
                                   </div>
