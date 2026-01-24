@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -87,49 +87,81 @@ function getChannelColors(channel?: string): { bg: string; border: string; text:
   const ch = channel?.toLowerCase() || 'email';
   switch (ch) {
     case 'email':
-      return { bg: 'bg-blue-500/10', border: 'border-blue-500/50', text: 'text-blue-600' };
+      return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
     case 'push':
     case 'ios_push':
     case 'android_push':
     case 'web_push':
-      return { bg: 'bg-orange-500/10', border: 'border-orange-500/50', text: 'text-orange-600' };
+      return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
     case 'in_app_message':
     case 'in-app':
-      return { bg: 'bg-purple-500/10', border: 'border-purple-500/50', text: 'text-purple-600' };
+      return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
     case 'sms':
-      return { bg: 'bg-emerald-500/10', border: 'border-emerald-500/50', text: 'text-emerald-600' };
+      return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
     default:
       return { bg: 'bg-muted', border: 'border-border', text: 'text-muted-foreground' };
   }
 }
 
+function normalizeChannel(channel?: string) {
+  const ch = (channel || '').toLowerCase();
+  if (!ch) return 'email';
+  if (ch === 'email') return 'email';
+  if (ch.includes('push')) return 'push';
+  if (ch.includes('in_app') || ch.includes('in-app') || ch.includes('inapp')) return 'in_app_message';
+  if (ch === 'sms') return 'sms';
+  if (ch === 'control') return 'control';
+  return ch;
+}
+
+function pickBestMessage(step: CanvasStep) {
+  const msgs = step.messages || [];
+  if (!msgs.length) return undefined;
+
+  const wanted = normalizeChannel(step.channel);
+
+  // Prefer: non-control + channel match
+  const match = msgs.find((m) => normalizeChannel(m.channel) === wanted && normalizeChannel(m.channel) !== 'control');
+  if (match) return match;
+
+  // Otherwise: first non-control with any content
+  const withContent = msgs.find((m) =>
+    normalizeChannel(m.channel) !== 'control' &&
+    (m.html_content || m.subject || m.title || m.body)
+  );
+  if (withContent) return withContent;
+
+  // Fallback: first message
+  return msgs[0];
+}
+
 // Render creative preview based on channel - LARGE SIZE for visibility
 function CreativePreview({ step }: { step: CanvasStep }) {
-  const channel = step.channel?.toLowerCase() || 'email';
-  const message = step.messages?.[0];
+  const channel = normalizeChannel(step.channel);
+  const message = pickBestMessage(step);
   const colors = getChannelColors(channel);
-  
-  // Check if we have any message content to display
-  const hasContent = message && (message.subject || message.title || message.body || message.html_content);
   
   if (channel === 'email') {
     return (
-      <div className="w-full h-[380px] bg-white rounded-t-lg overflow-hidden flex flex-col">
-        <div className="bg-muted/50 px-5 py-4 border-b flex-shrink-0">
+      <div className="w-full h-[420px] bg-card rounded-t-lg overflow-hidden flex flex-col">
+        <div className="bg-muted/30 px-5 py-4 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground truncate">From: Linktree</p>
           <p className="text-base font-medium truncate">{message?.subject || step.name}</p>
           {message?.preheader && (
             <p className="text-sm text-muted-foreground truncate mt-1">{message.preheader}</p>
           )}
         </div>
-        <div className="flex-1 p-5 overflow-hidden">
+        <div className="relative flex-1 overflow-hidden bg-background">
           {message?.html_content ? (
-            <div 
-              className="text-xs leading-relaxed scale-[0.45] origin-top-left w-[700px] prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: message.html_content.substring(0, 5000) }}
+            <iframe
+              title={message?.subject || step.name}
+              className="absolute left-0 top-0 border-0 origin-top-left scale-[0.5] w-[800px] h-[900px]"
+              sandbox=""
+              loading="lazy"
+              srcDoc={message.html_content}
             />
           ) : message?.body ? (
-            <div className="text-sm text-foreground leading-relaxed">
+            <div className="p-5 text-sm text-foreground leading-relaxed">
               <p>{message.body}</p>
             </div>
           ) : (
@@ -146,7 +178,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'push' || channel.includes('push')) {
     return (
-      <div className="w-full h-[380px] flex flex-col items-center justify-center p-8 bg-gradient-to-b from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 rounded-t-lg">
+      <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 bg-muted/20 rounded-t-lg">
         <div className="w-full bg-card border rounded-2xl p-5 shadow-xl">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
@@ -168,7 +200,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'in_app_message' || channel === 'in-app') {
     return (
-      <div className="w-full h-[380px] flex flex-col items-center justify-center p-8 bg-gradient-to-b from-primary/5 to-primary/15 rounded-t-lg">
+      <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 bg-muted/20 rounded-t-lg">
         <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
           {message?.image_url ? (
             <img src={message.image_url} alt="" className="w-20 h-20 object-cover rounded-xl mx-auto mb-5" />
@@ -194,11 +226,11 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   // SMS fallback
   return (
-    <div className="w-full h-[380px] flex flex-col items-center justify-center p-8 rounded-t-lg bg-gradient-to-b from-emerald-50 to-emerald-100 dark:from-emerald-950 dark:to-emerald-900">
+    <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 rounded-t-lg bg-muted/20">
       <div className={`w-full bg-card border-2 ${colors.border} rounded-2xl p-6 shadow-lg`}>
         <div className="flex items-start gap-3 mb-3">
-          <MessageSquare className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">SMS</p>
+          <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+          <p className="text-sm font-medium">SMS</p>
         </div>
         <p className="text-base leading-relaxed">{message?.body || step.name}</p>
       </div>
@@ -267,21 +299,13 @@ function StepCard({
   }
   
   return (
-    <div className="flex flex-col w-[340px] flex-shrink-0">
+    <div className="flex flex-col w-[380px] flex-shrink-0">
       <Card 
         className={`cursor-pointer hover:shadow-xl transition-all border-2 ${colors.border} overflow-hidden hover:scale-[1.02]`}
         onClick={onClick}
       >
         <CardContent className="p-0">
           <CreativePreview step={step} />
-          <div className={`px-5 py-4 border-t ${colors.bg}`}>
-            <div className="flex items-center gap-3">
-              <div className={colors.text}>
-                {getChannelIcon(step.channel, "h-5 w-5")}
-              </div>
-              <span className="text-base font-medium truncate flex-1">{step.name}</span>
-            </div>
-          </div>
         </CardContent>
       </Card>
       <StepMetaModule step={step} delayBefore={delayBefore} splitInfo={splitInfo} />
@@ -447,10 +471,12 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
     return [];
   }, [canvas.variants, canvas.steps, hasVariants, hasSteps]);
   
-  // Default all variants to open
-  const [openVariants, setOpenVariants] = useState<Set<number>>(() => 
-    new Set(effectiveVariants.map((_, i) => i))
-  );
+  // Default all variants to open (and re-open when switching canvases / when variants arrive)
+  const [openVariants, setOpenVariants] = useState<Set<number>>(() => new Set());
+
+  useEffect(() => {
+    setOpenVariants(new Set(effectiveVariants.map((_, i) => i)));
+  }, [canvas.id, effectiveVariants.length]);
   
   const toggleVariant = (idx: number) => {
     const newOpen = new Set(openVariants);
