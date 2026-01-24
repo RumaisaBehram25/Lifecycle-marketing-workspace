@@ -1,10 +1,17 @@
+import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClientChat } from '@/components/chat/ClientChat';
 import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { LoadingPage } from '@/components/ui/loading-spinner';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Plus, FileText } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
 
 export default function Chat() {
+  const [searchParams] = useSearchParams();
+  const initialConversationId = searchParams.get('conversation') || undefined;
+  const [briefModalOpen, setBriefModalOpen] = useState(false);
   const { data: client, isLoading: clientLoading } = useLinktreeClient();
   const { data: platforms } = useLinktreePlatforms();
 
@@ -35,7 +42,7 @@ export default function Chat() {
 
   return (
     <AppLayout>
-      <div className="flex h-[calc(100vh-4rem)] lg:h-screen bg-sidebar">
+      <div className="flex h-[calc(100vh-4rem)] lg:h-screen bg-sidebar relative">
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col bg-background overflow-hidden">
           {client ? (
@@ -52,6 +59,7 @@ export default function Chat() {
               }}
               platformContext={platformContexts.length > 0 ? platformContexts : undefined}
               showHistory={true}
+              initialConversationId={initialConversationId}
             />
           ) : (
             /* Welcome Screen */
@@ -112,7 +120,22 @@ export default function Chat() {
             </div>
           )}
         </div>
+
+        {/* Floating New Brief Button */}
+        <Button
+          size="lg"
+          className="fixed bottom-6 right-6 h-14 px-5 shadow-xl shadow-primary/30 rounded-full z-50 gap-2"
+          onClick={() => setBriefModalOpen(true)}
+        >
+          <Plus className="h-5 w-5" />
+          <span className="hidden sm:inline">New Brief</span>
+        </Button>
       </div>
+
+      <CreateBriefModal
+        open={briefModalOpen}
+        onOpenChange={setBriefModalOpen}
+      />
     </AppLayout>
   );
 }
