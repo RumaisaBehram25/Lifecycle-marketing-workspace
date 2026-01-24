@@ -209,6 +209,44 @@ export type Database = {
         }
         Relationships: []
       }
+      data_visibility: {
+        Row: {
+          client_id: string
+          created_at: string
+          id: string
+          is_visible: boolean
+          item_id: string
+          item_type: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          id?: string
+          is_visible?: boolean
+          item_id: string
+          item_type: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          id?: string
+          is_visible?: boolean
+          item_id?: string
+          item_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_visibility_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       generated_content: {
         Row: {
           assumptions: Json | null
