@@ -708,11 +708,12 @@ serve(async (req) => {
     }
 
     // Fetch canvases with FULL hierarchical structure: variants -> steps graph
+    // We'll fetch details first to determine enabled status, then filter to ONLY sync active canvases
     try {
       const canvasesData = await brazeFetch('canvas/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
       const canvasList = canvasesData.canvases || [];
       
-      console.log(`Found ${canvasList.length} canvases, fetching details for up to 50...`);
+      console.log(`Found ${canvasList.length} canvases total, fetching details to filter active only...`);
       
       const canvasesWithDetails = await Promise.all(
         canvasList.slice(0, 50).map(async (c: any): Promise<BrazeCanvas> => {
@@ -842,30 +843,15 @@ serve(async (req) => {
         })
       );
       
-      // Add remaining canvases without full details
-      const remainingCanvases: BrazeCanvas[] = canvasList.slice(50).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        description: c.description,
-        draft: c.draft,
-        enabled: false, // Can't determine without details
-        schedule_type: c.schedule_type,
-        first_entry: c.first_entry,
-        last_entry: c.last_entry,
-        tags: c.tags,
-        created_at: c.created_at,
-        updated_at: c.updated_at,
-        archived: c.archived,
-        variants: [],
-        steps: {},
-        total_steps: 0,
-      }));
+      // ONLY include ACTIVE (enabled) canvases - filter out drafts and disabled
+      const activeCanvases = canvasesWithDetails.filter(c => c.enabled === true);
       
-      results.canvases = [...canvasesWithDetails, ...remainingCanvases];
+      // Don't include remaining canvases without details since we can't verify they're active
+      // This ensures the Lifecycle page only shows truly active journeys
+      results.canvases = activeCanvases;
       
-      const enabledCount = canvasesWithDetails.filter(c => c.enabled).length;
-      const withStepsCount = canvasesWithDetails.filter(c => Object.keys(c.steps).length > 0).length;
-      console.log(`Fetched canvases: ${results.canvases.length} total, ${enabledCount} enabled, ${withStepsCount} with steps`);
+      const withStepsCount = activeCanvases.filter(c => Object.keys(c.steps).length > 0).length;
+      console.log(`Synced canvases: ${activeCanvases.length} active (from ${canvasesWithDetails.length} fetched, ${canvasList.length} total), ${withStepsCount} with steps`);
     } catch (e) {
       console.error('Failed to fetch canvases:', e);
     }

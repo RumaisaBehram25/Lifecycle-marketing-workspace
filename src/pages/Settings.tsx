@@ -124,7 +124,12 @@ export default function Settings() {
       return explicitSetting;
     }
     
-    // Default: hide items from 2024 and earlier, show newer ones
+    // Segments: default to NOT visible - users must manually enable
+    if (itemType === 'segment') {
+      return false;
+    }
+    
+    // Campaigns/Canvases: hide items from 2024 and earlier, show newer ones
     return !isOldItem(dateStr);
   };
 
