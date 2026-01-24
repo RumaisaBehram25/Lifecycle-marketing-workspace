@@ -193,12 +193,13 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform Braze canvases to journey format
+  // Transform Braze canvases to journey format - ONLY active (enabled) journeys
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
     return brazeData.canvases
-      .filter(canvas => !canvas.archived)
+      // Only include active/enabled canvases, exclude archived
+      .filter(canvas => !canvas.archived && canvas.enabled === true)
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
         
@@ -221,14 +222,12 @@ export default function Lifecycle() {
           if (inferredChannels.length === 0) inferredChannels.push('email');
         }
         
-        const isActive = canvas.enabled === true;
-        
         return {
           id: canvas.id,
           name: canvas.name,
           displayName: taxonomy.displayName,
           description: canvas.description || 'Braze Canvas journey',
-          status: isActive ? 'active' : 'draft' as 'active' | 'draft',
+          status: 'active' as 'active' | 'draft',
           enabled: canvas.enabled,
           draft: canvas.draft,
           tags: canvas.tags || [],
