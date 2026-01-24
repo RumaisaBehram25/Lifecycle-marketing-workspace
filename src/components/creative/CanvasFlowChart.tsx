@@ -272,13 +272,14 @@ function PathRenderer({
             {hasBranches && (
               <div className="mt-2">
                 <div className="flex items-start gap-4 pt-2">
-                  {step.next_step_ids.map((nextId, branchIdx) => {
-                    const pathInfo = step.next_paths?.find(p => p.next_step_id === nextId);
-                    return (
-                      <div key={nextId} className="flex flex-col items-center">
-                        <Badge variant="outline" className="text-xs mb-2">
-                          {pathInfo?.name || `Path ${branchIdx + 1}`}
-                          {pathInfo?.percentage && ` (${pathInfo.percentage}%)`}
+                      {step.next_step_ids.map((nextId, branchIdx) => {
+                        const pathInfo = step.next_paths?.find(p => p.next_step_id === nextId);
+                        const roundedPercentage = pathInfo?.percentage ? Math.round(pathInfo.percentage) : null;
+                        return (
+                          <div key={nextId} className="flex flex-col items-center">
+                            <Badge variant="outline" className="text-xs mb-2">
+                              {pathInfo?.name || `Path ${branchIdx + 1}`}
+                              {roundedPercentage && ` (${roundedPercentage}%)`}
                         </Badge>
                         <PathRenderer 
                           steps={[nextId]} 
@@ -342,7 +343,7 @@ function VariantSection({
           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
           <span className="font-medium">{variant.name}</span>
           <Badge variant={isControl ? 'secondary' : 'outline'}>
-            {variant.percentage}%
+            {Math.round(variant.percentage)}%
           </Badge>
         </div>
         <span className="text-sm text-muted-foreground">
