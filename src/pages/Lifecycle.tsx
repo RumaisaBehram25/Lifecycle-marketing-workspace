@@ -45,7 +45,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
-import { CanvasFlowChart } from '@/components/creative/CanvasFlowChart';
+import { HorizontalFlowChart } from '@/components/creative/HorizontalFlowChart';
 
 // Type definitions
 interface CanvasStep {
@@ -641,16 +641,13 @@ function JourneyCard({
       <Card className="hover:border-primary/50 transition-colors cursor-pointer" onClick={onClick}>
         <CardContent className="p-4">
           <div className="flex items-center gap-4">
-            <div className={`h-12 w-12 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
-              <Icon className="h-6 w-6 text-white" />
+            <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
+              <Icon className="h-5 w-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold">{journey.displayName || journey.name}</h3>
-                <Badge variant={journey.status === 'active' ? 'default' : 'secondary'}>
-                  {journey.status === 'active' ? 'Active' : 'Draft'}
-                </Badge>
-              </div>
+              <h3 className="text-sm font-medium line-clamp-1" title={journey.displayName || journey.name}>
+                {journey.displayName || journey.name}
+              </h3>
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 {journey.channels?.map((ch: string) => (
                   <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
@@ -658,7 +655,6 @@ function JourneyCard({
                   </Badge>
                 ))}
               </div>
-              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">{journey.description}</p>
             </div>
             <div className="flex items-center gap-2">
               <div className="text-right text-xs text-muted-foreground">
@@ -674,45 +670,31 @@ function JourneyCard({
 
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all cursor-pointer overflow-hidden" onClick={onClick}>
-      {/* Channel Pills Header */}
-      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5 flex-wrap">
-        {journey.channels?.map((ch: string) => (
-          <Badge key={ch} variant="outline" className={`text-xs bg-background ${getChannelColor(ch)}`}>
-            {ch === 'in_app_message' ? 'In-App' : ch}
-          </Badge>
-        ))}
-        <Badge variant={journey.status === 'active' ? 'default' : 'secondary'} className="text-xs ml-auto">
-          {journey.status === 'active' ? 'Active' : 'Draft'}
-        </Badge>
-      </div>
-      
       <CardContent className="p-5">
         <div className="flex items-start gap-3 mb-4">
           <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-1">
+            <h3 className="text-sm font-medium group-hover:text-primary transition-colors line-clamp-2 leading-tight" title={journey.displayName || journey.name}>
               {journey.displayName || journey.name}
             </h3>
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{journey.description}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
           <Workflow className="h-3.5 w-3.5" />
           <span>{journey.total_steps || Object.keys(journey.steps || {}).length} touchpoints</span>
-          <span className="text-muted-foreground/50">•</span>
-          <span>{journey.channels?.length || 0} channels</span>
         </div>
 
-        {journey.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {journey.tags.slice(0, 3).map((tag: string) => (
-              <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
-            ))}
-          </div>
-        )}
+        {/* Channel badges */}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {journey.channels?.map((ch: string) => (
+            <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
+              {ch === 'in_app_message' ? 'In-App' : ch}
+            </Badge>
+          ))}
+        </div>
 
         <div className="flex items-center justify-between pt-3 border-t">
           <div className="flex items-center gap-1">
@@ -781,14 +763,10 @@ function JourneyDetail({
             <div className={`h-14 w-14 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
               <Icon className="h-7 w-7 text-white" />
             </div>
-            <div className="flex-1">
+              <div className="flex-1">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <h2 className="text-2xl font-bold">{journey.displayName || journey.name}</h2>
-                <Badge variant={journey.status === 'active' ? 'default' : 'secondary'}>
-                  {journey.status === 'active' ? 'Active' : 'Draft'}
-                </Badge>
+                <h2 className="text-xl font-semibold">{journey.displayName || journey.name}</h2>
               </div>
-              <p className="text-muted-foreground">{journey.description}</p>
               
               <div className="flex flex-wrap gap-2 mt-3">
                 {Object.entries(channelCounts).map(([channel, count]) => (
@@ -797,14 +775,6 @@ function JourneyDetail({
                   </Badge>
                 ))}
               </div>
-              
-              {journey.tags?.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {journey.tags.map((tag: string) => (
-                    <Badge key={tag} variant="secondary">{tag}</Badge>
-                  ))}
-                </div>
-              )}
 
               {(journey.first_entry || journey.last_entry) && (
                 <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
@@ -819,10 +789,10 @@ function JourneyDetail({
             </div>
           </div>
 
-          {/* Canvas Flowchart */}
+          {/* Horizontal Flow Chart */}
           {journey.steps && Object.keys(journey.steps).length > 0 && (
             <div className="mt-8">
-              <CanvasFlowChart 
+              <HorizontalFlowChart 
                 canvas={{
                   id: journey.id,
                   name: journey.name,
