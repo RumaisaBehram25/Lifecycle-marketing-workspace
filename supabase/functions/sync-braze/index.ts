@@ -6,23 +6,68 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface BrazeCampaign {
-  id: string;
+// Normalized campaign type detection
+type CampaignType = 'email' | 'push' | 'inapp' | 'sms' | 'webhook' | 'content_card' | 'unknown';
+type MessageType = 'campaign' | 'canvas_step' | 'content_block';
+
+// Normalized variant content structure
+interface NormalizedContent {
+  title?: string;
+  subject?: string;
+  preheader?: string;
+  body_text?: string;
+  body_html?: string;
+  image_url?: string;
+  deep_link?: string;
+  buttons?: Array<{ text: string; action?: string; url?: string }>;
+  extras?: Record<string, unknown>;
+}
+
+interface NormalizedVariant {
+  variant_id: string;
   name: string;
-  description?: string;
+  platforms: string[];
+  content: NormalizedContent;
+  raw: Record<string, unknown>;
+}
+
+interface NormalizedCampaign {
+  source: 'braze';
+  message_type: MessageType;
+  campaign_id: string;
+  campaign_name: string;
+  updated_at?: string;
+  campaign_type: CampaignType;
+  channels: string[];
+  variants: NormalizedVariant[];
+  warnings: string[];
+  // Legacy fields for backward compatibility
   draft?: boolean;
   schedule_type?: string;
-  channels?: string[];
   first_sent?: string;
   last_sent?: string;
   tags?: string[];
-  message_types?: string[];
-  created_at?: string;
-  updated_at?: string;
   archived?: boolean;
+  description?: string;
+}
+
+// Legacy interface for backward compat
+interface BrazeCampaign extends NormalizedCampaign {
+  id: string;
+  name: string;
+  // Flattened fields for UI backward compat
   subject?: string;
   preheader?: string;
   html_preview?: string;
+  push_title?: string;
+  push_body?: string;
+  push_deep_link?: string;
+  push_extras?: Record<string, unknown>;
+  inapp_header?: string;
+  inapp_body?: string;
+  inapp_cta?: string;
+  inapp_image_url?: string;
+  inapp_buttons?: Array<{ text: string; action?: string; url?: string }>;
 }
 
 // Canvas step with full graph structure for flowchart visualization
@@ -149,6 +194,139 @@ function formatDelay(seconds: number | undefined): string {
     return `${minutes}m`;
   }
   return `${seconds}s`;
+}
+
+// ====== CHANNEL DETECTION ======
+// Detect campaign type based on message payload keys - NOT just channel field
+function detectCampaignType(msgData: any): CampaignType {
+  // Check for email-specific fields
+  if (msgData.body || msgData.html_body || msgData.from_name || msgData.subject || 
+      msgData.from_address || msgData.reply_to || msgData.preheader || msgData.email_template_id) {
+    return 'email';
+  }
+  
+  // Check for push-specific fields
+  if (msgData.alert || msgData.title || msgData.extras || msgData.deep_link || 
+      msgData.device_platform || msgData.android_push_alert || msgData.ios_push_alert ||
+      msgData.alert_title || msgData.sound || msgData.badge_count) {
+    return 'push';
+  }
+  
+  // Check for in-app-specific fields  
+  if (msgData.message || msgData.header || msgData.buttons || msgData.image_url ||
+      msgData.message_close || msgData.click_action || msgData.slide_from ||
+      msgData.button_one_text || msgData.button_two_text || msgData.modal_style) {
+    return 'inapp';
+  }
+  
+  // Check for SMS-specific fields
+  if (msgData.message_body || msgData.subscription_group_id) {
+    return 'sms';
+  }
+  
+  // Check for webhook-specific fields
+  if (msgData.url || msgData.http_method || msgData.request_headers) {
+    return 'webhook';
+  }
+  
+  // Check for content card-specific fields
+  if (msgData.card_type || msgData.pinned || msgData.dismissible) {
+    return 'content_card';
+  }
+  
+  return 'unknown';
+}
+
+// Extract platform(s) from message data
+function extractPlatforms(msgData: any, channel: string): string[] {
+  const platforms: string[] = [];
+  
+  if (channel.includes('ios') || msgData.ios_push_alert) platforms.push('ios');
+  if (channel.includes('android') || msgData.android_push_alert) platforms.push('android');
+  if (channel.includes('web') || msgData.web_push_alert) platforms.push('web');
+  
+  // Default based on channel type
+  if (platforms.length === 0) {
+    if (channel === 'push') return ['ios', 'android'];
+    if (channel === 'in_app_message') return ['ios', 'android', 'web'];
+    return ['all'];
+  }
+  
+  return platforms;
+}
+
+// ====== CONTENT NORMALIZATION ======
+// Normalize message content into consistent structure
+function normalizeMessageContent(msgData: any, campaignType: CampaignType): NormalizedContent {
+  const content: NormalizedContent = {};
+  
+  switch (campaignType) {
+    case 'email':
+      content.subject = msgData.subject;
+      content.preheader = msgData.preheader;
+      content.body_html = msgData.body || msgData.html_body;
+      content.body_text = msgData.plaintext_body;
+      break;
+      
+    case 'push':
+      content.title = msgData.title || msgData.alert_title;
+      content.body_text = msgData.message || msgData.alert || msgData.body;
+      content.deep_link = msgData.deep_link || msgData.uri || msgData.open_app_uri;
+      content.image_url = msgData.big_image || msgData.image_url || msgData.rich_notification_image;
+      if (msgData.extras && typeof msgData.extras === 'object') {
+        content.extras = msgData.extras;
+      }
+      break;
+      
+    case 'inapp':
+      content.title = msgData.header || msgData.title;
+      content.body_text = msgData.message || msgData.body;
+      content.image_url = msgData.image_url || msgData.image_uri || msgData.graphic_url;
+      
+      // Parse buttons
+      const buttons: Array<{ text: string; action?: string; url?: string }> = [];
+      if (msgData.button_one_text) {
+        buttons.push({
+          text: msgData.button_one_text,
+          action: msgData.button_one_action || msgData.button_one_click_action_type,
+          url: msgData.button_one_uri || msgData.button_one_deep_link,
+        });
+      }
+      if (msgData.button_two_text) {
+        buttons.push({
+          text: msgData.button_two_text,
+          action: msgData.button_two_action || msgData.button_two_click_action_type,
+          url: msgData.button_two_uri || msgData.button_two_deep_link,
+        });
+      }
+      // Also check for buttons array format
+      if (msgData.buttons && Array.isArray(msgData.buttons)) {
+        for (const btn of msgData.buttons) {
+          buttons.push({
+            text: btn.text || btn.label,
+            action: btn.action || btn.click_action,
+            url: btn.url || btn.uri || btn.deep_link,
+          });
+        }
+      }
+      if (buttons.length > 0) {
+        content.buttons = buttons;
+      }
+      if (msgData.extras && typeof msgData.extras === 'object') {
+        content.extras = msgData.extras;
+      }
+      break;
+      
+    case 'sms':
+      content.body_text = msgData.message_body || msgData.body;
+      break;
+      
+    default:
+      // Store any body-like field
+      content.body_text = msgData.message || msgData.body || msgData.text;
+  }
+  
+  return content;
 }
 
 // Determine the primary channel from a step
@@ -295,34 +473,76 @@ serve(async (req) => {
       console.error('Failed to fetch templates:', e);
     }
 
-    // Fetch campaigns with details
+    // Fetch campaigns with FULL normalized structure
     try {
       const campaignsData = await brazeFetch('campaigns/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
       const campaignList = campaignsData.campaigns || [];
       
+      console.log(`[Campaigns] Found ${campaignList.length} campaigns, fetching details for up to 50...`);
+      
       const campaignsWithDetails = await Promise.all(
-        campaignList.slice(0, 50).map(async (c: any) => {
+        campaignList.slice(0, 50).map(async (c: any): Promise<BrazeCampaign> => {
+          const warnings: string[] = [];
+          const variants: NormalizedVariant[] = [];
+          const detectedChannels = new Set<string>();
+          let primaryCampaignType: CampaignType = 'unknown';
+          
+          // Legacy flattened fields for backward compatibility
           let subject = '';
           let preheader = '';
           let htmlPreview = '';
-          let templateId = '';
           let push_title = '';
           let push_body = '';
+          let push_deep_link = '';
+          let push_extras: Record<string, unknown> = {};
           let inapp_header = '';
           let inapp_body = '';
           let inapp_cta = '';
+          let inapp_image_url = '';
+          let inapp_buttons: Array<{ text: string; action?: string; url?: string }> = [];
           
           try {
             const details = await brazeFetch(`campaigns/details?campaign_id=${c.id}`, apiKey, brazeRestEndpoint);
             const messages = details.messages || {};
-            for (const [key, msg] of Object.entries(messages)) {
+            
+            // Log endpoint and field keys for debugging
+            console.log(`[Campaign ${c.id}] "${c.name}" - endpoint: campaigns/details`);
+            console.log(`[Campaign ${c.id}] message keys: ${Object.keys(messages).join(', ') || 'none'}`);
+            
+            // Process each message variant
+            for (const [variantId, msg] of Object.entries(messages)) {
               const msgData = msg as any;
+              const msgChannel = msgData.channel || 'unknown';
               
-              // Email content
-              if (msgData.channel === 'email') {
+              // Detect campaign type from payload fields, not just channel
+              const detectedType = detectCampaignType(msgData);
+              console.log(`[Campaign ${c.id}] variant ${variantId}: channel=${msgChannel}, detected_type=${detectedType}, fields=${Object.keys(msgData).slice(0, 10).join(',')}`);
+              
+              if (detectedType !== 'unknown') {
+                primaryCampaignType = detectedType;
+              }
+              
+              // Track channels
+              detectedChannels.add(msgChannel);
+              
+              // Normalize content
+              const normalizedContent = normalizeMessageContent(msgData, detectedType);
+              const platforms = extractPlatforms(msgData, msgChannel);
+              
+              // Build normalized variant
+              variants.push({
+                variant_id: variantId,
+                name: msgData.name || `Variant ${variants.length + 1}`,
+                platforms,
+                content: normalizedContent,
+                raw: msgData, // Keep raw for debugging
+              });
+              
+              // ====== Legacy flattened extraction for backward compat ======
+              if (detectedType === 'email' || msgChannel === 'email') {
                 subject = msgData.subject || subject;
                 preheader = msgData.preheader || preheader;
-                templateId = msgData.email_template_id || msgData.template_id || '';
+                const templateId = msgData.email_template_id || msgData.template_id || '';
                 
                 if (msgData.body) {
                   htmlPreview = msgData.body as string;
@@ -334,24 +554,45 @@ serve(async (req) => {
                 }
               }
               
-              // Push notification content
-              if (msgData.channel === 'push' || msgData.channel === 'ios_push' || msgData.channel === 'android_push') {
+              if (detectedType === 'push' || msgChannel === 'push' || msgChannel === 'ios_push' || msgChannel === 'android_push') {
                 push_title = msgData.title || msgData.alert_title || push_title;
                 push_body = msgData.message || msgData.alert || msgData.body || push_body;
+                push_deep_link = msgData.deep_link || msgData.uri || msgData.open_app_uri || push_deep_link;
+                if (msgData.extras && typeof msgData.extras === 'object') {
+                  push_extras = { ...push_extras, ...msgData.extras };
+                }
               }
               
-              // In-app message content
-              if (msgData.channel === 'in_app_message') {
+              if (detectedType === 'inapp' || msgChannel === 'in_app_message') {
                 inapp_header = msgData.header || msgData.title || inapp_header;
                 inapp_body = msgData.message || msgData.body || inapp_body;
                 inapp_cta = msgData.button_one_text || msgData.cta || inapp_cta;
+                inapp_image_url = msgData.image_url || msgData.image_uri || msgData.graphic_url || inapp_image_url;
+                
+                // Extract buttons
+                if (msgData.button_one_text && !inapp_buttons.find(b => b.text === msgData.button_one_text)) {
+                  inapp_buttons.push({
+                    text: msgData.button_one_text,
+                    action: msgData.button_one_action,
+                    url: msgData.button_one_uri,
+                  });
+                }
+                if (msgData.button_two_text && !inapp_buttons.find(b => b.text === msgData.button_two_text)) {
+                  inapp_buttons.push({
+                    text: msgData.button_two_text,
+                    action: msgData.button_two_action,
+                    url: msgData.button_two_uri,
+                  });
+                }
               }
             }
           } catch (err) {
-            console.log(`Could not fetch details for campaign ${c.id}: ${err}`);
+            console.log(`[Campaign ${c.id}] Could not fetch details: ${err}`);
+            warnings.push('details_fetch_failed');
           }
           
-          if (!htmlPreview) {
+          // Fallback: try to match template for email HTML
+          if (!htmlPreview && (primaryCampaignType === 'email' || primaryCampaignType === 'unknown')) {
             for (const template of results.templates) {
               if (template.html_preview && (
                 c.name.toLowerCase().includes(template.template_name.toLowerCase()) ||
@@ -365,52 +606,105 @@ serve(async (req) => {
             }
           }
           
+          // Use channel hints from campaign list if no variants detected
+          if (primaryCampaignType === 'unknown' && c.channels && c.channels.length > 0) {
+            const ch = c.channels[0].toLowerCase();
+            if (ch.includes('email')) primaryCampaignType = 'email';
+            else if (ch.includes('push')) primaryCampaignType = 'push';
+            else if (ch.includes('in_app') || ch.includes('inapp')) primaryCampaignType = 'inapp';
+            else if (ch.includes('sms')) primaryCampaignType = 'sms';
+            
+            if (primaryCampaignType === 'unknown') {
+              warnings.push('campaign_type_not_inferred');
+            }
+          }
+          
+          // Check for personalization that we can't resolve
+          const hasPersonalization = [subject, preheader, htmlPreview, push_body, inapp_body].some(
+            text => text && (text.includes('{{') || text.includes('{%'))
+          );
+          if (hasPersonalization) {
+            warnings.push('personalization_not_resolved');
+          }
+          
+          const channels = detectedChannels.size > 0 
+            ? Array.from(detectedChannels) 
+            : (c.channels || ['email']);
+          
+          console.log(`[Campaign ${c.id}] RESULT: type=${primaryCampaignType}, channels=${channels.join(',')}, variants=${variants.length}, warnings=${warnings.join(',') || 'none'}`);
+          
           return {
+            // Normalized structure
+            source: 'braze',
+            message_type: 'campaign',
+            campaign_id: c.id,
+            campaign_name: c.name,
+            campaign_type: primaryCampaignType,
+            channels,
+            variants,
+            warnings,
+            // Legacy fields
             id: c.id,
             name: c.name,
             description: c.description,
             draft: c.draft,
             schedule_type: c.schedule_type,
-            channels: c.channels,
             first_sent: c.first_sent,
             last_sent: c.last_sent,
             tags: c.tags,
-            message_types: c.message_types,
-            created_at: c.created_at,
             updated_at: c.updated_at,
             archived: c.archived,
+            // Flattened content for backward compat
             subject,
             preheader,
             html_preview: htmlPreview,
             push_title,
             push_body,
+            push_deep_link,
+            push_extras: Object.keys(push_extras).length > 0 ? push_extras : undefined,
             inapp_header,
             inapp_body,
             inapp_cta,
+            inapp_image_url: inapp_image_url || undefined,
+            inapp_buttons: inapp_buttons.length > 0 ? inapp_buttons : undefined,
           };
         })
       );
       
-      const remainingCampaigns = campaignList.slice(50).map((c: any) => ({
+      // Handle remaining campaigns (basic info only)
+      const remainingCampaigns: BrazeCampaign[] = campaignList.slice(50).map((c: any) => ({
+        source: 'braze',
+        message_type: 'campaign',
+        campaign_id: c.id,
+        campaign_name: c.name,
+        campaign_type: 'unknown' as CampaignType,
+        channels: c.channels || ['email'],
+        variants: [],
+        warnings: ['details_not_fetched'],
         id: c.id,
         name: c.name,
         description: c.description,
         draft: c.draft,
         schedule_type: c.schedule_type,
-        channels: c.channels,
         first_sent: c.first_sent,
         last_sent: c.last_sent,
         tags: c.tags,
-        message_types: c.message_types,
-        created_at: c.created_at,
         updated_at: c.updated_at,
         archived: c.archived,
       }));
       
       results.campaigns = [...campaignsWithDetails, ...remainingCampaigns];
-      console.log('Fetched campaigns:', results.campaigns.length, 'with HTML:', campaignsWithDetails.filter(c => c.html_preview).length);
+      
+      // Log summary
+      const typeBreakdown = {
+        email: results.campaigns.filter(c => c.campaign_type === 'email').length,
+        push: results.campaigns.filter(c => c.campaign_type === 'push').length,
+        inapp: results.campaigns.filter(c => c.campaign_type === 'inapp').length,
+        unknown: results.campaigns.filter(c => c.campaign_type === 'unknown').length,
+      };
+      console.log(`[Campaigns] SUMMARY: total=${results.campaigns.length}, email=${typeBreakdown.email}, push=${typeBreakdown.push}, inapp=${typeBreakdown.inapp}, unknown=${typeBreakdown.unknown}`);
     } catch (e) {
-      console.error('Failed to fetch campaigns:', e);
+      console.error('[Campaigns] Failed to fetch campaigns:', e);
     }
 
     // Fetch canvases with FULL hierarchical structure: variants -> steps graph

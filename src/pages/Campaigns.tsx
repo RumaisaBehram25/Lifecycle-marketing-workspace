@@ -41,6 +41,27 @@ import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, ParsedCampaign } from '@/lib/campaign-taxonomy';
 
+// Normalized content structure from Braze sync
+interface NormalizedContent {
+  title?: string;
+  subject?: string;
+  preheader?: string;
+  body_text?: string;
+  body_html?: string;
+  image_url?: string;
+  deep_link?: string;
+  buttons?: Array<{ text: string; action?: string; url?: string }>;
+  extras?: Record<string, unknown>;
+}
+
+interface NormalizedVariant {
+  variant_id: string;
+  name: string;
+  platforms: string[];
+  content: NormalizedContent;
+  raw: Record<string, unknown>;
+}
+
 // Type definitions
 interface BrazeCampaign {
   id: string;
@@ -53,14 +74,23 @@ interface BrazeCampaign {
   last_sent?: string;
   tags?: string[];
   archived?: boolean;
+  // Normalized structure
+  campaign_type?: 'email' | 'push' | 'inapp' | 'sms' | 'webhook' | 'content_card' | 'unknown';
+  variants?: NormalizedVariant[];
+  warnings?: string[];
+  // Legacy flattened fields
   subject?: string;
   preheader?: string;
   html_preview?: string;
   push_title?: string;
   push_body?: string;
+  push_deep_link?: string;
+  push_extras?: Record<string, unknown>;
   inapp_header?: string;
   inapp_body?: string;
   inapp_cta?: string;
+  inapp_image_url?: string;
+  inapp_buttons?: Array<{ text: string; action?: string; url?: string }>;
 }
 
 interface BrazeTemplate {
@@ -79,6 +109,7 @@ interface EnrichedCampaign {
   displayName: string;
   description?: string;
   channels: string[];
+  campaignType: 'email' | 'push' | 'inapp' | 'sms' | 'webhook' | 'content_card' | 'unknown';
   status: string;
   subject: string;
   preheader: string;
@@ -87,11 +118,20 @@ interface EnrichedCampaign {
   last_sent?: string;
   html_preview?: string;
   taxonomy: ParsedCampaign;
+  // Enhanced push fields
   push_title?: string;
   push_body?: string;
+  push_deep_link?: string;
+  push_extras?: Record<string, unknown>;
+  // Enhanced in-app fields
   inapp_title?: string;
   inapp_body?: string;
   inapp_cta?: string;
+  inapp_image_url?: string;
+  inapp_buttons?: Array<{ text: string; action?: string; url?: string }>;
+  // Normalized variants
+  variants?: NormalizedVariant[];
+  warnings?: string[];
 }
 
 interface BrazeSchemaCache {
@@ -106,6 +146,7 @@ const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
     name: 'Welcome to Linktree! 🌳',
     displayName: 'Welcome to Linktree! 🌳',
     channels: ['email'],
+    campaignType: 'email',
     status: 'active',
     subject: "Welcome to Linktree – let's get you set up!",
     preheader: 'Your link in bio is ready. Here\'s how to make it yours.',
@@ -118,11 +159,13 @@ const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
     name: 'New Feature Alert 🚀',
     displayName: 'New Feature Alert 🚀',
     channels: ['push'],
+    campaignType: 'push',
     status: 'active',
     subject: '',
     preheader: '',
     push_title: 'New: QR Codes are here!',
     push_body: 'Generate custom QR codes for your Linktree. Try it now!',
+    push_deep_link: 'linktree://features/qr',
     tags: ['feature', 'announcement'],
     last_sent: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     taxonomy: parseCampaignTaxonomy('New Feature Alert 🚀'),
@@ -132,12 +175,15 @@ const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
     name: 'Pro Upgrade Prompt',
     displayName: 'Pro Upgrade Prompt',
     channels: ['in_app_message'],
+    campaignType: 'inapp',
     status: 'active',
     subject: '',
     preheader: '',
     inapp_title: 'Unlock Pro Features',
     inapp_body: 'Get advanced analytics, custom themes, and priority support.',
     inapp_cta: 'Upgrade to Pro',
+    inapp_image_url: 'https://example.com/pro-banner.png',
+    inapp_buttons: [{ text: 'Upgrade to Pro', action: 'deep_link', url: 'linktree://upgrade' }],
     tags: ['upsell', 'monetization'],
     last_sent: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
     taxonomy: parseCampaignTaxonomy('Pro Upgrade Prompt'),
@@ -205,12 +251,23 @@ export default function Campaigns() {
           t.template_name.toLowerCase().includes(campaign.name.toLowerCase())
         );
 
+        // Determine campaign type - use normalized type or infer from channels
+        let campaignType = campaign.campaign_type || 'unknown';
+        if (campaignType === 'unknown' && campaign.channels?.length) {
+          const ch = campaign.channels[0].toLowerCase();
+          if (ch.includes('email')) campaignType = 'email';
+          else if (ch.includes('push')) campaignType = 'push';
+          else if (ch.includes('in_app') || ch.includes('inapp')) campaignType = 'inapp';
+          else if (ch.includes('sms')) campaignType = 'sms';
+        }
+
         return {
           id: campaign.id,
           name: campaign.name,
           displayName: taxonomy.displayName,
           description: campaign.description,
           channels: taxonomy.channel ? [taxonomy.channel] : (campaign.channels || ['email']),
+          campaignType: campaignType as EnrichedCampaign['campaignType'],
           status: campaign.draft ? 'draft' : 'active',
           subject: campaign.subject || matchingTemplate?.subject || '',
           preheader: campaign.preheader || matchingTemplate?.preheader || '',
@@ -219,11 +276,20 @@ export default function Campaigns() {
           last_sent: campaign.last_sent,
           html_preview: campaign.html_preview || matchingTemplate?.html_preview,
           taxonomy,
+          // Enhanced push fields
           push_title: campaign.push_title,
           push_body: campaign.push_body,
+          push_deep_link: campaign.push_deep_link,
+          push_extras: campaign.push_extras,
+          // Enhanced in-app fields
           inapp_title: campaign.inapp_header,
           inapp_body: campaign.inapp_body,
           inapp_cta: campaign.inapp_cta,
+          inapp_image_url: campaign.inapp_image_url,
+          inapp_buttons: campaign.inapp_buttons,
+          // Normalized data
+          variants: campaign.variants,
+          warnings: campaign.warnings,
         };
       });
   }, [brazeData?.campaigns, brazeData?.templates]);
@@ -520,8 +586,8 @@ export default function Campaigns() {
                 </div>
               )}
 
-              {/* Push Content */}
-              {selectedCampaign.channels?.includes('push') && (
+              {/* Push Content - Enhanced */}
+              {(selectedCampaign.channels?.includes('push') || selectedCampaign.campaignType === 'push') && (
                 <div className="space-y-3">
                   <h4 className="font-medium flex items-center gap-2">
                     <Bell className="h-4 w-4 text-orange-500" />
@@ -547,14 +613,33 @@ export default function Campaigns() {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Deep Link */}
+                  {selectedCampaign.push_deep_link && (
+                    <div className="p-3 bg-orange-500/5 border border-orange-500/20 rounded-lg">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Deep Link</p>
+                      <code className="text-xs bg-muted px-2 py-1 rounded">{selectedCampaign.push_deep_link}</code>
+                    </div>
+                  )}
+                  
+                  {/* Extras */}
+                  {selectedCampaign.push_extras && Object.keys(selectedCampaign.push_extras).length > 0 && (
+                    <div className="p-3 bg-orange-500/5 border border-orange-500/20 rounded-lg">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Extras</p>
+                      <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-32">
+                        {JSON.stringify(selectedCampaign.push_extras, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  
                   {!selectedCampaign.push_title && !selectedCampaign.push_body && (
                     <p className="text-sm text-muted-foreground">Push content not synced from Braze</p>
                   )}
                 </div>
               )}
 
-              {/* In-App Content */}
-              {selectedCampaign.channels?.includes('in_app_message') && (
+              {/* In-App Content - Enhanced */}
+              {(selectedCampaign.channels?.includes('in_app_message') || selectedCampaign.campaignType === 'inapp') && (
                 <div className="space-y-3">
                   <h4 className="font-medium flex items-center gap-2">
                     <Smartphone className="h-4 w-4 text-purple-500" />
@@ -562,9 +647,22 @@ export default function Campaigns() {
                   </h4>
                   <div className="max-w-sm">
                     <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-2 border-purple-500/30 rounded-2xl p-6 text-center">
-                      <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
-                        <Smartphone className="h-6 w-6 text-purple-500" />
-                      </div>
+                      {/* Image */}
+                      {selectedCampaign.inapp_image_url && (
+                        <div className="mb-4 rounded-lg overflow-hidden">
+                          <img 
+                            src={selectedCampaign.inapp_image_url} 
+                            alt="In-app image" 
+                            className="w-full h-32 object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                      {!selectedCampaign.inapp_image_url && (
+                        <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
+                          <Smartphone className="h-6 w-6 text-purple-500" />
+                        </div>
+                      )}
                       <h4 className="font-bold text-lg">
                         {selectedCampaign.inapp_title || selectedCampaign.displayName}
                       </h4>
@@ -573,14 +671,59 @@ export default function Campaigns() {
                           {selectedCampaign.inapp_body}
                         </p>
                       )}
-                      <Button className="mt-4" size="sm">
-                        {selectedCampaign.inapp_cta || 'Take Action'}
-                      </Button>
+                      
+                      {/* Buttons */}
+                      <div className="flex flex-col gap-2 mt-4">
+                        {selectedCampaign.inapp_buttons?.length ? (
+                          selectedCampaign.inapp_buttons.map((btn, idx) => (
+                            <Button 
+                              key={idx} 
+                              size="sm" 
+                              variant={idx === 0 ? 'default' : 'outline'}
+                              className="w-full"
+                            >
+                              {btn.text}
+                            </Button>
+                          ))
+                        ) : selectedCampaign.inapp_cta ? (
+                          <Button size="sm">{selectedCampaign.inapp_cta}</Button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* Button URLs for debugging */}
+                  {selectedCampaign.inapp_buttons?.some(b => b.url) && (
+                    <div className="p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Button Actions</p>
+                      <div className="space-y-1">
+                        {selectedCampaign.inapp_buttons.filter(b => b.url).map((btn, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-xs">
+                            <span className="font-medium">{btn.text}:</span>
+                            <code className="bg-muted px-1 py-0.5 rounded truncate">{btn.url}</code>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   {!selectedCampaign.inapp_title && !selectedCampaign.inapp_body && (
                     <p className="text-sm text-muted-foreground">In-app content not synced from Braze</p>
                   )}
+                </div>
+              )}
+
+              {/* Warnings */}
+              {selectedCampaign.warnings && selectedCampaign.warnings.length > 0 && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                  <p className="text-xs font-medium text-amber-600 mb-1">Sync Warnings</p>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedCampaign.warnings.map((warning, idx) => (
+                      <Badge key={idx} variant="outline" className="text-xs text-amber-600 border-amber-500/30">
+                        {warning.replace(/_/g, ' ')}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               )}
 
