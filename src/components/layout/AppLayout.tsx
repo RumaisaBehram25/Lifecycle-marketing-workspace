@@ -29,12 +29,13 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-import { FolderOpen } from 'lucide-react';
+import { Send, Workflow } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Brand', href: '/brand', icon: Palette },
-  { name: 'Creative', href: '/creative', icon: FolderOpen },
+  { name: 'Campaigns', href: '/campaigns', icon: Send },
+  { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
   { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   { name: 'Code Generator', href: '/generate/code', icon: Code },
   { name: 'Knowledge Base', href: '/knowledge', icon: Database },
