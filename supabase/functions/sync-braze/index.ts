@@ -715,8 +715,9 @@ serve(async (req) => {
       
       console.log(`Found ${canvasList.length} canvases total, fetching details to filter active only...`);
       
+      // Increase limit to 100 to capture all active canvases (you mentioned ~40 live)
       const canvasesWithDetails = await Promise.all(
-        canvasList.slice(0, 50).map(async (c: any): Promise<BrazeCanvas> => {
+        canvasList.slice(0, 100).map(async (c: any): Promise<BrazeCanvas> => {
           const variants: CanvasVariant[] = [];
           const steps: Record<string, CanvasStep> = {};
           let enabled = false;
