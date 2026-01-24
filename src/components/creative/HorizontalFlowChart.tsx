@@ -207,28 +207,38 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   );
 }
 
-// Delay/Filter module BELOW step
-function StepMetaModule({ step, delayBefore }: { step: CanvasStep; delayBefore?: string }) {
+// Delay/Filter/Split module BELOW step
+function StepMetaModule({ step, delayBefore, splitInfo }: { step: CanvasStep; delayBefore?: string; splitInfo?: { name: string; paths: number } }) {
   const type = step.type?.toLowerCase() || 'message';
   const isFilter = type === 'decision_split' || type === 'branch' || type === 'action_paths' || type === 'filter';
   
-  const delayToShow = delayBefore || (step.delay_formatted !== '0h' ? step.delay_formatted : null);
+  const delayToShow = delayBefore || (step.delay_formatted && step.delay_formatted !== '0h' ? step.delay_formatted : null);
   
-  if (!delayToShow && !isFilter) {
+  if (!delayToShow && !isFilter && !splitInfo) {
     return null;
   }
   
   return (
-    <div className="flex items-center justify-center gap-2 mt-2">
+    <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
       {delayToShow && (
-        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-600 text-xs gap-1">
-          <Timer className="h-3 w-3" />
+        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 text-xs gap-1.5 py-1">
+          <Timer className="h-3.5 w-3.5" />
           {delayToShow}
         </Badge>
       )}
-      {isFilter && (
-        <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-600 text-xs gap-1">
-          <Filter className="h-3 w-3" />
+      {splitInfo && (
+        <Badge 
+          variant="outline" 
+          className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1 cursor-pointer hover:bg-violet-500/20"
+          title={`Decision: ${splitInfo.name}`}
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+          Split: {splitInfo.paths} paths
+        </Badge>
+      )}
+      {isFilter && !splitInfo && (
+        <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1">
+          <Filter className="h-3.5 w-3.5" />
           Filter
         </Badge>
       )}
@@ -240,17 +250,19 @@ function StepMetaModule({ step, delayBefore }: { step: CanvasStep; delayBefore?:
 function StepCard({ 
   step, 
   delayBefore,
+  splitInfo,
   onClick 
 }: { 
   step: CanvasStep; 
   delayBefore?: string;
+  splitInfo?: { name: string; paths: number };
   onClick?: () => void;
 }) {
   const colors = getChannelColors(step.channel);
   const type = step.type?.toLowerCase() || 'message';
   
-  // Skip non-message steps
-  if (['delay', 'wait', 'decision_split', 'branch', 'filter'].includes(type)) {
+  // Skip non-message steps (they're handled as metadata)
+  if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths'].includes(type)) {
     return null;
   }
   
@@ -272,12 +284,15 @@ function StepCard({
           </div>
         </CardContent>
       </Card>
-      <StepMetaModule step={step} delayBefore={delayBefore} />
+      <StepMetaModule step={step} delayBefore={delayBefore} splitInfo={splitInfo} />
     </div>
   );
 }
 
-// Build linear path from variant
+// Step types that are metadata/branching, not message content
+const BRANCHING_TYPES = ['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths'];
+
+// Build linear path from variant, following the first branch through splits
 function buildLinearPath(firstStepId: string | null, allSteps: Record<string, CanvasStep>): CanvasStep[] {
   if (!firstStepId) return [];
   
@@ -292,8 +307,8 @@ function buildLinearPath(firstStepId: string | null, allSteps: Record<string, Ca
     
     path.push(step);
     
-    // Follow first path only for linear display
-    currentId = step.next_step_ids[0] || null;
+    // Follow first available path
+    currentId = step.next_step_ids?.[0] || null;
   }
   
   return path;
@@ -315,24 +330,38 @@ function VariantRow({
 }) {
   const path = useMemo(() => buildLinearPath(variant.first_step_id, steps), [variant.first_step_id, steps]);
   
-  // Filter to only message steps for display, but track delays
-  const stepsWithDelays = useMemo(() => {
-    const result: { step: CanvasStep; delayBefore?: string }[] = [];
+  // Process path to extract message steps with their preceding delays/splits
+  const stepsWithMetadata = useMemo(() => {
+    const result: { step: CanvasStep; delayBefore?: string; splitInfo?: { name: string; paths: number } }[] = [];
     let pendingDelay: string | undefined;
+    let pendingSplit: { name: string; paths: number } | undefined;
     
     for (const s of path) {
       const type = s.type?.toLowerCase() || 'message';
+      
       if (type === 'delay' || type === 'wait') {
+        // Accumulate delay info
         pendingDelay = s.delay_formatted || pendingDelay;
-      } else if (!['decision_split', 'branch', 'filter'].includes(type)) {
-        result.push({ step: s, delayBefore: pendingDelay });
+      } else if (BRANCHING_TYPES.includes(type)) {
+        // Capture split/branch info
+        const pathCount = s.next_step_ids?.length || s.next_paths?.length || 2;
+        pendingSplit = { name: s.name, paths: pathCount };
+      } else {
+        // This is a message step - attach accumulated metadata
+        result.push({ 
+          step: s, 
+          delayBefore: pendingDelay,
+          splitInfo: pendingSplit,
+        });
         pendingDelay = undefined;
+        pendingSplit = undefined;
       }
     }
     return result;
   }, [path]);
   
   const isControl = variant.name.toLowerCase().includes('control');
+  
   const roundedPercentage = Math.round(variant.percentage);
   
   // Don't render control variants at all
@@ -354,20 +383,21 @@ function VariantRow({
           </Badge>
         </div>
         <span className="text-sm text-muted-foreground">
-          {stepsWithDelays.length} touchpoint{stepsWithDelays.length !== 1 ? 's' : ''}
+          {stepsWithMetadata.length} touchpoint{stepsWithMetadata.length !== 1 ? 's' : ''}
         </span>
       </button>
       
       {isOpen && (
         <div className="border-t bg-background">
-          {variant.first_step_id ? (
+          {variant.first_step_id && stepsWithMetadata.length > 0 ? (
             <ScrollArea className="w-full">
               <div className="flex items-start gap-8 p-8 min-w-max">
-                {stepsWithDelays.map(({ step, delayBefore }) => (
+                {stepsWithMetadata.map(({ step, delayBefore, splitInfo }) => (
                   <StepCard 
                     key={step.id}
                     step={step} 
                     delayBefore={delayBefore}
+                    splitInfo={splitInfo}
                     onClick={() => onViewStep?.(step)}
                   />
                 ))}
@@ -377,7 +407,7 @@ function VariantRow({
           ) : (
             <div className="p-8 text-center text-muted-foreground">
               <p className="text-sm">
-                {isControl ? 'Control group - no messages sent' : 'No steps configured'}
+                {isControl ? 'Control group - no messages sent' : 'No message steps found in this path'}
               </p>
             </div>
           )}
@@ -388,19 +418,20 @@ function VariantRow({
 }
 
 export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartProps) {
-  const [openVariants, setOpenVariants] = useState<Set<number>>(new Set([0]));
-  
   const hasVariants = canvas.variants && canvas.variants.length > 0;
   const hasSteps = canvas.steps && Object.keys(canvas.steps).length > 0;
   
   // If no variants but has steps, create a default path
   const effectiveVariants = useMemo(() => {
-    if (hasVariants) return canvas.variants;
+    if (hasVariants) {
+      // Filter out control variants
+      return canvas.variants.filter(v => !v.name.toLowerCase().includes('control'));
+    }
     
     if (hasSteps) {
       const allNextIds = new Set<string>();
       Object.values(canvas.steps).forEach(s => {
-        s.next_step_ids.forEach(id => allNextIds.add(id));
+        s.next_step_ids?.forEach(id => allNextIds.add(id));
       });
       
       const entrySteps = Object.keys(canvas.steps).filter(id => !allNextIds.has(id));
@@ -415,6 +446,11 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
     
     return [];
   }, [canvas.variants, canvas.steps, hasVariants, hasSteps]);
+  
+  // Default all variants to open
+  const [openVariants, setOpenVariants] = useState<Set<number>>(() => 
+    new Set(effectiveVariants.map((_, i) => i))
+  );
   
   const toggleVariant = (idx: number) => {
     const newOpen = new Set(openVariants);
