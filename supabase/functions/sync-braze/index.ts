@@ -86,6 +86,9 @@ interface CanvasStep {
     preheader?: string;
     title?: string;
     body?: string;
+    html_content?: string;
+    image_url?: string;
+    buttons?: Array<{ text: string; action?: string; url?: string }>;
   }>;
 }
 
@@ -754,12 +757,33 @@ serve(async (req) => {
                 if (s.messages && typeof s.messages === 'object' && !Array.isArray(s.messages)) {
                   for (const [variationId, msgData] of Object.entries(s.messages)) {
                     const msg = msgData as any;
+                    const channel = msg.channel || (s.channels?.[0]) || 'email';
+                    
+                    // Extract HTML content based on channel type
+                    let htmlContent = msg.body; // For email, body contains HTML
+                    if (channel === 'email') {
+                      htmlContent = msg.body || msg.html_body || msg.html;
+                    }
+                    
+                    // Extract buttons for in-app messages
+                    let buttons: Array<{ text: string; action?: string; url?: string }> | undefined;
+                    if (msg.buttons && Array.isArray(msg.buttons)) {
+                      buttons = msg.buttons.map((b: any) => ({
+                        text: b.text || b.label || 'Button',
+                        action: b.action || b.click_action,
+                        url: b.url || b.uri,
+                      }));
+                    }
+                    
                     messages.push({
-                      channel: msg.channel || (s.channels?.[0]) || 'email',
+                      channel,
                       subject: msg.subject,
                       preheader: msg.preheader,
-                      title: msg.title,
-                      body: msg.body,
+                      title: msg.title || msg.header,
+                      body: typeof msg.body === 'string' && msg.body.length < 500 ? msg.body : msg.message || msg.text,
+                      html_content: htmlContent,
+                      image_url: msg.image_url || msg.icon,
+                      buttons,
                     });
                   }
                 }

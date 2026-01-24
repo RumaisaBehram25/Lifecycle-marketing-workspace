@@ -32,6 +32,8 @@ interface CanvasStep {
     title?: string;
     body?: string;
     html_content?: string;
+    image_url?: string;
+    buttons?: Array<{ text: string; action?: string; url?: string }>;
   }>;
 }
 
@@ -314,6 +316,11 @@ function VariantRow({
   const isControl = variant.name.toLowerCase().includes('control');
   const roundedPercentage = Math.round(variant.percentage);
   
+  // Don't render control variants at all
+  if (isControl) {
+    return null;
+  }
+  
   return (
     <div className="border rounded-lg overflow-hidden">
       <button
@@ -323,7 +330,7 @@ function VariantRow({
         <div className="flex items-center gap-3">
           {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           <span className="font-medium">{variant.name}</span>
-          <Badge variant={isControl ? 'secondary' : 'outline'}>
+          <Badge variant="outline">
             {roundedPercentage}%
           </Badge>
         </div>
