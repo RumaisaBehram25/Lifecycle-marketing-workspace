@@ -103,33 +103,40 @@ function getChannelColors(channel?: string): { bg: string; border: string; text:
   }
 }
 
-// Render creative preview based on channel - LARGER SIZE
+// Render creative preview based on channel - LARGE SIZE for visibility
 function CreativePreview({ step }: { step: CanvasStep }) {
   const channel = step.channel?.toLowerCase() || 'email';
   const message = step.messages?.[0];
   const colors = getChannelColors(channel);
   
+  // Check if we have any message content to display
+  const hasContent = message && (message.subject || message.title || message.body || message.html_content);
+  
   if (channel === 'email') {
     return (
-      <div className="w-full h-[320px] bg-white rounded-t-lg overflow-hidden flex flex-col">
-        <div className="bg-muted/50 px-4 py-3 border-b flex-shrink-0">
+      <div className="w-full h-[380px] bg-white rounded-t-lg overflow-hidden flex flex-col">
+        <div className="bg-muted/50 px-5 py-4 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground truncate">From: Linktree</p>
-          <p className="text-sm font-medium truncate">{message?.subject || step.name}</p>
+          <p className="text-base font-medium truncate">{message?.subject || step.name}</p>
           {message?.preheader && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">{message.preheader}</p>
+            <p className="text-sm text-muted-foreground truncate mt-1">{message.preheader}</p>
           )}
         </div>
-        <div className="flex-1 p-4 overflow-hidden">
+        <div className="flex-1 p-5 overflow-hidden">
           {message?.html_content ? (
             <div 
-              className="text-[10px] leading-tight scale-[0.5] origin-top-left w-[600px]"
-              dangerouslySetInnerHTML={{ __html: message.html_content.substring(0, 3000) }}
+              className="text-xs leading-relaxed scale-[0.45] origin-top-left w-[700px] prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: message.html_content.substring(0, 5000) }}
             />
+          ) : message?.body ? (
+            <div className="text-sm text-foreground leading-relaxed">
+              <p>{message.body}</p>
+            </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground">
-              <Mail className="h-12 w-12 mb-3 opacity-30" />
-              <p className="text-sm font-medium">Email Preview</p>
-              <p className="text-xs mt-1">Content synced from Braze</p>
+              <Mail className="h-16 w-16 mb-4 opacity-30" />
+              <p className="text-base font-medium">{step.name}</p>
+              <p className="text-sm mt-2">Email content</p>
             </div>
           )}
         </div>
@@ -139,51 +146,63 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'push' || channel.includes('push')) {
     return (
-      <div className="w-full h-[320px] flex flex-col items-center justify-center p-6 bg-gradient-to-b from-muted/20 to-muted/40 rounded-t-lg">
-        <div className="w-full max-w-[280px] bg-card border rounded-2xl p-4 shadow-lg">
-          <div className="flex items-start gap-3">
-            <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-sm font-bold text-primary-foreground">L</span>
+      <div className="w-full h-[380px] flex flex-col items-center justify-center p-8 bg-gradient-to-b from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 rounded-t-lg">
+        <div className="w-full bg-card border rounded-2xl p-5 shadow-xl">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
+              <span className="text-lg font-bold text-primary-foreground">L</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground">Linktree • now</p>
-              <p className="font-semibold text-sm mt-1 line-clamp-2">{message?.title || step.name}</p>
-              <p className="text-sm text-muted-foreground line-clamp-3 mt-1">
-                {message?.body || 'Push notification content'}
+              <p className="font-semibold text-base mt-1.5 line-clamp-2">{message?.title || step.name}</p>
+              <p className="text-sm text-muted-foreground line-clamp-4 mt-2">
+                {message?.body || 'Push notification content will appear here'}
               </p>
             </div>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground mt-4">Push Notification</p>
+        <p className="text-sm text-muted-foreground mt-6 font-medium">Push Notification</p>
       </div>
     );
   }
   
   if (channel === 'in_app_message' || channel === 'in-app') {
     return (
-      <div className="w-full h-[320px] flex flex-col items-center justify-center p-6 bg-gradient-to-b from-primary/5 to-primary/10 rounded-t-lg">
-        <div className="w-full max-w-[280px] bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center">
-          <div className="h-14 w-14 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
-            <Smartphone className="h-7 w-7 text-primary" />
-          </div>
-          <h4 className="font-bold text-base line-clamp-2">{message?.title || step.name}</h4>
-          <p className="text-sm text-muted-foreground mt-2 line-clamp-3">
-            {message?.body || 'In-app message content'}
+      <div className="w-full h-[380px] flex flex-col items-center justify-center p-8 bg-gradient-to-b from-primary/5 to-primary/15 rounded-t-lg">
+        <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
+          {message?.image_url ? (
+            <img src={message.image_url} alt="" className="w-20 h-20 object-cover rounded-xl mx-auto mb-5" />
+          ) : (
+            <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-5">
+              <Smartphone className="h-8 w-8 text-primary" />
+            </div>
+          )}
+          <h4 className="font-bold text-lg line-clamp-2">{message?.title || step.name}</h4>
+          <p className="text-sm text-muted-foreground mt-3 line-clamp-4">
+            {message?.body || 'In-app message content will appear here'}
           </p>
-          <Button size="sm" className="mt-4">Take Action</Button>
+          {message?.buttons?.[0] ? (
+            <Button size="sm" className="mt-5">{message.buttons[0].text}</Button>
+          ) : (
+            <Button size="sm" className="mt-5">Take Action</Button>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground mt-4">In-App Message</p>
+        <p className="text-sm text-muted-foreground mt-5 font-medium">In-App Message</p>
       </div>
     );
   }
   
   // SMS fallback
   return (
-    <div className="w-full h-[320px] flex flex-col items-center justify-center p-6 rounded-t-lg">
-      <div className={`w-full max-w-[280px] ${colors.bg} border ${colors.border} rounded-2xl p-6`}>
-        <p className="text-sm">{message?.body || 'SMS message content'}</p>
+    <div className="w-full h-[380px] flex flex-col items-center justify-center p-8 rounded-t-lg bg-gradient-to-b from-emerald-50 to-emerald-100 dark:from-emerald-950 dark:to-emerald-900">
+      <div className={`w-full bg-card border-2 ${colors.border} rounded-2xl p-6 shadow-lg`}>
+        <div className="flex items-start gap-3 mb-3">
+          <MessageSquare className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">SMS</p>
+        </div>
+        <p className="text-base leading-relaxed">{message?.body || step.name}</p>
       </div>
-      <p className="text-xs text-muted-foreground mt-4">SMS Message</p>
+      <p className="text-sm text-muted-foreground mt-5 font-medium">SMS Message</p>
     </div>
   );
 }
@@ -217,7 +236,7 @@ function StepMetaModule({ step, delayBefore }: { step: CanvasStep; delayBefore?:
   );
 }
 
-// Single step card with creative - LARGER
+// Single step card with creative - LARGE SIZE
 function StepCard({ 
   step, 
   delayBefore,
@@ -236,19 +255,19 @@ function StepCard({
   }
   
   return (
-    <div className="flex flex-col w-[280px] flex-shrink-0">
+    <div className="flex flex-col w-[340px] flex-shrink-0">
       <Card 
-        className={`cursor-pointer hover:shadow-lg transition-shadow border-2 ${colors.border} overflow-hidden`}
+        className={`cursor-pointer hover:shadow-xl transition-all border-2 ${colors.border} overflow-hidden hover:scale-[1.02]`}
         onClick={onClick}
       >
         <CardContent className="p-0">
           <CreativePreview step={step} />
-          <div className={`px-4 py-3 border-t ${colors.bg}`}>
-            <div className="flex items-center gap-2">
+          <div className={`px-5 py-4 border-t ${colors.bg}`}>
+            <div className="flex items-center gap-3">
               <div className={colors.text}>
-                {getChannelIcon(step.channel, "h-4 w-4")}
+                {getChannelIcon(step.channel, "h-5 w-5")}
               </div>
-              <span className="text-sm font-medium truncate flex-1">{step.name}</span>
+              <span className="text-base font-medium truncate flex-1">{step.name}</span>
             </div>
           </div>
         </CardContent>
@@ -343,7 +362,7 @@ function VariantRow({
         <div className="border-t bg-background">
           {variant.first_step_id ? (
             <ScrollArea className="w-full">
-              <div className="flex items-start gap-6 p-6 min-w-max">
+              <div className="flex items-start gap-8 p-8 min-w-max">
                 {stepsWithDelays.map(({ step, delayBefore }) => (
                   <StepCard 
                     key={step.id}
@@ -353,7 +372,7 @@ function VariantRow({
                   />
                 ))}
               </div>
-              <ScrollBar orientation="horizontal" />
+              <ScrollBar orientation="horizontal" className="h-3" />
             </ScrollArea>
           ) : (
             <div className="p-8 text-center text-muted-foreground">
