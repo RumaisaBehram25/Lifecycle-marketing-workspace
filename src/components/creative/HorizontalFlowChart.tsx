@@ -3,6 +3,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { 
   Mail, 
   Bell, 
@@ -13,6 +19,7 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
+  ArrowRight,
 } from 'lucide-react';
 
 // Types matching the sync-braze output
@@ -240,35 +247,46 @@ function CreativePreview({ step }: { step: CanvasStep }) {
 }
 
 // Delay/Filter/Split module BELOW step
-function StepMetaModule({ step, delayBefore, splitInfo }: { step: CanvasStep; delayBefore?: string; splitInfo?: { name: string; paths: number } }) {
+function StepMetaModule({ 
+  step, 
+  delayBefore, 
+  splitStep,
+  onSplitClick,
+}: { 
+  step: CanvasStep; 
+  delayBefore?: boolean;
+  splitStep?: CanvasStep;
+  onSplitClick?: (splitStep: CanvasStep) => void;
+}) {
   const type = step.type?.toLowerCase() || 'message';
   const isFilter = type === 'decision_split' || type === 'branch' || type === 'action_paths' || type === 'filter';
   
-  const delayToShow = delayBefore || (step.delay_formatted && step.delay_formatted !== '0h' ? step.delay_formatted : null);
-  
-  if (!delayToShow && !isFilter && !splitInfo) {
+  if (!delayBefore && !isFilter && !splitStep) {
     return null;
   }
   
   return (
     <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
-      {delayToShow && (
+      {delayBefore && (
         <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 text-xs gap-1.5 py-1">
           <Timer className="h-3.5 w-3.5" />
-          {delayToShow}
+          Delay
         </Badge>
       )}
-      {splitInfo && (
+      {splitStep && (
         <Badge 
           variant="outline" 
-          className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1 cursor-pointer hover:bg-violet-500/20"
-          title={`Decision: ${splitInfo.name}`}
+          className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1 cursor-pointer hover:bg-violet-500/20 transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSplitClick?.(splitStep);
+          }}
         >
           <GitBranch className="h-3.5 w-3.5" />
-          Split: {splitInfo.paths} paths
+          {splitStep.next_paths?.length || 2} paths
         </Badge>
       )}
-      {isFilter && !splitInfo && (
+      {isFilter && !splitStep && (
         <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1">
           <Filter className="h-3.5 w-3.5" />
           Filter
@@ -282,13 +300,15 @@ function StepMetaModule({ step, delayBefore, splitInfo }: { step: CanvasStep; de
 function StepCard({ 
   step, 
   delayBefore,
-  splitInfo,
-  onClick 
+  splitStep,
+  onClick,
+  onSplitClick,
 }: { 
   step: CanvasStep; 
-  delayBefore?: string;
-  splitInfo?: { name: string; paths: number };
+  delayBefore?: boolean;
+  splitStep?: CanvasStep;
   onClick?: () => void;
+  onSplitClick?: (splitStep: CanvasStep) => void;
 }) {
   const colors = getChannelColors(step.channel);
   const type = step.type?.toLowerCase() || 'message';
@@ -308,7 +328,7 @@ function StepCard({
           <CreativePreview step={step} />
         </CardContent>
       </Card>
-      <StepMetaModule step={step} delayBefore={delayBefore} splitInfo={splitInfo} />
+      <StepMetaModule step={step} delayBefore={delayBefore} splitStep={splitStep} onSplitClick={onSplitClick} />
     </div>
   );
 }
@@ -343,12 +363,14 @@ function VariantRow({
   variant, 
   steps, 
   onViewStep,
+  onSplitClick,
   isOpen,
   onToggle,
 }: { 
   variant: CanvasVariant; 
   steps: Record<string, CanvasStep>;
   onViewStep?: (step: CanvasStep) => void;
+  onSplitClick?: (splitStep: CanvasStep) => void;
   isOpen: boolean;
   onToggle: () => void;
 }) {
@@ -356,29 +378,28 @@ function VariantRow({
   
   // Process path to extract message steps with their preceding delays/splits
   const stepsWithMetadata = useMemo(() => {
-    const result: { step: CanvasStep; delayBefore?: string; splitInfo?: { name: string; paths: number } }[] = [];
-    let pendingDelay: string | undefined;
-    let pendingSplit: { name: string; paths: number } | undefined;
+    const result: { step: CanvasStep; delayBefore?: boolean; splitStep?: CanvasStep }[] = [];
+    let hasDelayBefore = false;
+    let pendingSplitStep: CanvasStep | undefined;
     
     for (const s of path) {
       const type = s.type?.toLowerCase() || 'message';
       
       if (type === 'delay' || type === 'wait') {
-        // Accumulate delay info
-        pendingDelay = s.delay_formatted || pendingDelay;
+        // Mark that there's a delay before the next message
+        hasDelayBefore = true;
       } else if (BRANCHING_TYPES.includes(type)) {
-        // Capture split/branch info
-        const pathCount = s.next_step_ids?.length || s.next_paths?.length || 2;
-        pendingSplit = { name: s.name, paths: pathCount };
+        // Capture split step to show full path details
+        pendingSplitStep = s;
       } else {
         // This is a message step - attach accumulated metadata
         result.push({ 
           step: s, 
-          delayBefore: pendingDelay,
-          splitInfo: pendingSplit,
+          delayBefore: hasDelayBefore,
+          splitStep: pendingSplitStep,
         });
-        pendingDelay = undefined;
-        pendingSplit = undefined;
+        hasDelayBefore = false;
+        pendingSplitStep = undefined;
       }
     }
     return result;
@@ -416,13 +437,14 @@ function VariantRow({
           {variant.first_step_id && stepsWithMetadata.length > 0 ? (
             <ScrollArea className="w-full">
               <div className="flex items-start gap-8 p-8 min-w-max">
-                {stepsWithMetadata.map(({ step, delayBefore, splitInfo }) => (
+                {stepsWithMetadata.map(({ step, delayBefore, splitStep }) => (
                   <StepCard 
                     key={step.id}
                     step={step} 
                     delayBefore={delayBefore}
-                    splitInfo={splitInfo}
+                    splitStep={splitStep}
                     onClick={() => onViewStep?.(step)}
+                    onSplitClick={onSplitClick}
                   />
                 ))}
               </div>
@@ -444,6 +466,9 @@ function VariantRow({
 export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartProps) {
   const hasVariants = canvas.variants && canvas.variants.length > 0;
   const hasSteps = canvas.steps && Object.keys(canvas.steps).length > 0;
+  
+  // Split modal state
+  const [selectedSplit, setSelectedSplit] = useState<CanvasStep | null>(null);
   
   // If no variants but has steps, create a default path
   const effectiveVariants = useMemo(() => {
@@ -511,36 +536,82 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
   }
   
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold flex items-center gap-2">
-          <GitBranch className="h-4 w-4" />
-          Journey Flow
-        </h3>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {effectiveVariants.length} variant{effectiveVariants.length !== 1 ? 's' : ''}
-          </span>
-          {effectiveVariants.length > 1 && (
-            <Button variant="outline" size="sm" onClick={toggleAll}>
-              {openVariants.size === effectiveVariants.length ? 'Collapse All' : 'Expand All'}
-            </Button>
-          )}
+    <>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2">
+            <GitBranch className="h-4 w-4" />
+            Journey Flow
+          </h3>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {effectiveVariants.length} variant{effectiveVariants.length !== 1 ? 's' : ''}
+            </span>
+            {effectiveVariants.length > 1 && (
+              <Button variant="outline" size="sm" onClick={toggleAll}>
+                {openVariants.size === effectiveVariants.length ? 'Collapse All' : 'Expand All'}
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        <div className="space-y-3">
+          {effectiveVariants.map((variant, idx) => (
+            <VariantRow
+              key={variant.name + idx}
+              variant={variant}
+              steps={canvas.steps}
+              onViewStep={onViewStep}
+              onSplitClick={setSelectedSplit}
+              isOpen={openVariants.has(idx)}
+              onToggle={() => toggleVariant(idx)}
+            />
+          ))}
         </div>
       </div>
       
-      <div className="space-y-3">
-        {effectiveVariants.map((variant, idx) => (
-          <VariantRow
-            key={variant.name + idx}
-            variant={variant}
-            steps={canvas.steps}
-            onViewStep={onViewStep}
-            isOpen={openVariants.has(idx)}
-            onToggle={() => toggleVariant(idx)}
-          />
-        ))}
-      </div>
-    </div>
+      {/* Split/Audience Path Details Modal */}
+      <Dialog open={!!selectedSplit} onOpenChange={(open) => !open && setSelectedSplit(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-violet-600" />
+              {selectedSplit?.name || 'Audience Split'}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This step splits users into {selectedSplit?.next_paths?.length || 2} different paths based on audience criteria.
+            </p>
+            
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Paths:</p>
+              {selectedSplit?.next_paths?.map((path, idx) => (
+                <div 
+                  key={path.next_step_id || idx}
+                  className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border"
+                >
+                  <div className="h-8 w-8 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-medium text-violet-700 dark:text-violet-300">{idx + 1}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{path.name}</p>
+                    {path.percentage !== undefined && (
+                      <p className="text-xs text-muted-foreground">{Math.round(path.percentage)}% of users</p>
+                    )}
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                </div>
+              ))}
+              
+              {(!selectedSplit?.next_paths || selectedSplit.next_paths.length === 0) && (
+                <p className="text-sm text-muted-foreground italic">Path details not available</p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
