@@ -222,6 +222,9 @@ export default function Settings() {
                   <CardDescription>
                     Toggle which synced Braze data appears in Campaigns and Lifecycle pages. 
                     Hidden items are still stored but won't clutter your view.
+                    <span className="block mt-2 text-xs text-primary/80 font-medium">
+                      💡 Your visibility settings persist after re-syncing. New items from a sync will default to visible.
+                    </span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
