@@ -53,6 +53,7 @@ interface ClientChatProps {
   hasPlatformConnections?: boolean;
   onSyncPlatform?: () => void;
   isSyncing?: boolean;
+  initialConversationId?: string;
 }
 
 const QUICK_PROMPTS = [
@@ -73,10 +74,11 @@ export function ClientChat({
   hasPlatformConnections = false,
   onSyncPlatform,
   isSyncing = false,
+  initialConversationId,
 }: ClientChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(initialConversationId || null);
   const [showSidebar, setShowSidebar] = useState(!isDrawer);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -123,6 +125,13 @@ export function ClientChat({
       profileProperties: Array.from(profileProperties),
     };
   }, [platformContexts]);
+
+  // Sync with initialConversationId prop changes
+  useEffect(() => {
+    if (initialConversationId && initialConversationId !== selectedConversationId) {
+      setSelectedConversationId(initialConversationId);
+    }
+  }, [initialConversationId]);
 
   // Load saved messages when conversation is selected
   useEffect(() => {

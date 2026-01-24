@@ -14,6 +14,72 @@ export type Database = {
   }
   public: {
     Tables: {
+      briefs: {
+        Row: {
+          about: string | null
+          ai_generated_copy: Json | null
+          channels: string[]
+          client_id: string
+          content_type: string
+          conversation_id: string | null
+          created_at: string
+          deadline: string | null
+          id: string
+          name: string
+          status: string
+          template_ids: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          about?: string | null
+          ai_generated_copy?: Json | null
+          channels?: string[]
+          client_id: string
+          content_type: string
+          conversation_id?: string | null
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          name: string
+          status?: string
+          template_ids?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          about?: string | null
+          ai_generated_copy?: Json | null
+          channels?: string[]
+          client_id?: string
+          content_type?: string
+          conversation_id?: string | null
+          created_at?: string
+          deadline?: string | null
+          id?: string
+          name?: string
+          status?: string
+          template_ids?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "briefs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "briefs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chat_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_conversations: {
         Row: {
           client_id: string
@@ -468,6 +534,68 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      template_library: {
+        Row: {
+          body_preview: string | null
+          category: string | null
+          channel: string
+          client_id: string | null
+          content_type: string
+          created_at: string
+          description: string | null
+          html_content: string | null
+          id: string
+          is_global: boolean | null
+          name: string
+          preview_text: string | null
+          subject_line: string | null
+          tags: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          body_preview?: string | null
+          category?: string | null
+          channel: string
+          client_id?: string | null
+          content_type: string
+          created_at?: string
+          description?: string | null
+          html_content?: string | null
+          id?: string
+          is_global?: boolean | null
+          name: string
+          preview_text?: string | null
+          subject_line?: string | null
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          body_preview?: string | null
+          category?: string | null
+          channel?: string
+          client_id?: string | null
+          content_type?: string
+          created_at?: string
+          description?: string | null
+          html_content?: string | null
+          id?: string
+          is_global?: boolean | null
+          name?: string
+          preview_text?: string | null
+          subject_line?: string | null
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_library_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
