@@ -63,6 +63,9 @@ interface CanvasStep {
     preheader?: string;
     title?: string;
     body?: string;
+    html_content?: string;
+    image_url?: string;
+    buttons?: Array<{ text: string; action?: string; url?: string }>;
   }>;
 }
 
@@ -123,10 +126,10 @@ const MOCK_JOURNEYS: Array<{
       { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
     steps: {
-      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'] },
-      'step2': { id: 'step2', name: 'Push Reminder', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['step3'] },
-      'step3': { id: 'step3', name: 'Feature Intro', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['step4'] },
-      'step4': { id: 'step4', name: 'Pro Upgrade Nudge', type: 'message', channel: 'push', delay_formatted: '72h', next_step_ids: [] },
+      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'Welcome to Linktree! 🌳', preheader: 'Your journey starts here', body: 'Get started with your new Linktree account' }] },
+      'step2': { id: 'step2', name: 'Push Reminder', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['step3'], messages: [{ channel: 'push', title: 'Complete your profile', body: 'Add your first links to get discovered' }] },
+      'step3': { id: 'step3', name: 'Feature Intro', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'Unlock powerful features', preheader: 'Tips to grow your audience', body: 'Learn about analytics, custom themes, and more' }] },
+      'step4': { id: 'step4', name: 'Pro Upgrade Nudge', type: 'message', channel: 'push', delay_formatted: '72h', next_step_ids: [], messages: [{ channel: 'push', title: 'Ready for Pro?', body: 'Get unlimited links and advanced analytics' }] },
     },
     total_steps: 4,
   },
@@ -144,10 +147,10 @@ const MOCK_JOURNEYS: Array<{
       { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
     steps: {
-      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'] },
-      'step2': { id: 'step2', name: 'In-App Banner', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['step3'] },
-      'step3': { id: 'step3', name: "What's New Email", type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['step4'] },
-      'step4': { id: 'step4', name: 'Last Chance Push', type: 'message', channel: 'push', delay_formatted: '14d', next_step_ids: [] },
+      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'We miss you! 💚', preheader: 'Come back and see what\'s new', body: 'Your Linktree is waiting for you' }] },
+      'step2': { id: 'step2', name: 'In-App Banner', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['step3'], messages: [{ channel: 'in_app_message', title: 'Welcome back!', body: 'Check out the new features we\'ve added', buttons: [{ text: 'Explore Now' }] }] },
+      'step3': { id: 'step3', name: "What's New Email", type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'New features just for you', preheader: 'See what\'s changed', body: 'Discover powerful new tools to grow your audience' }] },
+      'step4': { id: 'step4', name: 'Last Chance Push', type: 'message', channel: 'push', delay_formatted: '14d', next_step_ids: [], messages: [{ channel: 'push', title: 'Last chance!', body: 'Don\'t miss out on connecting with your audience' }] },
     },
     total_steps: 4,
   },
@@ -712,6 +715,33 @@ function JourneyCard({
   );
 }
 
+// Generate a brief description based on the journey name
+function generateJourneyDescription(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes('welcome') || lower.includes('onboard')) {
+    return 'Guides new users through their first experience and drives initial engagement.';
+  }
+  if (lower.includes('re-engage') || lower.includes('winback') || lower.includes('lapsed')) {
+    return 'Reactivates inactive users and brings them back to the platform.';
+  }
+  if (lower.includes('upgrade') || lower.includes('upsell') || lower.includes('pro')) {
+    return 'Encourages users to upgrade to premium features or paid plans.';
+  }
+  if (lower.includes('milestone') || lower.includes('anniversary')) {
+    return 'Celebrates user achievements and important dates to strengthen loyalty.';
+  }
+  if (lower.includes('feature') || lower.includes('announce') || lower.includes('launch')) {
+    return 'Introduces new features and capabilities to drive adoption.';
+  }
+  if (lower.includes('abandon') || lower.includes('cart')) {
+    return 'Recovers users who started but didn\'t complete a key action.';
+  }
+  if (lower.includes('survey') || lower.includes('feedback') || lower.includes('nps')) {
+    return 'Collects user feedback and sentiment to improve the product.';
+  }
+  return 'Automated multi-touch journey delivering targeted messages across channels.';
+}
+
 // Journey Detail Component
 function JourneyDetail({ 
   journey, 
@@ -722,6 +752,13 @@ function JourneyDetail({
   onBack: () => void;
   onViewTouchpoint: (step: any) => void;
 }) {
+  const [editableDescription, setEditableDescription] = useState<string>(
+    journey.description && journey.description !== 'Braze Canvas journey' 
+      ? journey.description 
+      : generateJourneyDescription(journey.name)
+  );
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  
   const getIcon = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome')) return Sparkles;
@@ -759,14 +796,39 @@ function JourneyDetail({
       <Card className="overflow-hidden">
         <div className={`h-3 ${color}`} />
         <CardContent className="p-6">
-          <div className="flex items-start gap-4 mb-6">
+          <div className="flex items-start gap-4 mb-4">
             <div className={`h-14 w-14 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
               <Icon className="h-7 w-7 text-white" />
             </div>
-              <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <h2 className="text-xl font-semibold">{journey.displayName || journey.name}</h2>
-              </div>
+            <div className="flex-1">
+              <h2 className="text-xl font-semibold mb-2">{journey.displayName || journey.name}</h2>
+              
+              {/* Editable Description */}
+              {isEditingDescription ? (
+                <div className="flex items-start gap-2">
+                  <Input
+                    value={editableDescription}
+                    onChange={(e) => setEditableDescription(e.target.value)}
+                    className="text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') setIsEditingDescription(false);
+                      if (e.key === 'Escape') setIsEditingDescription(false);
+                    }}
+                    autoFocus
+                  />
+                  <Button size="sm" variant="outline" onClick={() => setIsEditingDescription(false)}>
+                    Save
+                  </Button>
+                </div>
+              ) : (
+                <p 
+                  className="text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                  onClick={() => setIsEditingDescription(true)}
+                  title="Click to edit"
+                >
+                  {editableDescription}
+                </p>
+              )}
               
               <div className="flex flex-wrap gap-2 mt-3">
                 {Object.entries(channelCounts).map(([channel, count]) => (
