@@ -667,9 +667,10 @@ export default function Campaigns() {
                         {selectedCampaign.inapp_title || selectedCampaign.displayName}
                       </h4>
                       {selectedCampaign.inapp_body && (
-                        <p className="text-sm text-muted-foreground mt-2">
-                          {selectedCampaign.inapp_body}
-                        </p>
+                        <div 
+                          className="text-sm text-muted-foreground mt-2 prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{ __html: selectedCampaign.inapp_body }}
+                        />
                       )}
                       
                       {/* Buttons */}
