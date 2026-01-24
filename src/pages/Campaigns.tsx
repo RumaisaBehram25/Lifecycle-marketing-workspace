@@ -300,12 +300,25 @@ export default function Campaigns() {
     return ['All', ...Array.from(tags)];
   }, [campaigns]);
 
-  // Filter campaigns (including visibility)
+  // Helper to check if a date is from 2024 or earlier
+  const isOldItem = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    return date.getFullYear() <= 2024;
+  };
+
+  // Check visibility with date-based default (hide 2024 and older)
+  const isItemVisible = (campaignId: string, dateStr?: string) => {
+    const explicitSetting = visibilityMap.get(campaignId);
+    if (explicitSetting !== undefined) return explicitSetting;
+    return !isOldItem(dateStr);
+  };
+
+  // Filter campaigns (including visibility with date-based defaults)
   const filteredCampaigns = useMemo(() => {
     return campaigns.filter(campaign => {
-      // Check visibility first - default to visible if not set
-      const isVisible = visibilityMap.get(campaign.id) !== false;
-      if (!isVisible) return false;
+      // Check visibility with date-based default
+      if (!isItemVisible(campaign.id, campaign.first_sent || campaign.last_sent)) return false;
       
       const matchesSearch = campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            campaign.subject?.toLowerCase().includes(searchQuery.toLowerCase());
