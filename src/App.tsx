@@ -8,7 +8,8 @@ import { LoadingPage } from "@/components/ui/loading-spinner";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Brand from "./pages/Brand";
-import Creative from "./pages/Creative";
+import Campaigns from "./pages/Campaigns";
+import Lifecycle from "./pages/Lifecycle";
 import CodeGenerator from "./pages/CodeGenerator";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
@@ -31,7 +32,8 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/brand" element={<ProtectedRoute><Brand /></ProtectedRoute>} />
-      <Route path="/creative" element={<ProtectedRoute><Creative /></ProtectedRoute>} />
+      <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
+      <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
       <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />
       <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
@@ -40,6 +42,7 @@ function AppRoutes() {
       <Route path="/clients" element={<Navigate to="/brand" replace />} />
       <Route path="/clients/:id" element={<Navigate to="/brand" replace />} />
       <Route path="/platforms" element={<Navigate to="/knowledge" replace />} />
+      <Route path="/creative" element={<Navigate to="/lifecycle" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

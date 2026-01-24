@@ -287,12 +287,19 @@ serve(async (req) => {
           let preheader = '';
           let htmlPreview = '';
           let templateId = '';
+          let push_title = '';
+          let push_body = '';
+          let inapp_header = '';
+          let inapp_body = '';
+          let inapp_cta = '';
           
           try {
             const details = await brazeFetch(`campaigns/details?campaign_id=${c.id}`, apiKey, brazeRestEndpoint);
             const messages = details.messages || {};
             for (const [key, msg] of Object.entries(messages)) {
               const msgData = msg as any;
+              
+              // Email content
               if (msgData.channel === 'email') {
                 subject = msgData.subject || subject;
                 preheader = msgData.preheader || preheader;
@@ -306,7 +313,19 @@ serve(async (req) => {
                   subject = subject || templateData.subject;
                   preheader = preheader || templateData.preheader;
                 }
-                break;
+              }
+              
+              // Push notification content
+              if (msgData.channel === 'push' || msgData.channel === 'ios_push' || msgData.channel === 'android_push') {
+                push_title = msgData.title || msgData.alert_title || push_title;
+                push_body = msgData.message || msgData.alert || msgData.body || push_body;
+              }
+              
+              // In-app message content
+              if (msgData.channel === 'in_app_message') {
+                inapp_header = msgData.header || msgData.title || inapp_header;
+                inapp_body = msgData.message || msgData.body || inapp_body;
+                inapp_cta = msgData.button_one_text || msgData.cta || inapp_cta;
               }
             }
           } catch (err) {
@@ -344,6 +363,11 @@ serve(async (req) => {
             subject,
             preheader,
             html_preview: htmlPreview,
+            push_title,
+            push_body,
+            inapp_header,
+            inapp_body,
+            inapp_cta,
           };
         })
       );
