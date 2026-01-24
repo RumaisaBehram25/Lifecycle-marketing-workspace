@@ -251,12 +251,25 @@ export default function Lifecycle() {
     return ['All', ...Array.from(tags)];
   }, [journeys]);
 
-  // Filter journeys (including visibility)
+  // Helper to check if a date is from 2024 or earlier
+  const isOldItem = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    return date.getFullYear() <= 2024;
+  };
+
+  // Check visibility with date-based default (hide 2024 and older)
+  const isItemVisible = (canvasId: string, dateStr?: string) => {
+    const explicitSetting = visibilityMap.get(canvasId);
+    if (explicitSetting !== undefined) return explicitSetting;
+    return !isOldItem(dateStr);
+  };
+
+  // Filter journeys (including visibility with date-based defaults)
   const filteredJourneys = useMemo(() => {
     return journeys.filter(journey => {
-      // Check visibility first
-      const isVisible = visibilityMap.get(journey.id) !== false;
-      if (!isVisible) return false;
+      // Check visibility with date-based default
+      if (!isItemVisible(journey.id, journey.first_entry)) return false;
       
       const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            journey.description?.toLowerCase().includes(searchQuery.toLowerCase());

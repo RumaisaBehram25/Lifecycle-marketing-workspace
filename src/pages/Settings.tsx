@@ -108,29 +108,54 @@ export default function Settings() {
     },
   });
 
-  const isItemVisible = (itemType: string, itemId: string) => {
-    const key = `${itemType}:${itemId}`;
-    return visibilityMap.get(key) !== false; // Default to visible if not set
+  // Helper to check if a date is from 2024 or earlier
+  const isOldItem = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    return date.getFullYear() <= 2024;
   };
 
-  const handleToggle = (itemType: string, itemId: string) => {
-    const currentlyVisible = isItemVisible(itemType, itemId);
+  const isItemVisible = (itemType: string, itemId: string, dateStr?: string) => {
+    const key = `${itemType}:${itemId}`;
+    const explicitSetting = visibilityMap.get(key);
+    
+    // If explicitly set, use that value
+    if (explicitSetting !== undefined) {
+      return explicitSetting;
+    }
+    
+    // Default: hide items from 2024 and earlier, show newer ones
+    return !isOldItem(dateStr);
+  };
+
+  const handleToggle = (itemType: string, itemId: string, dateStr?: string) => {
+    const currentlyVisible = isItemVisible(itemType, itemId, dateStr);
     toggleVisibility.mutate({ itemType, itemId, isVisible: !currentlyVisible });
   };
 
-  // Filter data based on search
+  // Filter and sort campaigns (newest first)
   const filteredCampaigns = useMemo(() => {
     if (!brazeData?.campaigns) return [];
-    return brazeData.campaigns.filter(c => 
-      c.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    return brazeData.campaigns
+      .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => {
+        // Sort by last_sent date, newest first
+        const dateA = a.last_sent ? new Date(a.last_sent).getTime() : 0;
+        const dateB = b.last_sent ? new Date(b.last_sent).getTime() : 0;
+        return dateB - dateA;
+      });
   }, [brazeData?.campaigns, searchQuery]);
 
+  // Filter and sort canvases (newest first based on name or enabled status)
   const filteredCanvases = useMemo(() => {
     if (!brazeData?.canvases) return [];
-    return brazeData.canvases.filter(c => 
-      c.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    return brazeData.canvases
+      .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => {
+        // Active canvases first, then by name
+        if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
   }, [brazeData?.canvases, searchQuery]);
 
   const filteredSegments = useMemo(() => {
@@ -139,9 +164,13 @@ export default function Settings() {
     if (showStarredOnly) {
       segments = segments.filter(s => s.is_starred);
     }
-    return segments.filter(s => 
-      s.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    return segments
+      .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => {
+        // Starred first, then alphabetical
+        if (a.is_starred !== b.is_starred) return a.is_starred ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
   }, [brazeData?.segments, searchQuery, showStarredOnly]);
 
   return (
@@ -271,8 +300,8 @@ export default function Settings() {
                                     </p>
                                   </div>
                                   <Switch
-                                    checked={isItemVisible('campaign', campaign.id)}
-                                    onCheckedChange={() => handleToggle('campaign', campaign.id)}
+                                    checked={isItemVisible('campaign', campaign.id, campaign.last_sent)}
+                                    onCheckedChange={() => handleToggle('campaign', campaign.id, campaign.last_sent)}
                                     disabled={toggleVisibility.isPending}
                                   />
                                 </div>
