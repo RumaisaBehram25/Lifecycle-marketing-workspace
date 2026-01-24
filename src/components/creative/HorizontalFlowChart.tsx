@@ -11,7 +11,6 @@ import {
   Timer,
   GitBranch,
   Filter,
-  ArrowRight,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -102,7 +101,7 @@ function getChannelColors(channel?: string): { bg: string; border: string; text:
   }
 }
 
-// Render creative preview based on channel
+// Render creative preview based on channel - LARGER SIZE
 function CreativePreview({ step }: { step: CanvasStep }) {
   const channel = step.channel?.toLowerCase() || 'email';
   const message = step.messages?.[0];
@@ -110,24 +109,25 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'email') {
     return (
-      <div className="w-[200px] h-[260px] bg-white rounded-lg border shadow-sm overflow-hidden flex flex-col">
-        <div className="bg-muted/50 px-3 py-2 border-b">
-          <p className="text-[10px] text-muted-foreground truncate">From: Linktree</p>
-          <p className="text-xs font-medium truncate">{message?.subject || step.name}</p>
+      <div className="w-full h-[320px] bg-white rounded-t-lg overflow-hidden flex flex-col">
+        <div className="bg-muted/50 px-4 py-3 border-b flex-shrink-0">
+          <p className="text-xs text-muted-foreground truncate">From: Linktree</p>
+          <p className="text-sm font-medium truncate">{message?.subject || step.name}</p>
           {message?.preheader && (
-            <p className="text-[10px] text-muted-foreground truncate">{message.preheader}</p>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{message.preheader}</p>
           )}
         </div>
-        <div className="flex-1 p-3 overflow-hidden">
+        <div className="flex-1 p-4 overflow-hidden">
           {message?.html_content ? (
             <div 
-              className="text-[8px] leading-tight scale-[0.4] origin-top-left w-[500px]"
-              dangerouslySetInnerHTML={{ __html: message.html_content.substring(0, 2000) }}
+              className="text-[10px] leading-tight scale-[0.5] origin-top-left w-[600px]"
+              dangerouslySetInnerHTML={{ __html: message.html_content.substring(0, 3000) }}
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground">
-              <Mail className="h-8 w-8 mb-2 opacity-30" />
-              <p className="text-xs">Email preview</p>
+              <Mail className="h-12 w-12 mb-3 opacity-30" />
+              <p className="text-sm font-medium">Email Preview</p>
+              <p className="text-xs mt-1">Content synced from Braze</p>
             </div>
           )}
         </div>
@@ -137,75 +137,76 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'push' || channel.includes('push')) {
     return (
-      <div className="w-[200px] h-[260px] flex flex-col items-center justify-center p-4">
-        <div className="w-full bg-card border rounded-2xl p-3 shadow-lg">
-          <div className="flex items-start gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-primary-foreground">L</span>
+      <div className="w-full h-[320px] flex flex-col items-center justify-center p-6 bg-gradient-to-b from-muted/20 to-muted/40 rounded-t-lg">
+        <div className="w-full max-w-[280px] bg-card border rounded-2xl p-4 shadow-lg">
+          <div className="flex items-start gap-3">
+            <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
+              <span className="text-sm font-bold text-primary-foreground">L</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">Linktree • now</p>
-              <p className="font-medium text-xs mt-0.5 line-clamp-1">{message?.title || step.name}</p>
-              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+              <p className="text-xs text-muted-foreground">Linktree • now</p>
+              <p className="font-semibold text-sm mt-1 line-clamp-2">{message?.title || step.name}</p>
+              <p className="text-sm text-muted-foreground line-clamp-3 mt-1">
                 {message?.body || 'Push notification content'}
               </p>
             </div>
           </div>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2">Push notification</p>
+        <p className="text-xs text-muted-foreground mt-4">Push Notification</p>
       </div>
     );
   }
   
   if (channel === 'in_app_message' || channel === 'in-app') {
     return (
-      <div className="w-[200px] h-[260px] flex flex-col items-center justify-center p-4">
-        <div className="w-full bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-xl p-4 text-center">
-          <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-3">
-            <Smartphone className="h-5 w-5 text-primary" />
+      <div className="w-full h-[320px] flex flex-col items-center justify-center p-6 bg-gradient-to-b from-primary/5 to-primary/10 rounded-t-lg">
+        <div className="w-full max-w-[280px] bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center">
+          <div className="h-14 w-14 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+            <Smartphone className="h-7 w-7 text-primary" />
           </div>
-          <h4 className="font-bold text-sm line-clamp-1">{message?.title || step.name}</h4>
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+          <h4 className="font-bold text-base line-clamp-2">{message?.title || step.name}</h4>
+          <p className="text-sm text-muted-foreground mt-2 line-clamp-3">
             {message?.body || 'In-app message content'}
           </p>
-          <Button size="sm" className="mt-3 h-7 text-xs">Take Action</Button>
+          <Button size="sm" className="mt-4">Take Action</Button>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2">In-app message</p>
+        <p className="text-xs text-muted-foreground mt-4">In-App Message</p>
       </div>
     );
   }
   
   // SMS fallback
   return (
-    <div className="w-[200px] h-[260px] flex flex-col items-center justify-center p-4">
-      <div className={`w-full ${colors.bg} border ${colors.border} rounded-xl p-4`}>
+    <div className="w-full h-[320px] flex flex-col items-center justify-center p-6 rounded-t-lg">
+      <div className={`w-full max-w-[280px] ${colors.bg} border ${colors.border} rounded-2xl p-6`}>
         <p className="text-sm">{message?.body || 'SMS message content'}</p>
       </div>
-      <p className="text-[10px] text-muted-foreground mt-2">SMS message</p>
+      <p className="text-xs text-muted-foreground mt-4">SMS Message</p>
     </div>
   );
 }
 
-// Delay/Filter module above step
-function StepMetaModule({ step }: { step: CanvasStep }) {
+// Delay/Filter module BELOW step
+function StepMetaModule({ step, delayBefore }: { step: CanvasStep; delayBefore?: string }) {
   const type = step.type?.toLowerCase() || 'message';
-  const isDelay = type === 'delay' || type === 'wait';
   const isFilter = type === 'decision_split' || type === 'branch' || type === 'action_paths' || type === 'filter';
   
-  if (!isDelay && !isFilter && (!step.delay_formatted || step.delay_formatted === '0h')) {
+  const delayToShow = delayBefore || (step.delay_formatted !== '0h' ? step.delay_formatted : null);
+  
+  if (!delayToShow && !isFilter) {
     return null;
   }
   
   return (
-    <div className="flex flex-col items-center gap-1 mb-2">
-      {(step.delay_formatted && step.delay_formatted !== '0h') && (
-        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-600 text-[10px] gap-1">
+    <div className="flex items-center justify-center gap-2 mt-2">
+      {delayToShow && (
+        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-600 text-xs gap-1">
           <Timer className="h-3 w-3" />
-          {isDelay ? step.delay_formatted : `+${step.delay_formatted}`}
+          {delayToShow}
         </Badge>
       )}
       {isFilter && (
-        <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-600 text-[10px] gap-1">
+        <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-600 text-xs gap-1">
           <Filter className="h-3 w-3" />
           Filter
         </Badge>
@@ -214,58 +215,43 @@ function StepMetaModule({ step }: { step: CanvasStep }) {
   );
 }
 
-// Single step card with creative
+// Single step card with creative - LARGER
 function StepCard({ 
   step, 
-  isLast,
+  delayBefore,
   onClick 
 }: { 
   step: CanvasStep; 
-  isLast: boolean;
+  delayBefore?: string;
   onClick?: () => void;
 }) {
   const colors = getChannelColors(step.channel);
   const type = step.type?.toLowerCase() || 'message';
-  const isMessageStep = type === 'message' || !['delay', 'wait', 'decision_split', 'branch', 'action_paths', 'filter', 'webhook', 'action', 'experiment_paths'].includes(type);
   
-  // Skip delay/filter steps as visual cards - they show as meta modules above the next step
-  if (type === 'delay' || type === 'wait' || type === 'decision_split' || type === 'branch' || type === 'filter') {
+  // Skip non-message steps
+  if (['delay', 'wait', 'decision_split', 'branch', 'filter'].includes(type)) {
     return null;
   }
   
   return (
-    <div className="flex items-center">
-      <div className="flex flex-col items-center">
-        <StepMetaModule step={step} />
-        <Card 
-          className={`cursor-pointer hover:shadow-lg transition-shadow border-2 ${colors.border}`}
-          onClick={onClick}
-        >
-          <CardContent className="p-0">
-            {isMessageStep && <CreativePreview step={step} />}
-            {!isMessageStep && (
-              <div className={`w-[200px] h-[260px] ${colors.bg} flex flex-col items-center justify-center`}>
-                {getChannelIcon(step.channel, "h-10 w-10 opacity-50")}
-                <p className="text-sm font-medium mt-2">{step.name}</p>
+    <div className="flex flex-col w-[280px] flex-shrink-0">
+      <Card 
+        className={`cursor-pointer hover:shadow-lg transition-shadow border-2 ${colors.border} overflow-hidden`}
+        onClick={onClick}
+      >
+        <CardContent className="p-0">
+          <CreativePreview step={step} />
+          <div className={`px-4 py-3 border-t ${colors.bg}`}>
+            <div className="flex items-center gap-2">
+              <div className={colors.text}>
+                {getChannelIcon(step.channel, "h-4 w-4")}
               </div>
-            )}
-            <div className={`px-3 py-2 border-t ${colors.bg}`}>
-              <div className="flex items-center gap-2">
-                <div className={colors.text}>
-                  {getChannelIcon(step.channel, "h-4 w-4")}
-                </div>
-                <span className="text-xs font-medium truncate flex-1">{step.name}</span>
-              </div>
+              <span className="text-sm font-medium truncate flex-1">{step.name}</span>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-      {!isLast && (
-        <div className="px-4 flex-shrink-0">
-          <ArrowRight className="h-5 w-5 text-muted-foreground" />
-        </div>
-      )}
+          </div>
+        </CardContent>
+      </Card>
+      <StepMetaModule step={step} delayBefore={delayBefore} />
     </div>
   );
 }
@@ -292,7 +278,7 @@ function buildLinearPath(firstStepId: string | null, allSteps: Record<string, Ca
   return path;
 }
 
-// Variant row with horizontal scroll
+// Variant row with horizontal scroll - EXPANDED BY DEFAULT
 function VariantRow({ 
   variant, 
   steps, 
@@ -308,11 +294,22 @@ function VariantRow({
 }) {
   const path = useMemo(() => buildLinearPath(variant.first_step_id, steps), [variant.first_step_id, steps]);
   
-  // Filter to only message steps for display
-  const messageSteps = path.filter(s => {
-    const type = s.type?.toLowerCase() || 'message';
-    return !['delay', 'wait', 'decision_split', 'branch', 'filter'].includes(type);
-  });
+  // Filter to only message steps for display, but track delays
+  const stepsWithDelays = useMemo(() => {
+    const result: { step: CanvasStep; delayBefore?: string }[] = [];
+    let pendingDelay: string | undefined;
+    
+    for (const s of path) {
+      const type = s.type?.toLowerCase() || 'message';
+      if (type === 'delay' || type === 'wait') {
+        pendingDelay = s.delay_formatted || pendingDelay;
+      } else if (!['decision_split', 'branch', 'filter'].includes(type)) {
+        result.push({ step: s, delayBefore: pendingDelay });
+        pendingDelay = undefined;
+      }
+    }
+    return result;
+  }, [path]);
   
   const isControl = variant.name.toLowerCase().includes('control');
   const roundedPercentage = Math.round(variant.percentage);
@@ -331,7 +328,7 @@ function VariantRow({
           </Badge>
         </div>
         <span className="text-sm text-muted-foreground">
-          {messageSteps.length} touchpoint{messageSteps.length !== 1 ? 's' : ''}
+          {stepsWithDelays.length} touchpoint{stepsWithDelays.length !== 1 ? 's' : ''}
         </span>
       </button>
       
@@ -339,34 +336,15 @@ function VariantRow({
         <div className="border-t bg-background">
           {variant.first_step_id ? (
             <ScrollArea className="w-full">
-              <div className="flex items-start p-6 min-w-max">
-                {messageSteps.map((step, idx) => {
-                  // Find delay before this step
-                  const stepIndex = path.indexOf(step);
-                  const prevStep = stepIndex > 0 ? path[stepIndex - 1] : null;
-                  const hasDelayBefore = prevStep && (prevStep.type === 'delay' || prevStep.type === 'wait');
-                  
-                  return (
-                    <div key={step.id} className="flex items-center">
-                      <div className="flex flex-col items-center">
-                        {hasDelayBefore && <StepMetaModule step={prevStep!} />}
-                        {step.delay_formatted && step.delay_formatted !== '0h' && !hasDelayBefore && (
-                          <StepMetaModule step={step} />
-                        )}
-                        <StepCard 
-                          step={step} 
-                          isLast={idx === messageSteps.length - 1}
-                          onClick={() => onViewStep?.(step)}
-                        />
-                      </div>
-                      {idx < messageSteps.length - 1 && (
-                        <div className="px-4 flex-shrink-0 self-center">
-                          <ArrowRight className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="flex items-start gap-6 p-6 min-w-max">
+                {stepsWithDelays.map(({ step, delayBefore }) => (
+                  <StepCard 
+                    key={step.id}
+                    step={step} 
+                    delayBefore={delayBefore}
+                    onClick={() => onViewStep?.(step)}
+                  />
+                ))}
               </div>
               <ScrollBar orientation="horizontal" />
             </ScrollArea>
