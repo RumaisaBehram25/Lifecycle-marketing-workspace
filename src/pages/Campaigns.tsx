@@ -198,8 +198,7 @@ export default function Campaigns() {
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState<string>('active');
-  const [lastSentFilter, setLastSentFilter] = useState<string>('All');
+  const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCampaign, setSelectedCampaign] = useState<EnrichedCampaign | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -317,30 +316,34 @@ export default function Campaigns() {
         if (channelFilter === 'multi') {
           matchesChannel = campaign.channels?.length > 1;
         } else {
-          matchesChannel = campaign.channels?.includes(channelFilter) || false;
+          // Check if any channel matches (handles both exact match and partial match for in_app variants)
+          matchesChannel = campaign.channels?.some(ch => {
+            const normalizedCh = ch.toLowerCase().replace(/[-_]/g, '');
+            const normalizedFilter = channelFilter.toLowerCase().replace(/[-_]/g, '');
+            return normalizedCh === normalizedFilter || normalizedCh.includes(normalizedFilter) || normalizedFilter.includes(normalizedCh);
+          }) || false;
         }
       }
       
-      const matchesStatus = statusFilter === 'All' || campaign.status === statusFilter;
-      
-      let matchesLastSent = true;
-      if (lastSentFilter !== 'All') {
-        if (!campaign.last_sent) {
-          matchesLastSent = false;
+      // Filter by launch date (first_sent)
+      let matchesLaunchDate = true;
+      if (launchDateFilter !== 'All') {
+        if (!campaign.first_sent) {
+          matchesLaunchDate = false;
         } else {
-          const lastSentDate = new Date(campaign.last_sent);
+          const launchDate = new Date(campaign.first_sent);
           const now = new Date();
-          const daysDiff = Math.floor((now.getTime() - lastSentDate.getTime()) / (1000 * 60 * 60 * 24));
+          const daysDiff = Math.floor((now.getTime() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
           
-          if (lastSentFilter === '7days') matchesLastSent = daysDiff <= 7;
-          else if (lastSentFilter === '30days') matchesLastSent = daysDiff <= 30;
-          else if (lastSentFilter === '90days') matchesLastSent = daysDiff <= 90;
+          if (launchDateFilter === '7days') matchesLaunchDate = daysDiff <= 7;
+          else if (launchDateFilter === '30days') matchesLaunchDate = daysDiff <= 30;
+          else if (launchDateFilter === '90days') matchesLaunchDate = daysDiff <= 90;
         }
       }
       
-      return matchesSearch && matchesTag && matchesChannel && matchesStatus && matchesLastSent;
+      return matchesSearch && matchesTag && matchesChannel && matchesLaunchDate;
     });
-  }, [campaigns, searchQuery, tagFilter, channelFilter, statusFilter, lastSentFilter, visibilityMap]);
+  }, [campaigns, searchQuery, tagFilter, channelFilter, launchDateFilter, visibilityMap]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {
@@ -432,25 +435,14 @@ export default function Campaigns() {
                 <SelectItem value="email">Email</SelectItem>
                 <SelectItem value="push">Push</SelectItem>
                 <SelectItem value="sms">SMS</SelectItem>
-                <SelectItem value="in_app_message">In-App</SelectItem>
+                <SelectItem value="inapp">In-App</SelectItem>
                 <SelectItem value="multi">Multi-channel</SelectItem>
               </SelectContent>
             </Select>
-            
-            <Select value="active" onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
-              </SelectContent>
-            </Select>
 
-            <Select value={lastSentFilter} onValueChange={setLastSentFilter}>
+            <Select value={launchDateFilter} onValueChange={setLaunchDateFilter}>
               <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Any time" />
+                <SelectValue placeholder="Launched" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="All">Any time</SelectItem>
@@ -463,11 +455,13 @@ export default function Campaigns() {
             {allTags.length > 1 && (
               <Select value={tagFilter} onValueChange={setTagFilter}>
                 <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Tag" />
+                  <SelectValue placeholder="Tags" />
                 </SelectTrigger>
                 <SelectContent>
                   {allTags.map(tag => (
-                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                    <SelectItem key={tag} value={tag === 'All' ? 'All' : tag}>
+                      {tag === 'All' ? 'All Tags' : tag}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

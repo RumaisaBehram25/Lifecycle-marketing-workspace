@@ -107,6 +107,7 @@ const MOCK_JOURNEYS: Array<{
   variants: CanvasVariant[];
   steps: Record<string, CanvasStep>;
   total_steps: number;
+  first_entry?: string;
 }> = [
   {
     id: 'welcome',
@@ -160,7 +161,7 @@ export default function Lifecycle() {
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState<string>('active');
+  const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
@@ -260,11 +261,36 @@ export default function Lifecycle() {
       const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || journey.tags?.includes(tagFilter);
-      const matchesChannel = channelFilter === 'All' || journey.channels?.includes(channelFilter);
-      const matchesStatus = statusFilter === 'All' || journey.status === statusFilter;
-      return matchesSearch && matchesTag && matchesChannel && matchesStatus;
+      
+      // Channel filter with normalized matching
+      let matchesChannel = true;
+      if (channelFilter !== 'All') {
+        matchesChannel = journey.channels?.some(ch => {
+          const normalizedCh = ch.toLowerCase().replace(/[-_]/g, '');
+          const normalizedFilter = channelFilter.toLowerCase().replace(/[-_]/g, '');
+          return normalizedCh === normalizedFilter || normalizedCh.includes(normalizedFilter) || normalizedFilter.includes(normalizedCh);
+        }) || false;
+      }
+      
+      // Filter by launch date (first_entry)
+      let matchesLaunchDate = true;
+      if (launchDateFilter !== 'All') {
+        if (!journey.first_entry) {
+          matchesLaunchDate = false;
+        } else {
+          const launchDate = new Date(journey.first_entry);
+          const now = new Date();
+          const daysDiff = Math.floor((now.getTime() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
+          
+          if (launchDateFilter === '7days') matchesLaunchDate = daysDiff <= 7;
+          else if (launchDateFilter === '30days') matchesLaunchDate = daysDiff <= 30;
+          else if (launchDateFilter === '90days') matchesLaunchDate = daysDiff <= 90;
+        }
+      }
+      
+      return matchesSearch && matchesTag && matchesChannel && matchesLaunchDate;
     });
-  }, [journeys, searchQuery, tagFilter, channelFilter, statusFilter, visibilityMap]);
+  }, [journeys, searchQuery, tagFilter, channelFilter, launchDateFilter, visibilityMap]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {
@@ -356,29 +382,32 @@ export default function Lifecycle() {
                 <SelectItem value="email">Email</SelectItem>
                 <SelectItem value="push">Push</SelectItem>
                 <SelectItem value="sms">SMS</SelectItem>
-                <SelectItem value="in_app_message">In-App</SelectItem>
+                <SelectItem value="inapp">In-App</SelectItem>
               </SelectContent>
             </Select>
-            
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue placeholder="Status" />
+
+            <Select value={launchDateFilter} onValueChange={setLaunchDateFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Launched" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="All">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="All">Any time</SelectItem>
+                <SelectItem value="7days">Last 7 days</SelectItem>
+                <SelectItem value="30days">Last 30 days</SelectItem>
+                <SelectItem value="90days">Last 90 days</SelectItem>
               </SelectContent>
             </Select>
             
             {allTags.length > 1 && (
               <Select value={tagFilter} onValueChange={setTagFilter}>
                 <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Tag" />
+                  <SelectValue placeholder="Tags" />
                 </SelectTrigger>
                 <SelectContent>
                   {allTags.map(tag => (
-                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                    <SelectItem key={tag} value={tag === 'All' ? 'All' : tag}>
+                      {tag === 'All' ? 'All Tags' : tag}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
