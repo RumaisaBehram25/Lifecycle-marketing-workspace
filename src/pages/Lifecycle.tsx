@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import { CanvasFlowChart } from '@/components/creative/CanvasFlowChart';
 
@@ -169,6 +170,28 @@ export default function Lifecycle() {
   const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
   const hasBrazeData = !!brazeData?.last_sync;
 
+  // Fetch visibility settings
+  const { data: visibilityData } = useQuery({
+    queryKey: ['data-visibility-canvas', client?.id],
+    queryFn: async () => {
+      if (!client?.id) return [];
+      const { data, error } = await supabase
+        .from('data_visibility')
+        .select('*')
+        .eq('client_id', client.id)
+        .eq('item_type', 'canvas');
+      if (error) throw error;
+      return data as Array<{ item_id: string; is_visible: boolean }>;
+    },
+    enabled: !!client?.id,
+  });
+
+  const visibilityMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    visibilityData?.forEach(v => map.set(v.item_id, v.is_visible));
+    return map;
+  }, [visibilityData]);
+
   // Transform Braze canvases to journey format
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
@@ -227,9 +250,13 @@ export default function Lifecycle() {
     return ['All', ...Array.from(tags)];
   }, [journeys]);
 
-  // Filter journeys
+  // Filter journeys (including visibility)
   const filteredJourneys = useMemo(() => {
     return journeys.filter(journey => {
+      // Check visibility first
+      const isVisible = visibilityMap.get(journey.id) !== false;
+      if (!isVisible) return false;
+      
       const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || journey.tags?.includes(tagFilter);
@@ -237,7 +264,7 @@ export default function Lifecycle() {
       const matchesStatus = statusFilter === 'All' || journey.status === statusFilter;
       return matchesSearch && matchesTag && matchesChannel && matchesStatus;
     });
-  }, [journeys, searchQuery, tagFilter, channelFilter, statusFilter]);
+  }, [journeys, searchQuery, tagFilter, channelFilter, statusFilter, visibilityMap]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {

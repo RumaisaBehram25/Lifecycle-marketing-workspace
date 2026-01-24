@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, ParsedCampaign } from '@/lib/campaign-taxonomy';
 
 // Type definitions
@@ -161,6 +162,29 @@ export default function Campaigns() {
   const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
   const hasBrazeData = !!brazeData?.last_sync;
 
+  // Fetch visibility settings
+  const { data: visibilityData } = useQuery({
+    queryKey: ['data-visibility', client?.id],
+    queryFn: async () => {
+      if (!client?.id) return [];
+      const { data, error } = await supabase
+        .from('data_visibility')
+        .select('*')
+        .eq('client_id', client.id)
+        .eq('item_type', 'campaign');
+      if (error) throw error;
+      return data as Array<{ item_id: string; is_visible: boolean }>;
+    },
+    enabled: !!client?.id,
+  });
+
+  // Create visibility map
+  const visibilityMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    visibilityData?.forEach(v => map.set(v.item_id, v.is_visible));
+    return map;
+  }, [visibilityData]);
+
   // Transform Braze campaigns with taxonomy parsing
   const campaigns = useMemo((): EnrichedCampaign[] => {
     if (!brazeData?.campaigns?.length) {
@@ -211,9 +235,13 @@ export default function Campaigns() {
     return ['All', ...Array.from(tags)];
   }, [campaigns]);
 
-  // Filter campaigns
+  // Filter campaigns (including visibility)
   const filteredCampaigns = useMemo(() => {
     return campaigns.filter(campaign => {
+      // Check visibility first - default to visible if not set
+      const isVisible = visibilityMap.get(campaign.id) !== false;
+      if (!isVisible) return false;
+      
       const matchesSearch = campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            campaign.subject?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || campaign.tags?.includes(tagFilter);
@@ -246,7 +274,7 @@ export default function Campaigns() {
       
       return matchesSearch && matchesTag && matchesChannel && matchesStatus && matchesLastSent;
     });
-  }, [campaigns, searchQuery, tagFilter, channelFilter, statusFilter, lastSentFilter]);
+  }, [campaigns, searchQuery, tagFilter, channelFilter, statusFilter, lastSentFilter, visibilityMap]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {

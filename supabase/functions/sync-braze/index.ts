@@ -91,6 +91,7 @@ interface BrazeSegment {
   description?: string;
   analytics_tracking_enabled?: boolean;
   tags?: string[];
+  is_starred?: boolean;
 }
 
 interface BrazeSubscriptionGroup {
@@ -98,6 +99,20 @@ interface BrazeSubscriptionGroup {
   name: string;
   channel: string;
   is_active?: boolean;
+}
+
+interface BrazeCustomEvent {
+  name: string;
+  description?: string;
+  last_received_at?: string;
+  included_in_analytics_report?: boolean;
+}
+
+interface BrazeCustomAttribute {
+  name: string;
+  data_type: string;
+  description?: string;
+  array_length?: number;
 }
 
 async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string) {
@@ -202,12 +217,16 @@ serve(async (req) => {
       templates: BrazeTemplate[];
       segments: BrazeSegment[];
       subscriptionGroups: BrazeSubscriptionGroup[];
+      customEvents: BrazeCustomEvent[];
+      customAttributes: BrazeCustomAttribute[];
     } = {
       campaigns: [],
       canvases: [],
       templates: [],
       segments: [],
       subscriptionGroups: [],
+      customEvents: [],
+      customAttributes: [],
     };
 
     // First fetch templates with HTML content - we'll need these to map to campaigns
@@ -557,7 +576,7 @@ serve(async (req) => {
       console.error('Failed to fetch canvases:', e);
     }
 
-    // Fetch segments
+    // Fetch segments - include starred info via tags
     try {
       const segmentsData = await brazeFetch('segments/list?page=0&sort_direction=desc', apiKey, brazeRestEndpoint);
       results.segments = (segmentsData.segments || []).map((s: any) => ({
@@ -566,8 +585,12 @@ serve(async (req) => {
         description: s.description,
         analytics_tracking_enabled: s.analytics_tracking_enabled,
         tags: s.tags,
+        // Check if segment is starred (Braze uses tags for this)
+        is_starred: (s.tags || []).some((t: string) => 
+          t.toLowerCase() === 'starred' || t.toLowerCase() === 'favorite' || t.toLowerCase() === 'star'
+        ),
       }));
-      console.log('Fetched segments:', results.segments.length);
+      console.log('Fetched segments:', results.segments.length, 'starred:', results.segments.filter(s => s.is_starred).length);
     } catch (e) {
       console.error('Failed to fetch segments:', e);
     }
@@ -584,6 +607,48 @@ serve(async (req) => {
       console.log('Fetched subscription groups:', results.subscriptionGroups.length);
     } catch (e) {
       console.error('Failed to fetch subscription groups:', e);
+    }
+
+    // Fetch custom events
+    try {
+      const eventsData = await brazeFetch('events/list', apiKey, brazeRestEndpoint);
+      results.customEvents = (eventsData.events || []).map((e: any) => ({
+        name: e.name || e,
+        description: e.description,
+        last_received_at: e.last_received_at,
+        included_in_analytics_report: e.included_in_analytics_report,
+      }));
+      console.log('Fetched custom events:', results.customEvents.length);
+    } catch (e) {
+      console.error('Failed to fetch custom events:', e);
+    }
+
+    // Fetch custom attributes
+    try {
+      const attributesData = await brazeFetch('users/export/global_control_group', apiKey, brazeRestEndpoint);
+      // Note: Braze doesn't have a direct "list attributes" endpoint
+      // We'll use a different approach - try to get from data_profile/attributes if available
+      // For now, we'll extract from any sample user data or use the custom_attributes endpoint
+      results.customAttributes = [];
+      
+      // Try alternative endpoint for custom attributes
+      try {
+        const attrData = await brazeFetch('custom_attributes', apiKey, brazeRestEndpoint);
+        if (attrData.custom_attributes) {
+          results.customAttributes = attrData.custom_attributes.map((a: any) => ({
+            name: a.name || a,
+            data_type: a.data_type || 'string',
+            description: a.description,
+            array_length: a.array_length,
+          }));
+        }
+      } catch {
+        // Fallback: No attributes endpoint available
+        console.log('Custom attributes endpoint not available');
+      }
+      console.log('Fetched custom attributes:', results.customAttributes.length);
+    } catch (e) {
+      console.error('Failed to fetch custom attributes:', e);
     }
 
     // Store the schema data in platform_schemas
@@ -673,7 +738,7 @@ serve(async (req) => {
 
     // Update the schema_cache on the platform with full data for chat context
     const schemaCache = {
-      cache_version: 2, // Bumped for new structure
+      cache_version: 3, // Bumped for events/attributes
       saved_at: new Date().toISOString(),
       rest_endpoint: brazeRestEndpoint,
       
@@ -683,15 +748,20 @@ serve(async (req) => {
       canvases_enabled_count: results.canvases.filter(c => c.enabled).length,
       templates_count: results.templates.length,
       segments_count: results.segments.length,
+      segments_starred_count: results.segments.filter(s => s.is_starred).length,
       subscription_groups_count: results.subscriptionGroups.length,
+      custom_events_count: results.customEvents.length,
+      custom_attributes_count: results.customAttributes.length,
       last_sync: new Date().toISOString(),
       
       // Full data for AI context and UI
       campaigns: results.campaigns,
-      canvases: results.canvases, // Now includes full variants + steps graph
+      canvases: results.canvases,
       templates: results.templates,
       segments: results.segments,
       subscription_groups: results.subscriptionGroups,
+      custom_events: results.customEvents,
+      custom_attributes: results.customAttributes,
     };
 
     await supabase

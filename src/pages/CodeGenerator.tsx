@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -19,7 +21,20 @@ import { LoadingPage, LoadingSpinner } from '@/components/ui/loading-spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Code, Sparkles, Copy, Check, RefreshCw, Database, Zap, Tag, AlertCircle } from 'lucide-react';
+import { 
+  Code, 
+  Sparkles, 
+  Copy, 
+  Check, 
+  RefreshCw, 
+  Database, 
+  Zap, 
+  Tag, 
+  AlertCircle,
+  Users,
+  Activity,
+  Settings2,
+} from 'lucide-react';
 import type { CodeGeneratorInput } from '@/lib/types';
 import { Link } from 'react-router-dom';
 
@@ -32,9 +47,12 @@ const TRIGGER_TYPES = [
 ];
 
 interface BrazeSchemaCache {
-  segments?: Array<{ id: string; name: string; description?: string }>;
+  segments?: Array<{ id: string; name: string; description?: string; is_starred?: boolean }>;
   campaigns?: Array<{ id: string; name: string; channels?: string[] }>;
   canvases?: Array<{ id: string; name: string }>;
+  custom_events?: Array<{ name: string; description?: string; last_received_at?: string }>;
+  custom_attributes?: Array<{ name: string; data_type: string; description?: string }>;
+  last_sync?: string;
 }
 
 interface GeneratedCode {
@@ -46,7 +64,7 @@ interface GeneratedCode {
   assumptions: string[];
 }
 
-// Common Braze attributes
+// Common Braze attributes (fallback)
 const COMMON_BRAZE_ATTRIBUTES = [
   { name: 'first_name', type: 'string', description: 'User first name' },
   { name: 'last_name', type: 'string', description: 'User last name' },
@@ -59,7 +77,7 @@ const COMMON_BRAZE_ATTRIBUTES = [
   { name: 'email_subscribe', type: 'boolean', description: 'Email subscription status' },
 ];
 
-// Common Braze events
+// Common Braze events (fallback)
 const COMMON_BRAZE_EVENTS = [
   { name: 'purchase', description: 'User made a purchase' },
   { name: 'session_start', description: 'App session started' },
@@ -73,9 +91,11 @@ export default function CodeGenerator() {
   const { data: platforms } = useLinktreePlatforms();
   const { toast } = useToast();
 
+  const [activeDataTab, setActiveDataTab] = useState('attributes');
   const [triggerType, setTriggerType] = useState('event');
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [selectedSegments, setSelectedSegments] = useState<string[]>([]);
   const [customAttribute, setCustomAttribute] = useState('');
   const [customEvent, setCustomEvent] = useState('');
   const [additionalContext, setAdditionalContext] = useState('');
@@ -88,8 +108,31 @@ export default function CodeGenerator() {
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
   const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
   const hasBrazeConnection = !!brazePlatform;
+  const hasSyncedData = !!brazeData?.last_sync;
 
-  // Extract segments from Braze data
+  // Use synced data or fall back to common defaults
+  const availableAttributes = useMemo(() => {
+    if (brazeData?.custom_attributes?.length) {
+      return brazeData.custom_attributes.map(a => ({
+        name: a.name,
+        type: a.data_type,
+        description: a.description || `Custom attribute: ${a.name}`,
+      }));
+    }
+    return COMMON_BRAZE_ATTRIBUTES;
+  }, [brazeData?.custom_attributes]);
+
+  const availableEvents = useMemo(() => {
+    if (brazeData?.custom_events?.length) {
+      return brazeData.custom_events.map(e => ({
+        name: e.name,
+        description: e.description || `Custom event: ${e.name}`,
+        last_received_at: e.last_received_at,
+      }));
+    }
+    return COMMON_BRAZE_EVENTS;
+  }, [brazeData?.custom_events]);
+
   const brazeSegments = useMemo(() => brazeData?.segments || [], [brazeData]);
 
   if (clientLoading) {
@@ -109,6 +152,12 @@ export default function CodeGenerator() {
   const toggleEvent = (event: string) => {
     setSelectedEvents(prev => 
       prev.includes(event) ? prev.filter(e => e !== event) : [...prev, event]
+    );
+  };
+
+  const toggleSegment = (segment: string) => {
+    setSelectedSegments(prev => 
+      prev.includes(segment) ? prev.filter(s => s !== segment) : [...prev, segment]
     );
   };
 
@@ -144,6 +193,7 @@ export default function CodeGenerator() {
         edge_cases: selectedEvents.map(e => `Handle ${e} event`),
         additional_context: `
 Events to handle: ${selectedEvents.join(', ')}
+${selectedSegments.length > 0 ? `Target segments: ${selectedSegments.join(', ')}` : ''}
 ${brazeSegments.length > 0 ? `Available segments: ${brazeSegments.slice(0, 10).map(s => s.name).join(', ')}` : ''}
 ${additionalContext}
         `.trim(),
@@ -204,6 +254,24 @@ ${additionalContext}
           </Card>
         )}
 
+        {/* Synced Data Status */}
+        {hasBrazeConnection && hasSyncedData && (
+          <Card className="mt-6 border-emerald-500/30 bg-emerald-500/5">
+            <CardContent className="p-4 flex items-center gap-3">
+              <Database className="h-5 w-5 text-emerald-500" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Using synced Braze data</p>
+                <p className="text-xs text-muted-foreground">
+                  {availableEvents.length} events, {availableAttributes.length} attributes, {brazeSegments.length} segments
+                </p>
+              </div>
+              <Badge variant="outline" className="text-xs">
+                Last sync: {new Date(brazeData.last_sync!).toLocaleDateString()}
+              </Badge>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="mt-6 sm:mt-8 grid gap-6 lg:gap-8 lg:grid-cols-2">
           {/* Input Form */}
           <div className="space-y-6">
@@ -231,131 +299,193 @@ ${additionalContext}
               </CardContent>
             </Card>
 
-            {/* Braze Attributes */}
+            {/* Data Selection Tabs */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Database className="h-4 w-4" />
-                  User Attributes
+                  Braze Data
                 </CardTitle>
-                <CardDescription>Select attributes to include in your template</CardDescription>
+                <CardDescription>
+                  {hasSyncedData ? 'Select from your synced Braze schema' : 'Using common Braze attributes and events'}
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  {COMMON_BRAZE_ATTRIBUTES.map((attr) => (
-                    <button
-                      key={attr.name}
-                      onClick={() => toggleAttribute(attr.name)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-mono transition-colors ${
-                        selectedAttributes.includes(attr.name)
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80'
-                      }`}
-                      title={attr.description}
-                    >
-                      {attr.name}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={customAttribute}
-                    onChange={(e) => setCustomAttribute(e.target.value)}
-                    placeholder="Add custom attribute..."
-                    className="font-mono text-sm"
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomAttribute())}
-                  />
-                  <Button variant="outline" size="sm" onClick={addCustomAttribute}>
-                    Add
-                  </Button>
-                </div>
-                {selectedAttributes.length > 0 && (
-                  <div className="pt-2 border-t">
-                    <p className="text-xs text-muted-foreground mb-2">Selected ({selectedAttributes.length}):</p>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedAttributes.map((attr) => (
-                        <Badge 
-                          key={attr} 
-                          variant="secondary" 
-                          className="font-mono cursor-pointer"
-                          onClick={() => toggleAttribute(attr)}
-                        >
-                          {attr} ×
-                        </Badge>
-                      ))}
+              <CardContent>
+                <Tabs value={activeDataTab} onValueChange={setActiveDataTab}>
+                  <TabsList className="grid w-full grid-cols-3 mb-4">
+                    <TabsTrigger value="attributes" className="gap-1.5 text-xs">
+                      <Settings2 className="h-3.5 w-3.5" />
+                      Attributes
+                    </TabsTrigger>
+                    <TabsTrigger value="events" className="gap-1.5 text-xs">
+                      <Activity className="h-3.5 w-3.5" />
+                      Events
+                    </TabsTrigger>
+                    <TabsTrigger value="segments" className="gap-1.5 text-xs">
+                      <Users className="h-3.5 w-3.5" />
+                      Segments
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* Attributes Tab */}
+                  <TabsContent value="attributes" className="space-y-4 mt-0">
+                    <ScrollArea className="h-[180px]">
+                      <div className="flex flex-wrap gap-2">
+                        {availableAttributes.map((attr) => (
+                          <button
+                            key={attr.name}
+                            onClick={() => toggleAttribute(attr.name)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-mono transition-colors ${
+                              selectedAttributes.includes(attr.name)
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted hover:bg-muted/80'
+                            }`}
+                            title={attr.description}
+                          >
+                            {attr.name}
+                            <span className="ml-1 opacity-60">({attr.type})</span>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                    <div className="flex gap-2">
+                      <Input
+                        value={customAttribute}
+                        onChange={(e) => setCustomAttribute(e.target.value)}
+                        placeholder="Add custom attribute..."
+                        className="font-mono text-sm"
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomAttribute())}
+                      />
+                      <Button variant="outline" size="sm" onClick={addCustomAttribute}>
+                        Add
+                      </Button>
                     </div>
+                  </TabsContent>
+
+                  {/* Events Tab */}
+                  <TabsContent value="events" className="space-y-4 mt-0">
+                    <ScrollArea className="h-[180px]">
+                      <div className="flex flex-wrap gap-2">
+                        {availableEvents.map((event) => (
+                          <button
+                            key={event.name}
+                            onClick={() => toggleEvent(event.name)}
+                            className={`px-3 py-1.5 rounded-full text-xs transition-colors ${
+                              selectedEvents.includes(event.name)
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-muted hover:bg-muted/80'
+                            }`}
+                            title={event.description}
+                          >
+                            {event.name}
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                    <div className="flex gap-2">
+                      <Input
+                        value={customEvent}
+                        onChange={(e) => setCustomEvent(e.target.value)}
+                        placeholder="Add custom event..."
+                        className="text-sm"
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomEvent())}
+                      />
+                      <Button variant="outline" size="sm" onClick={addCustomEvent}>
+                        Add
+                      </Button>
+                    </div>
+                  </TabsContent>
+
+                  {/* Segments Tab */}
+                  <TabsContent value="segments" className="space-y-4 mt-0">
+                    {brazeSegments.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No segments synced yet</p>
+                        <p className="text-xs mt-1">Sync Braze to load your segments</p>
+                      </div>
+                    ) : (
+                      <ScrollArea className="h-[180px]">
+                        <div className="flex flex-wrap gap-2">
+                          {brazeSegments.map((segment) => (
+                            <button
+                              key={segment.id}
+                              onClick={() => toggleSegment(segment.name)}
+                              className={`px-3 py-1.5 rounded-full text-xs transition-colors ${
+                                selectedSegments.includes(segment.name)
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted hover:bg-muted/80'
+                              }`}
+                              title={segment.description}
+                            >
+                              {segment.is_starred && '⭐ '}
+                              {segment.name}
+                            </button>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    )}
+                  </TabsContent>
+                </Tabs>
+
+                {/* Selected Items Summary */}
+                {(selectedAttributes.length > 0 || selectedEvents.length > 0 || selectedSegments.length > 0) && (
+                  <div className="pt-4 border-t mt-4 space-y-2">
+                    {selectedAttributes.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Attributes ({selectedAttributes.length}):</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedAttributes.map((attr) => (
+                            <Badge 
+                              key={attr} 
+                              variant="secondary" 
+                              className="font-mono text-xs cursor-pointer"
+                              onClick={() => toggleAttribute(attr)}
+                            >
+                              {attr} ×
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {selectedEvents.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Events ({selectedEvents.length}):</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedEvents.map((event) => (
+                            <Badge 
+                              key={event} 
+                              variant="secondary" 
+                              className="text-xs cursor-pointer"
+                              onClick={() => toggleEvent(event)}
+                            >
+                              {event} ×
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {selectedSegments.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Segments ({selectedSegments.length}):</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedSegments.map((segment) => (
+                            <Badge 
+                              key={segment} 
+                              variant="secondary" 
+                              className="text-xs cursor-pointer"
+                              onClick={() => toggleSegment(segment)}
+                            >
+                              {segment} ×
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* Events */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Tag className="h-4 w-4" />
-                  Events to Handle
-                </CardTitle>
-                <CardDescription>Select events that trigger or affect this template</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  {COMMON_BRAZE_EVENTS.map((event) => (
-                    <button
-                      key={event.name}
-                      onClick={() => toggleEvent(event.name)}
-                      className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                        selectedEvents.includes(event.name)
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80'
-                      }`}
-                      title={event.description}
-                    >
-                      {event.name}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={customEvent}
-                    onChange={(e) => setCustomEvent(e.target.value)}
-                    placeholder="Add custom event..."
-                    className="text-sm"
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCustomEvent())}
-                  />
-                  <Button variant="outline" size="sm" onClick={addCustomEvent}>
-                    Add
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Braze Segments (from synced data) */}
-            {brazeSegments.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Database className="h-4 w-4 text-primary" />
-                    Your Braze Segments
-                  </CardTitle>
-                  <CardDescription>Synced from your Braze account</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {brazeSegments.slice(0, 20).map((segment) => (
-                      <Badge key={segment.id} variant="outline" className="text-xs">
-                        {segment.name}
-                      </Badge>
-                    ))}
-                    {brazeSegments.length > 20 && (
-                      <Badge variant="secondary" className="text-xs">
-                        +{brazeSegments.length - 20} more
-                      </Badge>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             {/* Additional Context */}
             <Card>
