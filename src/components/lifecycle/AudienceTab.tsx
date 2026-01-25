@@ -23,6 +23,7 @@ interface Segment {
   name: string;
   tags?: string[];
   is_starred?: boolean;
+  size?: number;
 }
 
 interface SegmentDescription {
@@ -207,70 +208,73 @@ export function AudienceTab() {
         />
       </div>
 
-      {/* Segment Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Segment List */}
+      <div className="space-y-2">
         {filteredSegments.map(segment => (
           <Card key={segment.id} className="hover:border-primary/30 transition-colors">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start gap-3">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-4">
                 <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <Users className="h-5 w-5 text-primary" />
                 </div>
+                
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-sm line-clamp-2" title={segment.name}>
-                    {segment.name}
-                  </h3>
-                  {segment.tags && segment.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {segment.tags.slice(0, 2).map(tag => (
-                        <Badge key={tag} variant="secondary" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-medium text-sm" title={segment.name}>
+                      {segment.name}
+                    </h3>
+                    {segment.size !== undefined && segment.size > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {segment.size.toLocaleString()} users
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* Description - Editable */}
+                  {editingId === segment.id ? (
+                    <div className="mt-2 space-y-2">
+                      <Input
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        placeholder="Describe this segment..."
+                        className="text-sm"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleEditSave(segment.id);
+                          if (e.key === 'Escape') handleEditCancel();
+                        }}
+                      />
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => handleEditSave(segment.id)}>
+                          <Check className="h-3 w-3 mr-1" />
+                          Save
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={handleEditCancel}>
+                          <X className="h-3 w-3 mr-1" />
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="group">
+                      <p 
+                        className="text-sm text-muted-foreground mt-1 cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleEditStart(segment.id)}
+                        title="Click to edit"
+                      >
+                        {descriptions[segment.id] || generateAiDescription(segment.name)}
+                      </p>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Description - Editable */}
-              {editingId === segment.id ? (
-                <div className="space-y-2">
-                  <Input
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    placeholder="Describe this segment..."
-                    className="text-sm"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleEditSave(segment.id);
-                      if (e.key === 'Escape') handleEditCancel();
-                    }}
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => handleEditSave(segment.id)}>
-                      <Check className="h-3 w-3 mr-1" />
-                      Save
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={handleEditCancel}>
-                      <X className="h-3 w-3 mr-1" />
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="group">
-                  <p 
-                    className="text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleEditStart(segment.id)}
-                    title="Click to edit"
-                  >
-                    {descriptions[segment.id] || generateAiDescription(segment.name)}
-                  </p>
-                  <div className="flex gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* Actions */}
+                {editingId !== segment.id && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button 
                       size="sm" 
                       variant="ghost" 
-                      className="h-7 text-xs"
+                      className="h-8 text-xs"
                       onClick={() => handleEditStart(segment.id)}
                     >
                       Edit
@@ -278,7 +282,7 @@ export function AudienceTab() {
                     <Button 
                       size="sm" 
                       variant="ghost" 
-                      className="h-7 text-xs"
+                      className="h-8 text-xs"
                       onClick={() => handleRegenerateDescription(segment.id, segment.name)}
                       disabled={generatingFor === segment.id}
                     >
@@ -290,8 +294,8 @@ export function AudienceTab() {
                       Regenerate
                     </Button>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}
