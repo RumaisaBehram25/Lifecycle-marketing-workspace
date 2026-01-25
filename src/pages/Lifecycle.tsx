@@ -480,7 +480,7 @@ export default function Lifecycle() {
 
       {/* Touchpoint Creative Modal */}
       <Dialog open={!!selectedTouchpoint} onOpenChange={() => setSelectedTouchpoint(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ChannelIcon channel={selectedTouchpoint?.channel || 'email'} size="lg" />
@@ -489,118 +489,158 @@ export default function Lifecycle() {
             <DialogDescription>
               {selectedTouchpoint?.channel === 'email' ? 'Email creative preview' :
                selectedTouchpoint?.channel === 'push' ? 'Push notification preview' :
-               selectedTouchpoint?.channel === 'in_app_message' ? 'In-app message preview' :
+               selectedTouchpoint?.channel?.includes('in_app') || selectedTouchpoint?.channel?.includes('in-app') ? 'In-app message preview' :
                'Message preview'}
             </DialogDescription>
           </DialogHeader>
           
-          {selectedTouchpoint && (
-            <div className="space-y-4 mt-4">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className={getChannelColor(selectedTouchpoint.channel)}>
-                  {selectedTouchpoint.channel === 'in_app_message' ? 'In-App' : selectedTouchpoint.channel}
-                </Badge>
-                {selectedTouchpoint.type === 'trigger' && (
-                  <Badge variant="secondary">Trigger</Badge>
+          {selectedTouchpoint && (() => {
+            // Extract best message from step
+            const messages = selectedTouchpoint.messages || [];
+            const channel = (selectedTouchpoint.channel || 'email').toLowerCase();
+            const message = messages.find((m: any) => m.channel?.toLowerCase().includes(channel.split('_')[0])) || messages[0];
+            
+            return (
+              <div className="space-y-4 mt-4">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className={getChannelColor(selectedTouchpoint.channel)}>
+                    {selectedTouchpoint.channel === 'in_app_message' || selectedTouchpoint.channel === 'trigger_in_app_message' 
+                      ? 'In-App' 
+                      : selectedTouchpoint.channel}
+                  </Badge>
+                  {selectedTouchpoint.delay && (
+                    <Badge variant="outline" className="gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {selectedTouchpoint.delay}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Email preview */}
+                {channel === 'email' && (
+                  <div className="space-y-3">
+                    {(message?.subject || selectedTouchpoint.subject) && (
+                      <div className="p-3 bg-muted/30 rounded-lg">
+                        <p className="text-xs text-muted-foreground mb-1">Subject Line</p>
+                        <p className="font-medium">{message?.subject || selectedTouchpoint.subject}</p>
+                        {(message?.preheader || selectedTouchpoint.preheader) && (
+                          <p className="text-sm text-muted-foreground mt-1">{message?.preheader || selectedTouchpoint.preheader}</p>
+                        )}
+                      </div>
+                    )}
+                    {(message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview) ? (
+                      <div className="border rounded-lg overflow-hidden bg-white">
+                        <iframe
+                          srcDoc={message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview}
+                          className="w-full h-[600px]"
+                          title="Email Preview"
+                          sandbox="allow-same-origin"
+                        />
+                      </div>
+                    ) : message?.body ? (
+                      <div className="p-4 border rounded-lg bg-card">
+                        <p className="text-sm">{message.body}</p>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed">
+                        <Mail className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Email preview not available</p>
+                      </div>
+                    )}
+                  </div>
                 )}
-                <Badge variant="outline" className="gap-1">
-                  <Calendar className="h-3 w-3" />
-                  {selectedTouchpoint.delay}
-                </Badge>
+
+                {/* Push preview */}
+                {(channel === 'push' || channel.includes('push')) && (
+                  <div className="space-y-3">
+                    <div className="max-w-sm mx-auto">
+                      <div className="bg-card border rounded-2xl p-4 shadow-lg">
+                        <div className="flex items-start gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+                            <span className="text-sm font-bold text-primary-foreground">L</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-muted-foreground">Linktree • now</p>
+                            <p className="font-semibold text-sm mt-0.5">
+                              {message?.title || selectedTouchpoint.title || selectedTouchpoint.name}
+                            </p>
+                            {(message?.body || selectedTouchpoint.body) && (
+                              <p className="text-sm text-muted-foreground line-clamp-3 mt-1">
+                                {message?.body || selectedTouchpoint.body}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-center text-muted-foreground mt-3">Push notification preview</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* In-app message preview */}
+                {(channel === 'in_app_message' || channel.includes('in_app') || channel.includes('in-app') || channel === 'trigger_in_app_message') && (
+                  <div className="space-y-3">
+                    {(() => {
+                      const bodyContent = message?.body || selectedTouchpoint.body || '';
+                      const isHtmlBody = bodyContent.trim().startsWith('<!doctype') || 
+                                        bodyContent.trim().startsWith('<html') || 
+                                        bodyContent.includes('<div');
+                      
+                      if (isHtmlBody) {
+                        return (
+                          <div className="border rounded-lg overflow-hidden bg-white">
+                            <iframe
+                              srcDoc={bodyContent}
+                              className="w-full h-[600px]"
+                              title="In-App Message Preview"
+                              sandbox="allow-same-origin"
+                            />
+                          </div>
+                        );
+                      }
+                      
+                      return (
+                        <div className="max-w-sm mx-auto">
+                          <div className="bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center">
+                            {message?.image_url && (
+                              <img src={message.image_url} alt="" className="w-20 h-20 object-cover rounded-xl mx-auto mb-4" />
+                            )}
+                            {!message?.image_url && (
+                              <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                                <Smartphone className="h-6 w-6 text-primary" />
+                              </div>
+                            )}
+                            <h4 className="font-bold text-lg">
+                              {message?.title || selectedTouchpoint.title || selectedTouchpoint.name}
+                            </h4>
+                            {bodyContent && (
+                              <p className="text-sm text-muted-foreground mt-2">{bodyContent}</p>
+                            )}
+                            <Button className="mt-4" size="sm">
+                              {message?.buttons?.[0]?.text || selectedTouchpoint.cta || 'Take Action'}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-center text-muted-foreground mt-3">In-app message preview</p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* SMS preview */}
+                {channel === 'sms' && (
+                  <div className="space-y-3">
+                    <div className="max-w-sm mx-auto">
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
+                        <p className="text-sm">{message?.body || selectedTouchpoint.body || 'SMS message content would appear here'}</p>
+                      </div>
+                      <p className="text-xs text-center text-muted-foreground mt-3">SMS preview</p>
+                    </div>
+                  </div>
+                )}
               </div>
-
-              {/* Channel-specific preview */}
-              {selectedTouchpoint.channel === 'email' && (
-                <div className="space-y-3">
-                  {selectedTouchpoint.subject && (
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <p className="text-xs text-muted-foreground mb-1">Subject Line</p>
-                      <p className="font-medium">{selectedTouchpoint.subject}</p>
-                    </div>
-                  )}
-                  {selectedTouchpoint.html_preview ? (
-                    <div className="border rounded-lg overflow-hidden bg-white">
-                      <iframe
-                        srcDoc={selectedTouchpoint.html_preview}
-                        className="w-full h-[400px]"
-                        title="Email Preview"
-                        sandbox="allow-same-origin"
-                      />
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed">
-                      <Mail className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Email preview not available</p>
-                      <p className="text-xs text-muted-foreground mt-1">Creative content would be synced from Braze</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedTouchpoint.channel === 'push' && (
-                <div className="space-y-3">
-                  <div className="max-w-sm mx-auto">
-                    <div className="bg-card border rounded-2xl p-4 shadow-lg">
-                      <div className="flex items-start gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-                          <span className="text-sm font-bold text-primary-foreground">L</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-muted-foreground">Linktree • now</p>
-                          <p className="font-semibold text-sm mt-0.5">{selectedTouchpoint.title || selectedTouchpoint.name}</p>
-                          {selectedTouchpoint.body && (
-                            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{selectedTouchpoint.body}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-center text-muted-foreground mt-3">Push notification preview</p>
-                  </div>
-                  {!selectedTouchpoint.title && !selectedTouchpoint.body && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      Push content would be synced from Braze canvas details
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedTouchpoint.channel === 'in_app_message' && (
-                <div className="space-y-3">
-                  <div className="max-w-sm mx-auto">
-                    <div className="bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center">
-                      <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
-                        <Smartphone className="h-6 w-6 text-primary" />
-                      </div>
-                      <h4 className="font-bold text-lg">{selectedTouchpoint.title || selectedTouchpoint.name}</h4>
-                      {selectedTouchpoint.body && (
-                        <p className="text-sm text-muted-foreground mt-2">{selectedTouchpoint.body}</p>
-                      )}
-                      <Button className="mt-4" size="sm">
-                        {selectedTouchpoint.cta || 'Take Action'}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-center text-muted-foreground mt-3">In-app message preview</p>
-                  </div>
-                  {!selectedTouchpoint.title && !selectedTouchpoint.body && (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      In-app content would be synced from Braze canvas details
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {selectedTouchpoint.channel === 'sms' && (
-                <div className="space-y-3">
-                  <div className="max-w-sm mx-auto">
-                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
-                      <p className="text-sm">{selectedTouchpoint.body || 'SMS message content would appear here'}</p>
-                    </div>
-                    <p className="text-xs text-center text-muted-foreground mt-3">SMS preview</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </AppLayout>
