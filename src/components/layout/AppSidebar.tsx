@@ -61,12 +61,12 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       {/* Logo */}
-      <SidebarHeader className="border-b border-sidebar-border">
-        <Link to="/dashboard" className="flex items-center gap-3 px-2 py-3">
+      <SidebarHeader className={`border-b border-sidebar-border ${isCollapsed ? 'p-1' : ''}`}>
+        <Link to="/dashboard" className={`flex items-center gap-3 ${isCollapsed ? 'justify-center p-1' : 'px-2 py-3'}`}>
           <img 
             src="/logos/linktree-logo.png" 
             alt="Linktree" 
-            className="rounded-xl object-contain flex-shrink-0 transition-all h-10 w-10"
+            className={`rounded-xl object-contain flex-shrink-0 transition-all ${isCollapsed ? 'h-9 w-9' : 'h-10 w-10'}`}
           />
           {!isCollapsed && (
             <div className="flex flex-col">
