@@ -790,12 +790,14 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
                   </div>
                 )
               ) : campaign.campaignType === 'push' || campaign.channels?.includes('push') ? (
-                <div className="bg-muted/50 rounded-lg p-3 h-32">
+              <div className="bg-muted/50 rounded-lg p-3 h-32">
                   <div className="bg-card border rounded-xl p-2 shadow-sm h-full flex flex-col justify-center">
                     <div className="flex items-start gap-2">
-                      <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-                        <span className="text-[10px] font-bold text-primary-foreground">L</span>
-                      </div>
+                      <img 
+                        src="/logos/linktree-logo.png" 
+                        alt="Linktree" 
+                        className="h-6 w-6 rounded-lg object-contain flex-shrink-0"
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] text-muted-foreground">Linktree • now</p>
                         <p className="text-xs font-semibold line-clamp-1">{campaign.push_title || campaign.displayName}</p>
@@ -888,9 +890,11 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
           <div className="p-6 flex items-center justify-center" style={{ height: '280px' }}>
             <div className="bg-card border rounded-2xl p-4 shadow-lg w-full max-w-xs">
               <div className="flex items-start gap-3">
-                <div className="h-12 w-12 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-                  <span className="text-lg font-bold text-primary-foreground">L</span>
-                </div>
+                <img 
+                  src="/logos/linktree-logo.png" 
+                  alt="Linktree" 
+                  className="h-12 w-12 rounded-lg object-contain flex-shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-muted-foreground">Linktree • now</p>
                   <p className="font-semibold mt-0.5 line-clamp-2">{campaign.push_title || campaign.displayName}</p>
