@@ -81,6 +81,7 @@ function getChannelIcon(channel?: string, className = "h-5 w-5") {
       return <Bell className={className} />;
     case 'in_app_message':
     case 'in-app':
+    case 'trigger_in_app_message':
       return <Smartphone className={className} />;
     case 'sms':
       return <MessageSquare className={className} />;
@@ -102,6 +103,7 @@ function getChannelColors(channel?: string): { bg: string; border: string; text:
       return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
     case 'in_app_message':
     case 'in-app':
+    case 'trigger_in_app_message':
       return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
     case 'sms':
       return { bg: 'bg-muted/30', border: 'border-border', text: 'text-foreground' };
@@ -115,6 +117,7 @@ function normalizeChannel(channel?: string) {
   if (!ch) return 'email';
   if (ch === 'email') return 'email';
   if (ch.includes('push')) return 'push';
+  // Handle all in-app variations: in_app_message, trigger_in_app_message, in-app, inapp
   if (ch.includes('in_app') || ch.includes('in-app') || ch.includes('inapp')) return 'in_app_message';
   if (ch === 'sms') return 'sms';
   if (ch === 'control') return 'control';
@@ -205,7 +208,33 @@ function CreativePreview({ step }: { step: CanvasStep }) {
     );
   }
   
-  if (channel === 'in_app_message' || channel === 'in-app') {
+  if (channel === 'in_app_message' || channel === 'in-app' || channel === 'trigger_in_app_message') {
+    // Check if body is HTML (Braze stores in-app HTML in body field)
+    const bodyContent = message?.body || '';
+    const isHtmlBody = bodyContent.trim().startsWith('<!doctype') || bodyContent.trim().startsWith('<html') || bodyContent.includes('<div');
+    
+    if (isHtmlBody) {
+      // Render as sandboxed iframe like email
+      return (
+        <div className="w-full h-[420px] bg-card rounded-t-lg overflow-hidden flex flex-col">
+          <div className="bg-muted/30 px-5 py-3 border-b flex-shrink-0 flex items-center gap-2">
+            <Smartphone className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">In-App Message</span>
+          </div>
+          <div className="relative flex-1 overflow-hidden bg-background">
+            <iframe
+              title={message?.title || step.name}
+              className="absolute left-0 top-0 border-0 origin-top-left scale-[0.5] w-[800px] h-[900px]"
+              sandbox=""
+              loading="lazy"
+              srcDoc={bodyContent}
+            />
+          </div>
+        </div>
+      );
+    }
+    
+    // Fallback to simple card rendering
     return (
       <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 bg-muted/20 rounded-t-lg">
         <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
