@@ -153,8 +153,8 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'email') {
     return (
-      <div className="w-full h-[420px] bg-card rounded-t-lg overflow-hidden flex flex-col">
-        <div className="bg-muted/30 px-5 py-4 border-b flex-shrink-0">
+      <div className="w-full h-[520px] bg-card rounded-t-lg overflow-hidden flex flex-col">
+        <div className="bg-muted/30 px-3 py-3 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground truncate">From: Linktree</p>
           <p className="text-base font-medium truncate">{message?.subject || step.name}</p>
           {message?.preheader && (
@@ -165,13 +165,13 @@ function CreativePreview({ step }: { step: CanvasStep }) {
           {message?.html_content ? (
             <iframe
               title={message?.subject || step.name}
-              className="absolute left-0 top-0 border-0 origin-top-left scale-[0.5] w-[800px] h-[900px]"
+              className="absolute inset-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
               sandbox=""
               loading="lazy"
               srcDoc={message.html_content}
             />
           ) : message?.body ? (
-            <div className="p-5 text-sm text-foreground leading-relaxed">
+            <div className="p-3 text-sm text-foreground leading-relaxed">
               <p>{message.body}</p>
             </div>
           ) : (
@@ -188,7 +188,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'push' || channel.includes('push')) {
     return (
-      <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 bg-muted/20 rounded-t-lg">
+      <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/20 rounded-t-lg">
         <div className="w-full bg-card border rounded-2xl p-5 shadow-xl">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
@@ -216,15 +216,15 @@ function CreativePreview({ step }: { step: CanvasStep }) {
     if (isHtmlBody) {
       // Render as sandboxed iframe like email
       return (
-        <div className="w-full h-[420px] bg-card rounded-t-lg overflow-hidden flex flex-col">
-          <div className="bg-muted/30 px-5 py-3 border-b flex-shrink-0 flex items-center gap-2">
+        <div className="w-full h-[520px] bg-card rounded-t-lg overflow-hidden flex flex-col">
+          <div className="bg-muted/30 px-3 py-3 border-b flex-shrink-0 flex items-center gap-2">
             <Smartphone className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">In-App Message</span>
           </div>
           <div className="relative flex-1 overflow-hidden bg-background">
             <iframe
               title={message?.title || step.name}
-              className="absolute left-0 top-0 border-0 origin-top-left scale-[0.5] w-[800px] h-[900px]"
+              className="absolute inset-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
               sandbox=""
               loading="lazy"
               srcDoc={bodyContent}
@@ -236,8 +236,8 @@ function CreativePreview({ step }: { step: CanvasStep }) {
     
     // Fallback to simple card rendering
     return (
-      <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 bg-muted/20 rounded-t-lg">
-        <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
+      <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/20 rounded-t-lg">
+        <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center shadow-lg">
           {message?.image_url ? (
             <img src={message.image_url} alt="" className="w-20 h-20 object-cover rounded-xl mx-auto mb-5" />
           ) : (
@@ -262,7 +262,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   // SMS fallback
   return (
-    <div className="w-full h-[420px] flex flex-col items-center justify-center p-8 rounded-t-lg bg-muted/20">
+    <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 rounded-t-lg bg-muted/20">
       <div className={`w-full bg-card border-2 ${colors.border} rounded-2xl p-6 shadow-lg`}>
         <div className="flex items-start gap-3 mb-3">
           <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
@@ -275,31 +275,50 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   );
 }
 
+// Format delay as compact time (e.g., "2H", "3D", "30M")
+function formatDelayCompact(seconds?: number): string | null {
+  if (!seconds || seconds <= 0) return null;
+  
+  const minutes = Math.round(seconds / 60);
+  const hours = Math.round(seconds / 3600);
+  const days = Math.round(seconds / 86400);
+  
+  if (days >= 1) {
+    return `${days}D`;
+  } else if (hours >= 1) {
+    return `${hours}H`;
+  } else if (minutes >= 1) {
+    return `${minutes}M`;
+  }
+  return null;
+}
+
 // Delay/Filter/Split module BELOW step
 function StepMetaModule({ 
   step, 
-  delayBefore, 
+  delaySeconds,
   splitStep,
   onSplitClick,
 }: { 
   step: CanvasStep; 
-  delayBefore?: boolean;
+  delaySeconds?: number;
   splitStep?: CanvasStep;
   onSplitClick?: (splitStep: CanvasStep) => void;
 }) {
   const type = step.type?.toLowerCase() || 'message';
   const isFilter = type === 'decision_split' || type === 'branch' || type === 'action_paths' || type === 'filter';
+  const delayLabel = formatDelayCompact(delaySeconds);
   
-  if (!delayBefore && !isFilter && !splitStep) {
+  if (!delayLabel && !isFilter && !splitStep) {
     return null;
   }
   
   return (
     <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
-      {delayBefore && (
-        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 text-xs gap-1.5 py-1">
+      {delayLabel && (
+        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 text-xs gap-1.5 py-1 font-semibold">
           <Timer className="h-3.5 w-3.5" />
-          Delay
+          {delayLabel}
         </Badge>
       )}
       {splitStep && (
@@ -328,13 +347,13 @@ function StepMetaModule({
 // Single step card with creative - LARGE SIZE
 function StepCard({ 
   step, 
-  delayBefore,
+  delaySeconds,
   splitStep,
   onClick,
   onSplitClick,
 }: { 
   step: CanvasStep; 
-  delayBefore?: boolean;
+  delaySeconds?: number;
   splitStep?: CanvasStep;
   onClick?: () => void;
   onSplitClick?: (splitStep: CanvasStep) => void;
@@ -348,7 +367,7 @@ function StepCard({
   }
   
   return (
-    <div className="flex flex-col w-[380px] flex-shrink-0">
+    <div className="flex flex-col w-[400px] flex-shrink-0">
       <Card 
         className={`cursor-pointer hover:shadow-xl transition-all border-2 ${colors.border} overflow-hidden hover:scale-[1.02]`}
         onClick={onClick}
@@ -357,7 +376,7 @@ function StepCard({
           <CreativePreview step={step} />
         </CardContent>
       </Card>
-      <StepMetaModule step={step} delayBefore={delayBefore} splitStep={splitStep} onSplitClick={onSplitClick} />
+      <StepMetaModule step={step} delaySeconds={delaySeconds} splitStep={splitStep} onSplitClick={onSplitClick} />
     </div>
   );
 }
@@ -407,16 +426,16 @@ function VariantRow({
   
   // Process path to extract message steps with their preceding delays/splits
   const stepsWithMetadata = useMemo(() => {
-    const result: { step: CanvasStep; delayBefore?: boolean; splitStep?: CanvasStep }[] = [];
-    let hasDelayBefore = false;
+    const result: { step: CanvasStep; delaySeconds?: number; splitStep?: CanvasStep }[] = [];
+    let accumulatedDelaySeconds = 0;
     let pendingSplitStep: CanvasStep | undefined;
     
     for (const s of path) {
       const type = s.type?.toLowerCase() || 'message';
       
       if (type === 'delay' || type === 'wait') {
-        // Mark that there's a delay before the next message
-        hasDelayBefore = true;
+        // Accumulate delay seconds
+        accumulatedDelaySeconds += s.delay_seconds || 0;
       } else if (BRANCHING_TYPES.includes(type)) {
         // Capture split step to show full path details
         pendingSplitStep = s;
@@ -424,10 +443,10 @@ function VariantRow({
         // This is a message step - attach accumulated metadata
         result.push({ 
           step: s, 
-          delayBefore: hasDelayBefore,
+          delaySeconds: accumulatedDelaySeconds > 0 ? accumulatedDelaySeconds : undefined,
           splitStep: pendingSplitStep,
         });
-        hasDelayBefore = false;
+        accumulatedDelaySeconds = 0;
         pendingSplitStep = undefined;
       }
     }
@@ -465,12 +484,12 @@ function VariantRow({
         <div className="border-t bg-background">
           {variant.first_step_id && stepsWithMetadata.length > 0 ? (
             <ScrollArea className="w-full">
-              <div className="flex items-start gap-8 p-8 min-w-max">
-                {stepsWithMetadata.map(({ step, delayBefore, splitStep }) => (
+              <div className="flex items-start gap-6 p-6 min-w-max">
+                {stepsWithMetadata.map(({ step, delaySeconds, splitStep }) => (
                   <StepCard 
                     key={step.id}
                     step={step} 
-                    delayBefore={delayBefore}
+                    delaySeconds={delaySeconds}
                     splitStep={splitStep}
                     onClick={() => onViewStep?.(step)}
                     onSplitClick={onSplitClick}
