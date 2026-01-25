@@ -535,6 +535,42 @@ export type Database = {
         }
         Relationships: []
       }
+      tasks: {
+        Row: {
+          about: string | null
+          client_id: string
+          created_at: string
+          due_date: string | null
+          id: string
+          name: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          about?: string | null
+          client_id: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          name: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          about?: string | null
+          client_id?: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          name?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       template_library: {
         Row: {
           body_preview: string | null
