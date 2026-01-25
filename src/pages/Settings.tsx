@@ -51,7 +51,9 @@ export default function Settings() {
   const queryClient = useQueryClient();
   
   const [activeTab, setActiveTab] = useState('profile');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [campaignSearch, setCampaignSearch] = useState('');
+  const [canvasSearch, setCanvasSearch] = useState('');
+  const [segmentSearch, setSegmentSearch] = useState('');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
@@ -77,6 +79,17 @@ export default function Settings() {
     const map = new Map<string, boolean>();
     visibilityData?.forEach(v => {
       map.set(`${v.item_type}:${v.item_id}`, v.is_visible);
+    });
+    return map;
+  }, [visibilityData]);
+
+  // Create starred map for segments
+  const starredMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    visibilityData?.forEach(v => {
+      if (v.item_type === 'segment_starred') {
+        map.set(v.item_id, v.is_visible);
+      }
     });
     return map;
   }, [visibilityData]);
@@ -133,50 +146,61 @@ export default function Settings() {
     return !isOldItem(dateStr);
   };
 
+  const isSegmentStarred = (segmentId: string) => {
+    return starredMap.get(segmentId) ?? false;
+  };
+
   const handleToggle = (itemType: string, itemId: string, dateStr?: string) => {
     const currentlyVisible = isItemVisible(itemType, itemId, dateStr);
     toggleVisibility.mutate({ itemType, itemId, isVisible: !currentlyVisible });
+  };
+
+  const handleToggleStar = (segmentId: string) => {
+    const currentlyStarred = isSegmentStarred(segmentId);
+    toggleVisibility.mutate({ itemType: 'segment_starred', itemId: segmentId, isVisible: !currentlyStarred });
   };
 
   // Filter and sort campaigns (newest first)
   const filteredCampaigns = useMemo(() => {
     if (!brazeData?.campaigns) return [];
     return brazeData.campaigns
-      .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(c => c.name.toLowerCase().includes(campaignSearch.toLowerCase()))
       .sort((a, b) => {
         // Sort by last_sent date, newest first
         const dateA = a.last_sent ? new Date(a.last_sent).getTime() : 0;
         const dateB = b.last_sent ? new Date(b.last_sent).getTime() : 0;
         return dateB - dateA;
       });
-  }, [brazeData?.campaigns, searchQuery]);
+  }, [brazeData?.campaigns, campaignSearch]);
 
   // Filter and sort canvases (newest first based on name or enabled status)
   const filteredCanvases = useMemo(() => {
     if (!brazeData?.canvases) return [];
     return brazeData.canvases
-      .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(c => c.name.toLowerCase().includes(canvasSearch.toLowerCase()))
       .sort((a, b) => {
         // Active canvases first, then by name
         if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-  }, [brazeData?.canvases, searchQuery]);
+  }, [brazeData?.canvases, canvasSearch]);
 
   const filteredSegments = useMemo(() => {
     if (!brazeData?.segments) return [];
     let segments = brazeData.segments;
     if (showStarredOnly) {
-      segments = segments.filter(s => s.is_starred);
+      segments = segments.filter(s => isSegmentStarred(s.id));
     }
     return segments
-      .filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(s => s.name.toLowerCase().includes(segmentSearch.toLowerCase()))
       .sort((a, b) => {
         // Starred first, then alphabetical
-        if (a.is_starred !== b.is_starred) return a.is_starred ? -1 : 1;
+        const aStarred = isSegmentStarred(a.id);
+        const bStarred = isSegmentStarred(b.id);
+        if (aStarred !== bStarred) return aStarred ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-  }, [brazeData?.segments, searchQuery, showStarredOnly]);
+  }, [brazeData?.segments, segmentSearch, showStarredOnly, starredMap]);
 
   return (
     <AppLayout>
@@ -269,20 +293,9 @@ export default function Settings() {
                     </div>
                   ) : (
                     <>
-                      {/* Search and Filters */}
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          <Input
-                            placeholder="Search items..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10"
-                          />
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Last synced: {new Date(brazeData.last_sync).toLocaleString()}
-                        </div>
+                      {/* Last Sync Info */}
+                      <div className="text-xs text-muted-foreground text-right">
+                        Last synced: {new Date(brazeData.last_sync).toLocaleString()}
                       </div>
 
                       {/* Campaigns */}
@@ -290,6 +303,15 @@ export default function Settings() {
                         <div className="flex items-center gap-2">
                           <Mail className="h-4 w-4 text-blue-500" />
                           <h4 className="font-medium">Campaigns ({filteredCampaigns.length})</h4>
+                        </div>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            placeholder="Search campaigns..."
+                            value={campaignSearch}
+                            onChange={(e) => setCampaignSearch(e.target.value)}
+                            className="pl-10"
+                          />
                         </div>
                         <ScrollArea className="h-[200px] border rounded-lg p-3">
                           {filteredCampaigns.length === 0 ? (
@@ -321,6 +343,15 @@ export default function Settings() {
                         <div className="flex items-center gap-2">
                           <Workflow className="h-4 w-4 text-purple-500" />
                           <h4 className="font-medium">Lifecycle Journeys ({filteredCanvases.length})</h4>
+                        </div>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            placeholder="Search journeys..."
+                            value={canvasSearch}
+                            onChange={(e) => setCanvasSearch(e.target.value)}
+                            className="pl-10"
+                          />
                         </div>
                         <ScrollArea className="h-[200px] border rounded-lg p-3">
                           {filteredCanvases.length === 0 ? (
@@ -366,7 +397,16 @@ export default function Settings() {
                             />
                           </div>
                         </div>
-                        <ScrollArea className="h-[200px] border rounded-lg p-3">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            placeholder="Search segments..."
+                            value={segmentSearch}
+                            onChange={(e) => setSegmentSearch(e.target.value)}
+                            className="pl-10"
+                          />
+                        </div>
+                        <ScrollArea className="h-[250px] border rounded-lg p-3">
                           {filteredSegments.length === 0 ? (
                             <p className="text-sm text-muted-foreground text-center py-4">
                               {showStarredOnly ? 'No starred segments found' : 'No segments found'}
@@ -377,17 +417,18 @@ export default function Settings() {
                                 <div key={segment.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-muted/50">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                      {segment.is_starred ? (
-                                        <Star className="h-4 w-4 text-amber-500 fill-amber-500 flex-shrink-0" />
-                                      ) : (
-                                        <Star className="h-4 w-4 text-muted-foreground/30 flex-shrink-0" />
-                                      )}
+                                      <button
+                                        onClick={() => handleToggleStar(segment.id)}
+                                        className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                                        disabled={toggleVisibility.isPending}
+                                      >
+                                        {isSegmentStarred(segment.id) ? (
+                                          <Star className="h-4 w-4 text-amber-500 fill-amber-500 flex-shrink-0 hover:scale-110 transition-transform" />
+                                        ) : (
+                                          <Star className="h-4 w-4 text-muted-foreground/50 flex-shrink-0 hover:text-amber-400 hover:scale-110 transition-all" />
+                                        )}
+                                      </button>
                                       <p className="text-sm font-medium truncate">{segment.name}</p>
-                                      {segment.is_starred && (
-                                        <Badge variant="outline" className="text-xs text-amber-600 border-amber-500/30">
-                                          Starred in Braze
-                                        </Badge>
-                                      )}
                                     </div>
                                   </div>
                                   <Switch

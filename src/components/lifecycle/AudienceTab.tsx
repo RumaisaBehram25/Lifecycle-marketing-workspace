@@ -99,14 +99,14 @@ export function AudienceTab() {
 
   // Fetch visibility data to filter to starred segments only
   const { data: visibilityData, isLoading: visibilityLoading } = useQuery({
-    queryKey: ['data-visibility-segments', client?.id],
+    queryKey: ['data-visibility-starred-segments', client?.id],
     queryFn: async () => {
       if (!client?.id) return [];
       const { data, error } = await supabase
         .from('data_visibility')
         .select('*')
         .eq('client_id', client.id)
-        .eq('item_type', 'segment')
+        .eq('item_type', 'segment_starred')
         .eq('is_visible', true);
       if (error) throw error;
       return data as Array<{ item_id: string; is_visible: boolean }>;
@@ -114,7 +114,7 @@ export function AudienceTab() {
     enabled: !!client?.id,
   });
 
-  // Get starred segment IDs
+  // Get starred segment IDs from the segment_starred visibility records
   const starredSegmentIds = new Set(visibilityData?.map(v => v.item_id) || []);
 
   // Filter to only starred segments

@@ -881,10 +881,30 @@ serve(async (req) => {
       console.error('Failed to fetch canvases:', e);
     }
 
-    // Fetch segments - include starred info via tags
+    // Fetch segments - paginate to get all segments
     try {
-      const segmentsData = await brazeFetch('segments/list?page=0&sort_direction=desc', apiKey, brazeRestEndpoint);
-      results.segments = (segmentsData.segments || []).map((s: any) => ({
+      let allSegments: any[] = [];
+      let page = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const segmentsData = await brazeFetch(`segments/list?page=${page}&sort_direction=desc`, apiKey, brazeRestEndpoint);
+        const segments = segmentsData.segments || [];
+        
+        if (segments.length === 0) {
+          hasMore = false;
+        } else {
+          allSegments = [...allSegments, ...segments];
+          page++;
+          // Safety limit to prevent infinite loops
+          if (page > 50) {
+            console.log('Reached max segment pages (50), stopping pagination');
+            hasMore = false;
+          }
+        }
+      }
+      
+      results.segments = allSegments.map((s: any) => ({
         id: s.id,
         name: s.name,
         description: s.description,
@@ -895,7 +915,7 @@ serve(async (req) => {
           t.toLowerCase() === 'starred' || t.toLowerCase() === 'favorite' || t.toLowerCase() === 'star'
         ),
       }));
-      console.log('Fetched segments:', results.segments.length, 'starred:', results.segments.filter(s => s.is_starred).length);
+      console.log('Fetched segments:', results.segments.length, 'pages:', page, 'starred:', results.segments.filter(s => s.is_starred).length);
     } catch (e) {
       console.error('Failed to fetch segments:', e);
     }
