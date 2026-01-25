@@ -354,7 +354,7 @@ serve(async (req) => {
   }
 
   try {
-    const { clientId, platformId, restEndpoint } = await req.json();
+    const { clientId, platformId, restEndpoint, includeAnalytics, analyticsDateRange } = await req.json();
 
     if (!clientId || !platformId) {
       throw new Error('clientId and platformId are required');
@@ -976,7 +976,122 @@ serve(async (req) => {
       console.error('Failed to fetch custom attributes:', e);
     }
 
-    // Store the schema data in platform_schemas
+    // Fetch analytics data if requested
+    interface CampaignAnalyticsItem { campaign_id: string; campaign_name: string; sends: number; deliveries: number; opens: number; unique_opens: number; clicks: number; unique_clicks: number; unsubscribes: number; bounces: number; conversions: number; revenue: number }
+    interface CanvasAnalyticsItem { canvas_id: string; canvas_name: string; entries: number; conversions: number; revenue: number }
+    interface AnalyticsSummary { total_sends: number; total_deliveries: number; total_opens: number; total_clicks: number; total_unsubscribes: number; avg_open_rate: number; avg_click_rate: number; total_conversions: number; total_revenue: number }
+    
+    let analyticsData: {
+      campaigns: CampaignAnalyticsItem[];
+      canvases: CanvasAnalyticsItem[];
+      summary: AnalyticsSummary;
+      date_range?: { start: string; end: string };
+    } | null = null;
+
+    if (includeAnalytics) {
+      console.log('Fetching analytics data...');
+      const endDate = analyticsDateRange?.end || new Date().toISOString().split('T')[0];
+      const startDate = analyticsDateRange?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      const campaignAnalytics: CampaignAnalyticsItem[] = [];
+      const canvasAnalytics: CanvasAnalyticsItem[] = [];
+      
+      // Fetch analytics for campaigns (limit to recent campaigns)
+      const recentCampaigns = results.campaigns.filter(c => c.last_sent).slice(0, 20);
+      for (const campaign of recentCampaigns) {
+        try {
+          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=30&ending_at=${endDate}T00:00:00Z`;
+          const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
+          
+          if (data.data && data.data.length > 0) {
+            // Aggregate the time series data
+            const totals = data.data.reduce((acc: any, d: any) => ({
+              sends: acc.sends + (d.sent || 0),
+              deliveries: acc.deliveries + (d.delivered || 0),
+              opens: acc.opens + (d.opens || 0),
+              unique_opens: acc.unique_opens + (d.unique_opens || 0),
+              clicks: acc.clicks + (d.clicks || 0),
+              unique_clicks: acc.unique_clicks + (d.unique_clicks || 0),
+              unsubscribes: acc.unsubscribes + (d.unsubscribes || 0),
+              bounces: acc.bounces + (d.hard_bounces || 0) + (d.soft_bounces || 0),
+              conversions: acc.conversions + (d.conversions || 0),
+              revenue: acc.revenue + (d.revenue || 0),
+            }), { sends: 0, deliveries: 0, opens: 0, unique_opens: 0, clicks: 0, unique_clicks: 0, unsubscribes: 0, bounces: 0, conversions: 0, revenue: 0 });
+
+            campaignAnalytics.push({
+              campaign_id: campaign.id,
+              campaign_name: campaign.name,
+              ...totals,
+            });
+
+            // Also update the campaign object with analytics
+            Object.assign(campaign, totals);
+          }
+        } catch (e) {
+          console.log(`Could not fetch analytics for campaign ${campaign.id}:`, e);
+        }
+      }
+      
+      // Fetch analytics for canvases
+      const enabledCanvases = results.canvases.filter(c => c.enabled).slice(0, 10);
+      for (const canvas of enabledCanvases) {
+        try {
+          const analyticsUrl = `canvas/data_series?canvas_id=${canvas.id}&length=30&ending_at=${endDate}T00:00:00Z`;
+          const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
+          
+          if (data.data && data.data.length > 0) {
+            const totals = data.data.reduce((acc: any, d: any) => ({
+              entries: acc.entries + (d.entries || 0),
+              conversions: acc.conversions + (d.conversions || 0),
+              revenue: acc.revenue + (d.revenue || 0),
+            }), { entries: 0, conversions: 0, revenue: 0 });
+
+            canvasAnalytics.push({
+              canvas_id: canvas.id,
+              canvas_name: canvas.name,
+              ...totals,
+            });
+
+            // Also update the canvas object with analytics
+            Object.assign(canvas, totals);
+          }
+        } catch (e) {
+          console.log(`Could not fetch analytics for canvas ${canvas.id}:`, e);
+        }
+      }
+      
+      // Calculate summary
+      const summary: AnalyticsSummary = {
+        total_sends: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.sends, 0),
+        total_deliveries: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.deliveries, 0),
+        total_opens: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.unique_opens, 0),
+        total_clicks: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.unique_clicks, 0),
+        total_unsubscribes: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.unsubscribes, 0),
+        avg_open_rate: 0,
+        avg_click_rate: 0,
+        total_conversions: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.conversions, 0) + canvasAnalytics.reduce((sum: number, c: CanvasAnalyticsItem) => sum + c.conversions, 0),
+        total_revenue: campaignAnalytics.reduce((sum: number, c: CampaignAnalyticsItem) => sum + c.revenue, 0) + canvasAnalytics.reduce((sum: number, c: CanvasAnalyticsItem) => sum + c.revenue, 0),
+      };
+      
+      if (summary.total_deliveries > 0) {
+        summary.avg_open_rate = (summary.total_opens / summary.total_deliveries) * 100;
+        summary.avg_click_rate = (summary.total_clicks / summary.total_deliveries) * 100;
+      }
+
+      analyticsData = {
+        campaigns: campaignAnalytics,
+        canvases: canvasAnalytics,
+        summary,
+        date_range: { start: startDate, end: endDate },
+      };
+      
+      console.log('Analytics fetched:', {
+        campaigns: campaignAnalytics.length,
+        canvases: canvasAnalytics.length,
+        summary,
+      });
+    }
+
     const schemaEntries = [
       ...results.campaigns.map(c => ({
         client_platform_id: platformId,
@@ -1063,7 +1178,7 @@ serve(async (req) => {
 
     // Update the schema_cache on the platform with full data for chat context
     const schemaCache = {
-      cache_version: 3, // Bumped for events/attributes
+      cache_version: 4, // Bumped for analytics
       saved_at: new Date().toISOString(),
       rest_endpoint: brazeRestEndpoint,
       
@@ -1087,6 +1202,9 @@ serve(async (req) => {
       subscription_groups: results.subscriptionGroups,
       custom_events: results.customEvents,
       custom_attributes: results.customAttributes,
+      
+      // Analytics data (if fetched)
+      analytics: analyticsData,
     };
 
     await supabase

@@ -12,6 +12,7 @@ import Briefs from "./pages/Briefs";
 import Audience from "./pages/Audience";
 import Campaigns from "./pages/Campaigns";
 import Lifecycle from "./pages/Lifecycle";
+import Analytics from "./pages/Analytics";
 import CodeGenerator from "./pages/CodeGenerator";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
@@ -38,6 +39,7 @@ function AppRoutes() {
       <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
       <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
       <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
+      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
       <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />
       <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

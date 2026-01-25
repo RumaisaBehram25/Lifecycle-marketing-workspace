@@ -19,6 +19,7 @@ import {
   Workflow,
   FileText,
   Users,
+  BarChart3,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -38,6 +39,7 @@ const navigation = [
   { name: 'Briefs', href: '/briefs', icon: FileText },
   { name: 'Campaigns', href: '/campaigns', icon: Send },
   { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
+  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Audience', href: '/audience', icon: Users },
   { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   { name: 'Knowledge Base', href: '/knowledge', icon: Database },
