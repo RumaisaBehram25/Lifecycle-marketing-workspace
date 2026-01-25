@@ -522,6 +522,9 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
   // Split modal state
   const [selectedSplit, setSelectedSplit] = useState<CanvasStep | null>(null);
   
+  // Step preview modal state
+  const [previewStep, setPreviewStep] = useState<CanvasStep | null>(null);
+  
   // If no variants but has steps, create a default path
   const effectiveVariants = useMemo(() => {
     if (hasVariants) {
@@ -613,7 +616,7 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
               key={variant.name + idx}
               variant={variant}
               steps={canvas.steps}
-              onViewStep={onViewStep}
+              onViewStep={setPreviewStep}
               onSplitClick={setSelectedSplit}
               isOpen={openVariants.has(idx)}
               onToggle={() => toggleVariant(idx)}
@@ -621,6 +624,24 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
           ))}
         </div>
       </div>
+      
+      {/* Step Preview Modal - Larger view when clicking a card */}
+      <Dialog open={!!previewStep} onOpenChange={(open) => !open && setPreviewStep(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-4 pb-2 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              {getChannelIcon(previewStep?.channel, "h-5 w-5")}
+              {previewStep?.name}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {previewStep && (
+            <div className="flex-1 overflow-auto">
+              <LargeCreativePreview step={previewStep} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       
       {/* Split/Audience Path Details Modal */}
       <Dialog open={!!selectedSplit} onOpenChange={(open) => !open && setSelectedSplit(null)}>
@@ -665,5 +686,129 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+// Large creative preview for modal - full size rendering
+function LargeCreativePreview({ step }: { step: CanvasStep }) {
+  const channel = normalizeChannel(step.channel);
+  const message = pickBestMessage(step);
+  
+  if (channel === 'email') {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="bg-muted/30 px-4 py-3 border-b flex-shrink-0">
+          <p className="text-xs text-muted-foreground">From: Linktree</p>
+          <p className="font-medium">{message?.subject || step.name}</p>
+          {message?.preheader && (
+            <p className="text-sm text-muted-foreground mt-1">{message.preheader}</p>
+          )}
+        </div>
+        <div className="flex-1 bg-white min-h-[500px]">
+          {message?.html_content ? (
+            <iframe
+              title={message?.subject || step.name}
+              className="w-full h-[500px] border-0"
+              sandbox="allow-same-origin"
+              srcDoc={message.html_content}
+            />
+          ) : message?.body ? (
+            <div className="p-4 text-foreground leading-relaxed">
+              <p>{message.body}</p>
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-8">
+              <Mail className="h-16 w-16 mb-4 opacity-30" />
+              <p className="text-lg font-medium">{step.name}</p>
+              <p className="text-sm mt-2">No email content available</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  
+  if (channel === 'push' || channel.includes('push')) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
+        <div className="w-full max-w-sm bg-card border rounded-2xl p-6 shadow-xl">
+          <div className="flex items-start gap-4">
+            <img 
+              src="/logos/linktree-logo.png" 
+              alt="Linktree" 
+              className="h-16 w-16 rounded-xl object-contain flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-muted-foreground">Linktree • now</p>
+              <p className="font-semibold text-lg mt-1">{message?.title || step.name}</p>
+              {message?.body && (
+                <p className="text-muted-foreground mt-2">{message.body}</p>
+              )}
+            </div>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground mt-6 font-medium">Push Notification</p>
+      </div>
+    );
+  }
+  
+  if (channel === 'in_app_message' || channel === 'in-app' || channel === 'trigger_in_app_message') {
+    const bodyContent = message?.body || '';
+    const isHtmlBody = bodyContent.trim().startsWith('<!doctype') || bodyContent.trim().startsWith('<html') || bodyContent.includes('<div');
+    
+    if (isHtmlBody) {
+      return (
+        <div className="flex flex-col h-full">
+          <div className="bg-muted/30 px-4 py-3 border-b flex-shrink-0 flex items-center gap-2">
+            <Smartphone className="h-4 w-4 text-primary" />
+            <span className="font-medium">In-App Message</span>
+          </div>
+          <div className="flex-1 bg-white min-h-[500px]">
+            <iframe
+              title={message?.title || step.name}
+              className="w-full h-[500px] border-0"
+              sandbox="allow-same-origin"
+              srcDoc={bodyContent}
+            />
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
+        <div className="w-full max-w-sm bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
+          {message?.image_url ? (
+            <img src={message.image_url} alt="" className="w-24 h-24 object-cover rounded-xl mx-auto mb-6" />
+          ) : (
+            <div className="h-20 w-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-6">
+              <Smartphone className="h-10 w-10 text-primary" />
+            </div>
+          )}
+          <h4 className="font-bold text-xl">{message?.title || step.name}</h4>
+          <p className="text-muted-foreground mt-3">
+            {message?.body || 'In-app message content'}
+          </p>
+          {message?.buttons?.[0] && (
+            <Button className="mt-6">{message.buttons[0].text}</Button>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground mt-6 font-medium">In-App Message</p>
+      </div>
+    );
+  }
+  
+  // SMS fallback
+  return (
+    <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
+      <div className="w-full max-w-sm bg-card border-2 rounded-2xl p-6 shadow-lg">
+        <div className="flex items-start gap-3 mb-3">
+          <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+          <p className="font-medium">SMS</p>
+        </div>
+        <p className="text-lg leading-relaxed">{message?.body || step.name}</p>
+      </div>
+      <p className="text-sm text-muted-foreground mt-6 font-medium">SMS Message</p>
+    </div>
   );
 }
