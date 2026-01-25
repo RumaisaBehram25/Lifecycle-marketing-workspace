@@ -52,6 +52,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday
 import { cn } from '@/lib/utils';
 import { TemplatePickerModal } from '@/components/briefs/TemplatePickerModal';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
+import { TasksSection } from '@/components/briefs/TasksSection';
 
 type ContentType = 'campaign' | 'lifecycle';
 type Channel = 'email' | 'push' | 'inapp';
@@ -334,6 +335,9 @@ export function BriefTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Tasks Section */}
+      <TasksSection />
 
       {/* Create Brief Modal */}
       <CreateBriefDialog
