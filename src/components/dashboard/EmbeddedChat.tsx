@@ -167,7 +167,7 @@ export function EmbeddedChat() {
   }
 
   return (
-    <Card className="flex flex-col h-[320px]">
+    <Card className="flex flex-col h-[240px]">
       <CardHeader className="py-2 px-4 flex flex-row items-center justify-between border-b">
         <div className="flex items-center gap-2">
           <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center">

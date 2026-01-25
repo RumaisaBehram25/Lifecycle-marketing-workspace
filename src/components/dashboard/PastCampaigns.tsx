@@ -1,12 +1,10 @@
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowRight, Mail, Bell, Smartphone, CheckCircle2 } from 'lucide-react';
-import { format, parseISO, isBefore, subDays } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 interface BrazeCampaign {
   id: string;
@@ -23,10 +21,14 @@ export function PastCampaigns() {
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
   const schemaCache = brazePlatform?.schema_cache as any;
   
-  // Get campaigns that have been sent (have last_sent date in the past)
-  const pastCampaigns: BrazeCampaign[] = (schemaCache?.campaigns || [])
-    .filter((c: any) => c.last_sent && isBefore(parseISO(c.last_sent), new Date()))
-    .sort((a: any, b: any) => new Date(b.last_sent).getTime() - new Date(a.last_sent).getTime())
+  // Get all campaigns, sorted by most recent activity (last_sent or created_at)
+  const allCampaigns: BrazeCampaign[] = (schemaCache?.campaigns || [])
+    .map((c: any) => ({
+      ...c,
+      sortDate: c.last_sent || c.created_at || c.first_sent || null
+    }))
+    .filter((c: any) => c.sortDate)
+    .sort((a: any, b: any) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime())
     .slice(0, 5);
 
   const getChannelIcon = (channel: string) => {
@@ -71,6 +73,17 @@ export function PastCampaigns() {
     );
   }
 
+  // Get display date (prefer last_sent, fallback to created_at)
+  const getDisplayDate = (campaign: any): string => {
+    const date = campaign.last_sent || campaign.created_at || campaign.first_sent;
+    if (!date) return 'Unknown';
+    try {
+      return format(parseISO(date), 'MMM d, yyyy');
+    } catch {
+      return 'Unknown';
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -83,9 +96,9 @@ export function PastCampaigns() {
         </Button>
       </CardHeader>
       <CardContent>
-        {pastCampaigns.length > 0 ? (
+        {allCampaigns.length > 0 ? (
           <div className="space-y-3">
-            {pastCampaigns.map((campaign) => {
+            {allCampaigns.map((campaign) => {
               const channels = inferChannels(campaign);
               return (
                 <div key={campaign.id} className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
@@ -96,7 +109,7 @@ export function PastCampaigns() {
                     <p className="font-medium text-sm truncate">{campaign.name}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-muted-foreground">
-                        Sent {campaign.last_sent ? format(parseISO(campaign.last_sent), 'MMM d, yyyy') : 'Unknown'}
+                        {getDisplayDate(campaign)}
                       </span>
                     </div>
                   </div>
@@ -114,8 +127,8 @@ export function PastCampaigns() {
         ) : (
           <div className="text-center py-8">
             <CheckCircle2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No campaigns sent yet</p>
-            <p className="text-xs text-muted-foreground mt-1">Connect Braze to see campaign history</p>
+            <p className="text-sm text-muted-foreground">No campaigns yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Connect Braze to see campaigns</p>
           </div>
         )}
       </CardContent>

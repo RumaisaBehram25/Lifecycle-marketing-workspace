@@ -121,6 +121,13 @@ async function fetchClient(supabase: SupabaseClient, clientId: string): Promise<
     };
   }
 
+  // Ensure all array fields are properly arrays (JSON may come as objects)
+  const toArray = (val: any): any[] => {
+    if (Array.isArray(val)) return val;
+    if (val && typeof val === 'object') return Object.values(val);
+    return [];
+  };
+
   return {
     id: data.id,
     name: data.name,
@@ -128,21 +135,21 @@ async function fetchClient(supabase: SupabaseClient, clientId: string): Promise<
     website_url: data.website_url,
     logo_url: data.logo_url,
     brand_voice: data.brand_voice,
-    do_rules: data.do_rules || [],
-    dont_rules: data.dont_rules || [],
-    tone_presets: data.tone_presets || [],
+    do_rules: toArray(data.do_rules),
+    dont_rules: toArray(data.dont_rules),
+    tone_presets: toArray(data.tone_presets),
     legal_requirements: data.legal_requirements,
     // Extended brand context
     tagline: data.tagline,
     industry: data.industry,
     primary_color: data.primary_color,
     secondary_color: data.secondary_color,
-    value_propositions: data.value_propositions || [],
-    copy_examples: data.copy_examples || [],
-    target_audience: data.target_audience || [],
-    key_messaging_pillars: data.key_messaging_pillars || [],
-    differentiators: data.differentiators || [],
-    competitors: data.competitors || [],
+    value_propositions: toArray(data.value_propositions),
+    copy_examples: toArray(data.copy_examples),
+    target_audience: toArray(data.target_audience),
+    key_messaging_pillars: toArray(data.key_messaging_pillars),
+    differentiators: toArray(data.differentiators),
+    competitors: toArray(data.competitors),
   };
 }
 
@@ -374,15 +381,21 @@ export function buildSystemPromptFromContext(
   }
   
   // Client context - core identity
+  // Safe array join helper
+  const safeJoin = (arr: any, separator = ', '): string => {
+    if (Array.isArray(arr) && arr.length > 0) return arr.join(separator);
+    return 'Not specified';
+  };
+
   prompt += `## CLIENT CONTEXT
 - **Name**: ${client.name}
 - **Tagline**: ${client.tagline || 'Not specified'}
 - **Industry**: ${client.industry || 'Not specified'}
 - **Website**: ${client.website_url || 'Not specified'}
 - **Brand Voice**: ${client.brand_voice || 'Professional and friendly'}
-- **Tone Presets**: ${client.tone_presets?.join(', ') || 'Not specified'}
-- **Do's**: ${client.do_rules?.join('; ') || 'Not specified'}
-- **Don'ts**: ${client.dont_rules?.join('; ') || 'Not specified'}
+- **Tone Presets**: ${safeJoin(client.tone_presets)}
+- **Do's**: ${safeJoin(client.do_rules, '; ')}
+- **Don'ts**: ${safeJoin(client.dont_rules, '; ')}
 - **Legal Requirements**: ${client.legal_requirements || 'Standard compliance'}
 
 `;
