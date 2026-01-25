@@ -8,6 +8,8 @@ import { LoadingPage } from "@/components/ui/loading-spinner";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Brand from "./pages/Brand";
+import Briefs from "./pages/Briefs";
+import Audience from "./pages/Audience";
 import Campaigns from "./pages/Campaigns";
 import Lifecycle from "./pages/Lifecycle";
 import CodeGenerator from "./pages/CodeGenerator";
@@ -32,6 +34,8 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/brand" element={<ProtectedRoute><Brand /></ProtectedRoute>} />
+      <Route path="/briefs" element={<ProtectedRoute><Briefs /></ProtectedRoute>} />
+      <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
       <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
       <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
       <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />

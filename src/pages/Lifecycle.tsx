@@ -8,7 +8,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -41,16 +40,12 @@ import {
   RefreshCw,
   AlertCircle,
   Workflow,
-  Users,
-  FileText,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import { HorizontalFlowChart } from '@/components/creative/HorizontalFlowChart';
-import { AudienceTab } from '@/components/lifecycle/AudienceTab';
-import { BriefTab } from '@/components/lifecycle/BriefTab';
 
 // Type definitions
 interface CanvasStep {
@@ -166,7 +161,6 @@ export default function Lifecycle() {
   const { data: platforms, refetch: refetchPlatforms } = useLinktreePlatforms();
   const { toast } = useToast();
   
-  const [activeTab, setActiveTab] = useState('journeys');
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
@@ -339,39 +333,9 @@ export default function Lifecycle() {
       <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         <PageHeader
           title="Lifecycle"
-          description="Manage briefs, audiences, and lifecycle journeys"
-        />
-
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 max-w-md">
-            <TabsTrigger value="briefs" className="gap-2">
-              <FileText className="h-4 w-4" />
-              Briefs
-            </TabsTrigger>
-            <TabsTrigger value="audience" className="gap-2">
-              <Users className="h-4 w-4" />
-              Audience
-            </TabsTrigger>
-            <TabsTrigger value="journeys" className="gap-2">
-              <Workflow className="h-4 w-4" />
-              Journeys
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Briefs Tab */}
-          <TabsContent value="briefs" className="mt-6">
-            <BriefTab />
-          </TabsContent>
-
-          {/* Audience Tab */}
-          <TabsContent value="audience" className="mt-6">
-            <AudienceTab />
-          </TabsContent>
-
-          {/* Journeys Tab */}
-          <TabsContent value="journeys" className="mt-6 space-y-6">
-            {/* Journeys Header Actions */}
-            <div className="flex items-center justify-end gap-2">
+          description="Browse multi-touch lifecycle journeys and automated flows"
+          actions={
+            <div className="flex items-center gap-2">
               {brazePlatform && (
                 <Button variant="outline" size="sm" onClick={handleSyncBraze} disabled={syncing}>
                   {syncing ? <LoadingSpinner size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -385,6 +349,8 @@ export default function Lifecycle() {
                 </Link>
               </Button>
             </div>
+          }
+        />
 
         {/* Data Source Indicator */}
         {!hasBrazeData && (
@@ -510,8 +476,6 @@ export default function Lifecycle() {
             )}
           </div>
         )}
-          </TabsContent>
-        </Tabs>
       </div>
 
       {/* Touchpoint Creative Modal */}
