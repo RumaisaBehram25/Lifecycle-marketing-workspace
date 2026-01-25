@@ -828,73 +828,38 @@ function JourneyDetail({
   }, {});
 
   return (
-    <div className="space-y-6">
-      <Button variant="ghost" onClick={onBack} className="mb-4">
+    <div className="space-y-3">
+      <Button variant="ghost" size="sm" onClick={onBack} className="h-8 px-2 -ml-2">
         ← Back to Journeys
       </Button>
 
       <Card className="overflow-hidden">
-        <div className={`h-3 ${color}`} />
-        <CardContent className="p-6">
-          <div className="flex items-start gap-4 mb-4">
-            <div className={`h-14 w-14 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
-              <Icon className="h-7 w-7 text-white" />
+        <div className={`h-2 ${color}`} />
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
+              <Icon className="h-5 w-5 text-white" />
             </div>
-            <div className="flex-1">
-              <h2 className="text-xl font-semibold mb-2">{journey.displayName || journey.name}</h2>
-              
-              {/* Editable Description */}
-              {isEditingDescription ? (
-                <div className="flex items-start gap-2">
-                  <Input
-                    value={editableDescription}
-                    onChange={(e) => setEditableDescription(e.target.value)}
-                    className="text-sm"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') setIsEditingDescription(false);
-                      if (e.key === 'Escape') setIsEditingDescription(false);
-                    }}
-                    autoFocus
-                  />
-                  <Button size="sm" variant="outline" onClick={() => setIsEditingDescription(false)}>
-                    Save
-                  </Button>
-                </div>
-              ) : (
-                <p 
-                  className="text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => setIsEditingDescription(true)}
-                  title="Click to edit"
-                >
-                  {editableDescription}
-                </p>
-              )}
-              
-              <div className="flex flex-wrap gap-2 mt-3">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-semibold leading-tight">{journey.displayName || journey.name}</h2>
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
                 {Object.entries(channelCounts).map(([channel, count]) => (
-                  <Badge key={channel} variant="outline" className={getChannelColor(channel)}>
+                  <span key={channel} className="flex items-center gap-1">
+                    <ChannelIcon channel={channel} size="sm" />
                     {channel === 'in_app_message' ? 'In-App' : channel}: {count as number}
-                  </Badge>
+                  </span>
                 ))}
+                {journey.first_entry && (
+                  <span className="border-l pl-2 ml-1">Launched: {new Date(journey.first_entry).toLocaleDateString()}</span>
+                )}
               </div>
-
-              {(journey.first_entry || journey.last_entry) && (
-                <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
-                  {journey.first_entry && (
-                    <span>First entry: {new Date(journey.first_entry).toLocaleDateString()}</span>
-                  )}
-                  {journey.last_entry && (
-                    <span>Last entry: {new Date(journey.last_entry).toLocaleDateString()}</span>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
           {/* Horizontal Flow Chart */}
           {journey.steps && Object.keys(journey.steps).length > 0 && (
-            <div className="mt-8">
-              <HorizontalFlowChart 
+            <div className="mt-4">
+              <HorizontalFlowChart
                 canvas={{
                   id: journey.id,
                   name: journey.name,
