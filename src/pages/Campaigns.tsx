@@ -748,130 +748,189 @@ export default function Campaigns() {
   );
 }
 
-// Campaign Card Component - simplified with just date badge
+// Campaign Card Component - with inline content preview like Lifecycle
 function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampaign; viewMode: 'grid' | 'list'; onClick: () => void }) {
   const { taxonomy } = campaign;
+  
+  // Determine primary channel for display
+  const primaryChannel = campaign.channels?.[0] || 'email';
+  const displayChannel = primaryChannel === 'in_app_message' ? 'In-App' : 
+                         primaryChannel.charAt(0).toUpperCase() + primaryChannel.slice(1);
   
   if (viewMode === 'list') {
     return (
       <Card className="hover:border-primary/50 transition-colors cursor-pointer" onClick={onClick}>
         <CardContent className="p-4">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <ChannelIcon channel={campaign.channels?.[0] || 'email'} size="lg" />
+          <div className="flex items-start gap-4">
+            {/* Content Preview Column */}
+            <div className="w-48 flex-shrink-0">
+              {campaign.campaignType === 'email' || campaign.channels?.includes('email') ? (
+                campaign.html_preview ? (
+                  <div className="border rounded-lg overflow-hidden bg-white h-32">
+                    <iframe
+                      srcDoc={campaign.html_preview}
+                      className="w-full h-full pointer-events-none"
+                      title="Email Preview"
+                      sandbox="allow-same-origin"
+                      style={{ transform: 'scale(0.25)', transformOrigin: 'top left', width: '400%', height: '400%' }}
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-muted/50 rounded-lg p-3 h-32 flex flex-col justify-center">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                        <span className="text-[10px] text-primary-foreground font-bold">L</span>
+                      </div>
+                      <span className="text-[10px] font-medium">Linktree</span>
+                    </div>
+                    <p className="text-xs font-medium line-clamp-2">{campaign.subject || campaign.displayName}</p>
+                    {campaign.preheader && (
+                      <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">{campaign.preheader}</p>
+                    )}
+                  </div>
+                )
+              ) : campaign.campaignType === 'push' || campaign.channels?.includes('push') ? (
+                <div className="bg-muted/50 rounded-lg p-3 h-32">
+                  <div className="bg-card border rounded-xl p-2 shadow-sm h-full flex flex-col justify-center">
+                    <div className="flex items-start gap-2">
+                      <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+                        <span className="text-[10px] font-bold text-primary-foreground">L</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] text-muted-foreground">Linktree • now</p>
+                        <p className="text-xs font-semibold line-clamp-1">{campaign.push_title || campaign.displayName}</p>
+                        {campaign.push_body && (
+                          <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{campaign.push_body}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-lg p-3 h-32 flex flex-col justify-center text-center">
+                  <Smartphone className="h-5 w-5 text-purple-500 mx-auto mb-1" />
+                  <p className="text-xs font-semibold line-clamp-1">{campaign.inapp_title || campaign.displayName}</p>
+                  {campaign.inapp_body && (
+                    <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{campaign.inapp_body}</p>
+                  )}
+                </div>
+              )}
             </div>
+            
+            {/* Info Column */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold">{campaign.displayName}</h3>
-              </div>
-              {/* Date only */}
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <h3 className="font-semibold line-clamp-1">{campaign.displayName}</h3>
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 {taxonomy.dateString && (
                   <Badge variant="outline" className="text-xs bg-muted/50">
                     <Calendar className="h-3 w-3 mr-1" />
                     {taxonomy.dateString}
                   </Badge>
                 )}
-        {campaign.channels?.map((ch: string) => {
-                  const displayChannel = ch === 'in_app_message' ? 'In-App' : ch.charAt(0).toUpperCase() + ch.slice(1);
-                  return (
-                    <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
-                      {displayChannel}
-                    </Badge>
-                  );
-                })}
+                <Badge variant="outline" className={`text-xs ${getChannelColor(primaryChannel)}`}>
+                  {displayChannel}
+                </Badge>
               </div>
-              {campaign.subject && (
-                <p className="text-sm text-muted-foreground truncate mt-1">{campaign.subject}</p>
-              )}
             </div>
-            <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+            <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-2" />
           </div>
         </CardContent>
       </Card>
     );
   }
 
+  // Grid view with large content preview
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all overflow-hidden cursor-pointer" onClick={onClick}>
-      {/* Header with date only */}
-      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5 flex-wrap">
+      {/* Header badges - date and channel only */}
+      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5">
         {taxonomy.dateString && (
           <Badge variant="outline" className="text-xs bg-background">
             <Calendar className="h-3 w-3 mr-1" />
             {taxonomy.dateString}
           </Badge>
         )}
-        {campaign.channels?.map((ch: string) => {
-          const displayChannel = ch === 'in_app_message' ? 'In-App' : ch.charAt(0).toUpperCase() + ch.slice(1);
-          return (
-            <Badge key={ch} variant="outline" className={`text-xs bg-background ${getChannelColor(ch)}`}>
-              {displayChannel}
-            </Badge>
-          );
-        })}
+        <Badge variant="outline" className={`text-xs bg-background ${getChannelColor(primaryChannel)}`}>
+          {displayChannel}
+        </Badge>
       </div>
 
-      {/* Email Preview */}
-      <div className="bg-muted/50 p-4 border-b">
-        <div className="bg-card rounded-lg p-3 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="h-6 w-6 rounded-full bg-primary flex items-center justify-center">
-              <span className="text-xs text-primary-foreground font-bold">L</span>
+      {/* Content Preview - Large */}
+      <div className="bg-muted/30 border-b">
+        {campaign.campaignType === 'email' || campaign.channels?.includes('email') ? (
+          campaign.html_preview ? (
+            <div className="bg-white overflow-hidden" style={{ height: '280px' }}>
+              <iframe
+                srcDoc={campaign.html_preview}
+                className="w-full h-full pointer-events-none"
+                title="Email Preview"
+                sandbox="allow-same-origin"
+                style={{ transform: 'scale(0.4)', transformOrigin: 'top left', width: '250%', height: '250%' }}
+              />
             </div>
-            <span className="text-xs font-medium">Linktree</span>
-          </div>
-          {campaign.subject ? (
-            <>
-              <p className="text-sm font-medium line-clamp-1">{campaign.subject}</p>
-              {campaign.preheader && (
-                <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.preheader}</p>
-              )}
-            </>
-          ) : campaign.push_title ? (
-            <>
-              <p className="text-sm font-medium line-clamp-1">{campaign.push_title}</p>
-              {campaign.push_body && (
-                <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.push_body}</p>
-              )}
-            </>
-          ) : campaign.inapp_title ? (
-            <>
-              <p className="text-sm font-medium line-clamp-1">{campaign.inapp_title}</p>
-              {campaign.inapp_body && (
-                <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.inapp_body}</p>
-              )}
-            </>
           ) : (
-            <p className="text-sm font-medium line-clamp-1">{campaign.displayName}</p>
-          )}
-        </div>
+            <div className="p-6 flex flex-col items-center justify-center" style={{ height: '280px' }}>
+              <div className="bg-card rounded-lg p-4 shadow-sm w-full max-w-xs">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
+                    <span className="text-sm text-primary-foreground font-bold">L</span>
+                  </div>
+                  <span className="text-sm font-medium">Linktree</span>
+                </div>
+                <p className="font-medium line-clamp-2">{campaign.subject || campaign.displayName}</p>
+                {campaign.preheader && (
+                  <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{campaign.preheader}</p>
+                )}
+              </div>
+            </div>
+          )
+        ) : campaign.campaignType === 'push' || campaign.channels?.includes('push') ? (
+          <div className="p-6 flex items-center justify-center" style={{ height: '280px' }}>
+            <div className="bg-card border rounded-2xl p-4 shadow-lg w-full max-w-xs">
+              <div className="flex items-start gap-3">
+                <div className="h-12 w-12 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+                  <span className="text-lg font-bold text-primary-foreground">L</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">Linktree • now</p>
+                  <p className="font-semibold mt-0.5 line-clamp-2">{campaign.push_title || campaign.displayName}</p>
+                  {campaign.push_body && (
+                    <p className="text-sm text-muted-foreground line-clamp-3 mt-1">{campaign.push_body}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 flex items-center justify-center" style={{ height: '280px' }}>
+            <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-2 border-purple-500/30 rounded-2xl p-6 text-center w-full max-w-xs">
+              {campaign.inapp_image_url ? (
+                <img 
+                  src={campaign.inapp_image_url} 
+                  alt="In-app" 
+                  className="w-full h-20 object-cover rounded-lg mb-3"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              ) : (
+                <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-3">
+                  <Smartphone className="h-6 w-6 text-purple-500" />
+                </div>
+              )}
+              <h4 className="font-bold line-clamp-2">{campaign.inapp_title || campaign.displayName}</h4>
+              {campaign.inapp_body && (
+                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{campaign.inapp_body}</p>
+              )}
+              {campaign.inapp_cta && (
+                <Button size="sm" className="mt-3">{campaign.inapp_cta}</Button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Footer - just title */}
       <CardContent className="p-4">
-        <div className="mb-3">
-          <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-2">{campaign.displayName}</h3>
-          {campaign.description && (
-            <p className="text-xs text-muted-foreground line-clamp-1 mt-1">{campaign.description}</p>
-          )}
-        </div>
-
-        {campaign.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {campaign.tags.slice(0, 3).map((tag: string) => (
-              <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
-            ))}
-          </div>
-        )}
-
-        {campaign.last_sent && (
-          <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">
-            <span>Last sent: {new Date(campaign.last_sent).toLocaleDateString()}</span>
-            <Button variant="ghost" size="sm" className="h-auto p-0 text-xs text-primary">
-              View Details →
-            </Button>
-          </div>
-        )}
+        <h3 className="font-semibold group-hover:text-primary transition-colors line-clamp-2">{campaign.displayName}</h3>
       </CardContent>
     </Card>
   );
