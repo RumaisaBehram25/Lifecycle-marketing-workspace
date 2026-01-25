@@ -545,51 +545,27 @@ export default function Campaigns() {
           </DialogHeader>
           
           {selectedCampaign && (
-            <div className="space-y-6 mt-4">
-              {/* Channel badges */}
-              <div className="flex flex-wrap gap-2">
-                {selectedCampaign.channels?.map((ch: string) => (
-                  <Badge key={ch} variant="outline" className={getChannelColor(ch)}>
-                    {ch === 'in_app_message' ? 'In-App' : ch}
-                  </Badge>
-                ))}
-                {selectedCampaign.channels?.length > 1 && (
-                  <Badge variant="secondary">Multi-channel</Badge>
-                )}
-                <Badge variant={selectedCampaign.status === 'active' ? 'default' : 'secondary'}>
-                  {selectedCampaign.status === 'active' ? 'Active' : 'Draft'}
-                </Badge>
-              </div>
-
-              {/* Email Content */}
+            <div className="space-y-4 mt-2">
+              {/* Email Content - compact layout jumping straight to subject */}
               {selectedCampaign.channels?.includes('email') && (
-                <div className="space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-blue-500" />
-                    Email
-                  </h4>
-                  <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
-                    <div className="grid gap-2">
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Subject Line</p>
-                        <p className="font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground">Preheader</p>
-                        <p className="text-sm">{selectedCampaign.preheader || <span className="text-muted-foreground italic">No preheader</span>}</p>
-                      </div>
-                    </div>
-                    {selectedCampaign.html_preview && (
-                      <div className="mt-3 border rounded-lg overflow-hidden bg-white">
-                        <iframe
-                          srcDoc={selectedCampaign.html_preview}
-                          className="w-full h-[300px]"
-                          title="Email Preview"
-                          sandbox="allow-same-origin"
-                        />
-                      </div>
-                    )}
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">Subject</p>
+                    <p className="font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
                   </div>
+                  {selectedCampaign.preheader && (
+                    <p className="text-sm text-muted-foreground">{selectedCampaign.preheader}</p>
+                  )}
+                  {selectedCampaign.html_preview && (
+                    <div className="border rounded-lg overflow-hidden bg-white mt-2">
+                      <iframe
+                        srcDoc={selectedCampaign.html_preview}
+                        className="w-full h-[400px]"
+                        title="Email Preview"
+                        sandbox="allow-same-origin"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
