@@ -148,6 +148,13 @@ export function EmbeddedChat() {
     }
   };
 
+  const quickPrompts = [
+    "What campaigns went out this week?",
+    "Draft a welcome email subject line",
+    "Summarize our brand voice",
+    "What segments should I target for re-engagement?",
+  ];
+
   if (!client) {
     return (
       <Card>
@@ -160,15 +167,15 @@ export function EmbeddedChat() {
   }
 
   return (
-    <Card className="flex flex-col h-[400px]">
-      <CardHeader className="pb-2 flex flex-row items-center justify-between border-b">
+    <Card className="flex flex-col h-[320px]">
+      <CardHeader className="py-2 px-4 flex flex-row items-center justify-between border-b">
         <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center">
-            <Sparkles className="h-3.5 w-3.5 text-primary-foreground" />
+          <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center">
+            <Sparkles className="h-3 w-3 text-primary-foreground" />
           </div>
-          <CardTitle className="text-base font-semibold">AI Chat</CardTitle>
+          <CardTitle className="text-sm font-semibold">AI Chat</CardTitle>
         </div>
-        <Button variant="ghost" size="sm" asChild>
+        <Button variant="ghost" size="sm" asChild className="h-7 text-xs">
           <Link to="/chat">
             Open Full
             <ArrowRight className="ml-1 h-3 w-3" />
@@ -177,12 +184,27 @@ export function EmbeddedChat() {
       </CardHeader>
       
       <ScrollArea className="flex-1 px-4" ref={scrollRef}>
-        <div className="py-4 space-y-4">
+        <div className="py-3 space-y-3">
           {messages.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground">
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground text-center">
                 Ask about campaigns, segments, or get copy suggestions
               </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {quickPrompts.map((prompt) => (
+                  <Button
+                    key={prompt}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7"
+                    onClick={() => {
+                      setInput(prompt);
+                    }}
+                  >
+                    {prompt}
+                  </Button>
+                ))}
+              </div>
             </div>
           ) : (
             messages.map((msg, i) => (
@@ -208,21 +230,21 @@ export function EmbeddedChat() {
         </div>
       </ScrollArea>
 
-      <div className="p-3 border-t">
+      <div className="p-2 border-t">
         <div className="flex gap-2">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question..."
-            className="min-h-[40px] max-h-[80px] resize-none text-sm"
+            className="min-h-[36px] max-h-[60px] resize-none text-sm"
             rows={1}
           />
           <Button 
             size="icon" 
             onClick={handleSend} 
             disabled={!input.trim() || isLoading}
-            className="h-10 w-10 flex-shrink-0"
+            className="h-9 w-9 flex-shrink-0"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />

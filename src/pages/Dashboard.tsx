@@ -69,8 +69,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Briefs and Campaigns Row */}
-        <div className="grid gap-6 lg:grid-cols-2">
+        {/* Briefs and Campaigns - Stacked */}
+        <div className="grid gap-6">
           <UpcomingBriefs />
           <PastCampaigns />
         </div>
