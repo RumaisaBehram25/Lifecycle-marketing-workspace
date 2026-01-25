@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -45,6 +46,24 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { PerformanceTrends, type CampaignDailyTrendPoint } from '@/components/analytics/PerformanceTrends';
+
+// Hook to fetch data visibility settings
+function useDataVisibility(clientId: string | undefined, itemType: 'campaign' | 'canvas') {
+  return useQuery({
+    queryKey: ['data-visibility', clientId, itemType],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await supabase
+        .from('data_visibility')
+        .select('item_id, is_visible')
+        .eq('client_id', clientId)
+        .eq('item_type', itemType);
+      if (error) throw error;
+      return data as Array<{ item_id: string; is_visible: boolean }>;
+    },
+    enabled: !!clientId,
+  });
+}
 
 interface CampaignAnalytics {
   campaign_id: string;
@@ -99,6 +118,7 @@ interface BrazeSchemaCache {
     };
     trends?: {
       campaigns_daily?: CampaignDailyTrendPoint[];
+      previous_period?: CampaignDailyTrendPoint[];
     };
     date_range?: { start: string; end: string };
   };
@@ -132,9 +152,46 @@ export default function Analytics() {
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
   const schemaCache = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
 
-  // Calculate metrics from available data
-  const campaignMetrics = useMemo(() => {
+  // Fetch visibility settings for campaigns and canvases
+  const { data: campaignVisibility } = useDataVisibility(client?.id, 'campaign');
+  const { data: canvasVisibility } = useDataVisibility(client?.id, 'canvas');
+
+  // Create visibility maps - items not in the list default to visible (new items)
+  const campaignVisibilityMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    campaignVisibility?.forEach(v => map.set(v.item_id, v.is_visible));
+    return map;
+  }, [campaignVisibility]);
+
+  const canvasVisibilityMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    canvasVisibility?.forEach(v => map.set(v.item_id, v.is_visible));
+    return map;
+  }, [canvasVisibility]);
+
+  // Filter campaigns by visibility - only include visible items (or items not in visibility table = new/visible)
+  const visibleCampaigns = useMemo(() => {
     const campaigns = schemaCache?.analytics?.campaigns;
+    if (!campaigns) return [];
+    return campaigns.filter(c => {
+      const visibility = campaignVisibilityMap.get(c.campaign_id);
+      // If not in map, default to visible (new campaign). If in map, use the value.
+      return visibility === undefined || visibility === true;
+    });
+  }, [schemaCache?.analytics?.campaigns, campaignVisibilityMap]);
+
+  const visibleCanvases = useMemo(() => {
+    const canvases = schemaCache?.analytics?.canvases;
+    if (!canvases) return [];
+    return canvases.filter(c => {
+      const visibility = canvasVisibilityMap.get(c.canvas_id);
+      return visibility === undefined || visibility === true;
+    });
+  }, [schemaCache?.analytics?.canvases, canvasVisibilityMap]);
+
+  // Calculate metrics from VISIBLE data only
+  const campaignMetrics = useMemo(() => {
+    const campaigns = visibleCampaigns;
     if (!campaigns || campaigns.length === 0) return null;
 
     const totals = campaigns.reduce((acc, c) => ({
@@ -164,10 +221,10 @@ export default function Analytics() {
       campaigns,
       count: campaigns.length,
     };
-  }, [schemaCache?.analytics?.campaigns]);
+  }, [visibleCampaigns]);
 
   const canvasMetrics = useMemo(() => {
-    const canvases = schemaCache?.analytics?.canvases;
+    const canvases = visibleCanvases;
     if (!canvases || canvases.length === 0) return null;
 
     const totals = canvases.reduce((acc, c) => ({
@@ -182,7 +239,7 @@ export default function Analytics() {
       canvases,
       count: canvases.length,
     };
-  }, [schemaCache?.analytics?.canvases]);
+  }, [visibleCanvases]);
 
   // Top campaigns by engagement
   const topCampaigns = useMemo(() => {
@@ -407,7 +464,10 @@ export default function Analytics() {
               {/* Historical trend charts */}
               {schemaCache?.analytics?.trends?.campaigns_daily && schemaCache.analytics.trends.campaigns_daily.length > 0 && (
                 <div className="mt-4">
-                  <PerformanceTrends data={schemaCache.analytics.trends.campaigns_daily} />
+                  <PerformanceTrends 
+                    data={schemaCache.analytics.trends.campaigns_daily} 
+                    previousPeriodData={schemaCache.analytics.trends.previous_period}
+                  />
                 </div>
               )}
 
