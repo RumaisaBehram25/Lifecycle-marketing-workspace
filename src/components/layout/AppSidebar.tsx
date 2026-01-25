@@ -11,12 +11,10 @@ import {
 import {
   LayoutDashboard,
   MessageSquare,
-  Code,
   Database,
   Settings,
   LogOut,
   ChevronRight,
-  Palette,
   Send,
   Workflow,
   FileText,
@@ -37,13 +35,11 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'Briefs', href: '/briefs', icon: FileText },
-  { name: 'Audience', href: '/audience', icon: Users },
   { name: 'Campaigns', href: '/campaigns', icon: Send },
   { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
+  { name: 'Audience', href: '/audience', icon: Users },
   { name: 'AI Chat', href: '/chat', icon: MessageSquare },
-  { name: 'Code Generator', href: '/generate/code', icon: Code },
   { name: 'Knowledge Base', href: '/knowledge', icon: Database },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

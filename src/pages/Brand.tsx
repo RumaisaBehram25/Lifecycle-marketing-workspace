@@ -4,7 +4,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingPage } from '@/components/ui/loading-spinner';
-import { BrandDiscoveryChat } from '@/components/client/BrandDiscoveryChat';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BrandVoiceTab } from '@/components/brand/BrandVoiceTab';
 import { DesignTab } from '@/components/brand/DesignTab';
@@ -61,16 +60,16 @@ export default function Brand() {
     <AppLayout>
       <div className="flex h-[calc(100vh-4rem)]">
         {/* Sidebar Navigation */}
-        <aside className="hidden lg:flex w-64 flex-col border-r bg-muted/30">
-          <div className="p-6 border-b">
+        <aside className="hidden lg:flex w-52 flex-col border-r bg-muted/30">
+          <div className="p-4 border-b">
             <h2 className="font-bold text-lg">CRM Brand Guide</h2>
             <p className="text-xs text-muted-foreground mt-1">Internal execution reference</p>
           </div>
           <ScrollArea className="flex-1">
-            <nav className="p-4 space-y-1">
+            <nav className="p-3 space-y-1">
               <button
                 onClick={() => setActiveTab('voice')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left ${
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
                   activeTab === 'voice'
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -81,7 +80,7 @@ export default function Brand() {
               </button>
               <button
                 onClick={() => setActiveTab('design')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left ${
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
                   activeTab === 'design'
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -92,7 +91,7 @@ export default function Brand() {
               </button>
               <button
                 onClick={() => setActiveTab('rules')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left ${
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left ${
                   activeTab === 'rules'
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -141,27 +140,6 @@ export default function Brand() {
                   <MessageSquare className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-
-            {/* Brand Discovery */}
-            <div className="mb-8">
-              <BrandDiscoveryChat 
-                client={{
-                  id: client.id,
-                  name: client.name,
-                  website_url: client.website_url,
-                  brand_voice: client.brand_voice,
-                  tagline: (client as any).tagline,
-                  industry: (client as any).industry,
-                  value_propositions: (client as any).value_propositions,
-                  differentiators: (client as any).differentiators,
-                  target_audience: (client as any).target_audience,
-                  key_messaging_pillars: (client as any).key_messaging_pillars,
-                  do_rules: client.do_rules as any,
-                  dont_rules: client.dont_rules as any,
-                }}
-                onRefreshClient={() => refetchClient()}
-              />
             </div>
 
             {/* Mobile Tab Switcher */}
