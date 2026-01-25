@@ -119,7 +119,7 @@ export function PastCampaigns() {
       </CardHeader>
       <CardContent>
         {allCampaigns.length > 0 ? (
-          <div className="space-y-3">
+          <div className="flex gap-3 overflow-x-auto pb-2">
             {allCampaigns.map((campaign) => {
               const channels = inferChannels(campaign);
               const primaryChannel = channels[0] || 'email';
@@ -128,10 +128,10 @@ export function PastCampaigns() {
                 <Link 
                   key={campaign.id} 
                   to="/campaigns"
-                  className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                  className="flex-shrink-0 w-48 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
                 >
                   {/* Mini preview */}
-                  <div className="w-24 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-muted/50">
+                  <div className="w-full h-24 rounded-lg overflow-hidden bg-muted/50 mb-2">
                     {primaryChannel === 'email' && campaign.html_preview ? (
                       <div className="w-full h-full bg-white overflow-hidden">
                         <iframe
@@ -139,7 +139,7 @@ export function PastCampaigns() {
                           className="w-full h-full pointer-events-none"
                           title="Preview"
                           sandbox="allow-same-origin"
-                          style={{ transform: 'scale(0.15)', transformOrigin: 'top left', width: '667%', height: '667%' }}
+                          style={{ transform: 'scale(0.12)', transformOrigin: 'top left', width: '833%', height: '833%' }}
                         />
                       </div>
                     ) : primaryChannel.includes('push') ? (
@@ -158,20 +158,17 @@ export function PastCampaigns() {
                     )}
                   </div>
                   
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{campaign.name}</p>
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <Badge variant="outline" className="text-xs bg-muted/50">
-                        <Calendar className="h-3 w-3 mr-1" />
-                        {getDisplayDate(campaign)}
+                  <p className="font-medium text-xs truncate">{campaign.name}</p>
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      <Calendar className="h-2.5 w-2.5 mr-0.5" />
+                      {getDisplayDate(campaign)}
+                    </Badge>
+                    {channels.slice(0, 1).map((channel) => (
+                      <Badge key={channel} variant="outline" className="text-[10px] px-1.5 py-0">
+                        {getChannelIcon(channel)}
                       </Badge>
-                      {channels.map((channel) => (
-                        <Badge key={channel} variant="outline" className="text-xs">
-                          {getChannelIcon(channel)}
-                          <span className="ml-1">{getChannelLabel(channel)}</span>
-                        </Badge>
-                      ))}
-                    </div>
+                    ))}
                   </div>
                 </Link>
               );
