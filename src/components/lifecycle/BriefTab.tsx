@@ -4,7 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -101,7 +100,6 @@ export function BriefTab() {
   const { data: platforms } = useLinktreePlatforms();
   const { user } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
 
   const [viewMode, setViewMode] = useState<'cards' | 'list' | 'calendar'>('cards');
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -167,9 +165,8 @@ export function BriefTab() {
   }, [calendarMonth]);
 
   const handleBriefClick = (brief: Brief) => {
-    if (brief.conversation_id) {
-      navigate(`/chat?conversation=${brief.conversation_id}`);
-    }
+    // TODO: Open brief detail/edit modal
+    console.log('Brief clicked:', brief.id);
   };
 
   if (isLoading) {
@@ -396,13 +393,6 @@ function BriefCard({ brief, onClick }: { brief: Brief; onClick: () => void }) {
         </div>
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-1">
-            {brief.channels.map(ch => (
-              <Badge key={ch} variant="secondary" className="text-xs capitalize">
-                {ch}
-              </Badge>
-            ))}
-          </div>
           {brief.deadline && (
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
@@ -438,13 +428,6 @@ function BriefListItem({ brief, onClick }: { brief: Brief; onClick: () => void }
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-medium truncate">{brief.name}</h3>
-            <div className="flex items-center gap-2 mt-1">
-              {brief.channels.map(ch => (
-                <Badge key={ch} variant="secondary" className="text-xs capitalize">
-                  {ch}
-                </Badge>
-              ))}
-            </div>
           </div>
           <div className="flex items-center gap-4">
             <Badge className={cn("text-xs", statusConfig.color)}>
@@ -478,7 +461,6 @@ function CreateBriefDialog({
   const { data: client } = useLinktreeClient();
   const { user } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -564,15 +546,11 @@ function CreateBriefDialog({
       toast({ title: 'Name required', variant: 'destructive' });
       return;
     }
-    if (formData.channels.length === 0) {
-      toast({ title: 'Select at least one channel', variant: 'destructive' });
-      return;
-    }
 
     setLoading(true);
     try {
-      // Create the brief
-      const { data: brief, error: briefError } = await supabase
+      // Create the brief (no conversation link)
+      const { error: briefError } = await supabase
         .from('briefs')
         .insert({
           client_id: client.id,
@@ -584,52 +562,13 @@ function CreateBriefDialog({
           about: formData.about,
           template_ids: formData.templateIds,
           status: 'draft',
-        })
-        .select()
-        .single();
+        });
 
       if (briefError) throw briefError;
-
-      // Create a new conversation linked to the brief
-      const { data: conversation, error: convError } = await supabase
-        .from('chat_conversations')
-        .insert({
-          client_id: client.id,
-          user_id: user.id,
-          title: `Brief: ${formData.name}`,
-        })
-        .select()
-        .single();
-
-      if (convError) throw convError;
-
-      // Update brief with conversation ID
-      await supabase
-        .from('briefs')
-        .update({ conversation_id: conversation.id })
-        .eq('id', brief.id);
-
-      // Create initial AI message with brief context
-      const segmentName = segments.find(s => s.id === formData.segmentId)?.name;
-      const briefContext = `I'm starting a new ${formData.contentType} brief called "${formData.name}".
-
-**Channels:** ${formData.channels.join(', ')}
-${formData.deadline ? `**Deadline:** ${format(formData.deadline, 'PPP')}` : ''}
-${segmentName ? `**Target Audience:** ${segmentName}` : ''}
-${formData.about ? `**About:** ${formData.about}` : ''}
-
-Please help me develop the creative for this ${formData.contentType}. Start by suggesting the messaging strategy and first draft copy for each channel.`;
-
-      await supabase.from('chat_messages').insert({
-        conversation_id: conversation.id,
-        role: 'user',
-        content: briefContext,
-      });
 
       toast({ title: 'Brief created!' });
       handleClose();
       onSuccess();
-      navigate(`/chat?conversation=${conversation.id}`);
 
     } catch (err: any) {
       toast({ title: 'Failed to create brief', description: err.message, variant: 'destructive' });
