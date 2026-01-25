@@ -554,13 +554,13 @@ export default function Campaigns() {
                     <p className="font-medium">{selectedCampaign.subject || <span className="text-muted-foreground italic">No subject line</span>}</p>
                   </div>
                   {selectedCampaign.preheader && (
-                    <p className="text-sm text-muted-foreground">{selectedCampaign.preheader}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-1">{selectedCampaign.preheader}</p>
                   )}
                   {selectedCampaign.html_preview && (
                     <div className="border rounded-lg overflow-hidden bg-white mt-2">
                       <iframe
                         srcDoc={selectedCampaign.html_preview}
-                        className="w-full h-[400px]"
+                        className="w-full h-[280px]"
                         title="Email Preview"
                         sandbox="allow-same-origin"
                       />
