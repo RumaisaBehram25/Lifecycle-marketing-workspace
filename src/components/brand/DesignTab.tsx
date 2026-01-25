@@ -347,11 +347,8 @@ function TemplateCard({
         </div>
       </div>
       <CardContent className="p-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <p className="font-medium text-sm truncate">{template.name}</p>
-          <Badge variant="outline" className="text-xs shrink-0">
-            {template.source === 'braze' ? 'Braze' : 'Upload'}
-          </Badge>
         </div>
         <p className="text-xs text-muted-foreground mt-1">{template.category}</p>
       </CardContent>
