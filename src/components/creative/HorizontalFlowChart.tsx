@@ -153,32 +153,32 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   
   if (channel === 'email') {
     return (
-      <div className="w-full h-[520px] bg-card rounded-t-lg overflow-hidden flex flex-col">
-        <div className="bg-muted/30 px-3 py-3 border-b flex-shrink-0">
+      <div className="w-full h-[520px] bg-card overflow-hidden flex flex-col">
+        <div className="bg-muted/30 px-2 py-2 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground truncate">From: Linktree</p>
-          <p className="text-base font-medium truncate">{message?.subject || step.name}</p>
+          <p className="text-sm font-medium truncate">{message?.subject || step.name}</p>
           {message?.preheader && (
-            <p className="text-sm text-muted-foreground truncate mt-1">{message.preheader}</p>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">{message.preheader}</p>
           )}
         </div>
         <div className="relative flex-1 overflow-hidden bg-background">
           {message?.html_content ? (
             <iframe
               title={message?.subject || step.name}
-              className="absolute inset-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
+              className="absolute inset-0 border-0 origin-top-left scale-[0.35] w-[286%] h-[286%]"
               sandbox=""
               loading="lazy"
               srcDoc={message.html_content}
             />
           ) : message?.body ? (
-            <div className="p-3 text-sm text-foreground leading-relaxed">
+            <div className="p-2 text-sm text-foreground leading-relaxed">
               <p>{message.body}</p>
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground">
-              <Mail className="h-16 w-16 mb-4 opacity-30" />
-              <p className="text-base font-medium">{step.name}</p>
-              <p className="text-sm mt-2">Email content</p>
+              <Mail className="h-12 w-12 mb-3 opacity-30" />
+              <p className="text-sm font-medium">{step.name}</p>
+              <p className="text-xs mt-1">Email content</p>
             </div>
           )}
         </div>
@@ -371,7 +371,7 @@ function StepCard({
   }
   
   return (
-    <div className="flex flex-col w-[400px] flex-shrink-0">
+    <div className="flex flex-col w-[280px] flex-shrink-0">
       <Card 
         className={`cursor-pointer hover:shadow-xl transition-all border-2 ${colors.border} overflow-hidden hover:scale-[1.02]`}
         onClick={onClick}
