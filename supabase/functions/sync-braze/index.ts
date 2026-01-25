@@ -977,8 +977,8 @@ serve(async (req) => {
     }
 
     // Fetch analytics data if requested
-    interface CampaignAnalyticsItem { campaign_id: string; campaign_name: string; sends: number; deliveries: number; opens: number; unique_opens: number; clicks: number; unique_clicks: number; unsubscribes: number; bounces: number; conversions: number; revenue: number }
-    interface CanvasAnalyticsItem { canvas_id: string; canvas_name: string; entries: number; conversions: number; revenue: number }
+    interface CampaignAnalyticsItem { campaign_id: string; campaign_name: string; channel?: string; sends: number; deliveries: number; opens: number; unique_opens: number; clicks: number; unique_clicks: number; unsubscribes: number; bounces: number; conversions: number; revenue: number }
+    interface CanvasAnalyticsItem { canvas_id: string; canvas_name: string; entries: number; conversions: number; revenue: number; variants?: Array<{ name: string; entries: number; conversions: number; revenue: number }> }
     interface AnalyticsSummary { total_sends: number; total_deliveries: number; total_opens: number; total_clicks: number; total_unsubscribes: number; avg_open_rate: number; avg_click_rate: number; total_conversions: number; total_revenue: number }
     
     let analyticsData: {
@@ -990,72 +990,222 @@ serve(async (req) => {
 
     if (includeAnalytics) {
       console.log('Fetching analytics data...');
-      const endDate = analyticsDateRange?.end || new Date().toISOString().split('T')[0];
-      const startDate = analyticsDateRange?.start || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      // Try to determine a realistic end date - use any available dates from synced data
+      // This handles cases where the system date might be in the "future" from Braze's perspective
+      let fallbackEndDate = analyticsDateRange?.end || new Date().toISOString().split('T')[0];
+      
+      // Collect dates from all sources - campaigns, canvases, templates
+      const campaignDates = results.campaigns
+        .map(c => c.last_sent || c.first_sent || c.updated_at)
+        .filter(Boolean)
+        .map(d => new Date(d!).getTime())
+        .filter(t => !isNaN(t));
+        
+      const canvasDates = results.canvases
+        .map(c => c.last_entry || c.first_entry || c.updated_at || c.created_at)
+        .filter(Boolean)
+        .map(d => new Date(d!).getTime())
+        .filter(t => !isNaN(t));
+        
+      // Use template dates as another source of realistic dates
+      const templateDates = results.templates
+        .map(t => t.updated_at || t.created_at)
+        .filter(Boolean)
+        .map(d => new Date(d!).getTime())
+        .filter(t => !isNaN(t));
+      
+      const allDates = [...campaignDates, ...canvasDates, ...templateDates];
+      
+      if (allDates.length > 0) {
+        const mostRecent = new Date(Math.max(...allDates));
+        // Add 1 day buffer to ensure we capture the full day
+        mostRecent.setDate(mostRecent.getDate() + 1);
+        fallbackEndDate = mostRecent.toISOString().split('T')[0];
+        console.log(`Using most recent date from synced data as fallback: ${fallbackEndDate}`);
+      } else {
+        // Hardcoded fallback to a known good date if no dates found
+        // This ensures we can fetch analytics even without date metadata
+        fallbackEndDate = '2025-01-25';
+        console.log(`No dates found in synced data, using hardcoded fallback: ${fallbackEndDate}`);
+      }
       
       const campaignAnalytics: CampaignAnalyticsItem[] = [];
       const canvasAnalytics: CanvasAnalyticsItem[] = [];
       
-      // Fetch analytics for campaigns (limit to recent campaigns)
-      const recentCampaigns = results.campaigns.filter(c => c.last_sent).slice(0, 20);
-      for (const campaign of recentCampaigns) {
+      // Fetch analytics for ALL campaigns (not just those with last_sent)
+      // Take up to 30 campaigns for analytics
+      const campaignsForAnalytics = results.campaigns.slice(0, 30);
+      console.log(`Fetching analytics for ${campaignsForAnalytics.length} campaigns...`);
+      
+      for (const campaign of campaignsForAnalytics) {
         try {
+          // Use campaign's last_sent date if available, otherwise fallback
+          const campaignEndDate = campaign.last_sent 
+            ? new Date(new Date(campaign.last_sent).getTime() + 86400000).toISOString().split('T')[0]
+            : fallbackEndDate;
+          
           // Braze limits data_series to 14 days max
-          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=14&ending_at=${endDate}T00:00:00Z`;
+          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=14&ending_at=${campaignEndDate}T23:59:59Z`;
           const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
           
-          if (data.data && data.data.length > 0) {
-            // Aggregate the time series data
-            const totals = data.data.reduce((acc: any, d: any) => ({
-              sends: acc.sends + (d.sent || 0),
-              deliveries: acc.deliveries + (d.delivered || 0),
-              opens: acc.opens + (d.opens || 0),
-              unique_opens: acc.unique_opens + (d.unique_opens || 0),
-              clicks: acc.clicks + (d.clicks || 0),
-              unique_clicks: acc.unique_clicks + (d.unique_clicks || 0),
-              unsubscribes: acc.unsubscribes + (d.unsubscribes || 0),
-              bounces: acc.bounces + (d.hard_bounces || 0) + (d.soft_bounces || 0),
-              conversions: acc.conversions + (d.conversions || 0),
-              revenue: acc.revenue + (d.revenue || 0),
-            }), { sends: 0, deliveries: 0, opens: 0, unique_opens: 0, clicks: 0, unique_clicks: 0, unsubscribes: 0, bounces: 0, conversions: 0, revenue: 0 });
-
+          // Braze response structure: data[].messages.<channel>[] with stats per variant
+          // We need to aggregate across all channels and all time periods
+          let totals = {
+            sends: 0, deliveries: 0, opens: 0, unique_opens: 0,
+            clicks: 0, unique_clicks: 0, unsubscribes: 0, bounces: 0,
+            conversions: 0, revenue: 0,
+          };
+          
+          if (data.data && Array.isArray(data.data)) {
+            for (const dayData of data.data) {
+              // Add conversions and revenue from top-level
+              totals.conversions += (dayData.conversions || 0) + (dayData.conversions1 || 0);
+              totals.revenue += dayData.revenue || 0;
+              
+              // Extract metrics from messages.<channel>[] arrays
+              const messages = dayData.messages || {};
+              
+              // Process email channel
+              if (messages.email && Array.isArray(messages.email)) {
+                for (const variant of messages.email) {
+                  totals.sends += variant.sent || 0;
+                  totals.deliveries += variant.delivered || 0;
+                  totals.opens += variant.opens || 0;
+                  totals.unique_opens += variant.unique_opens || 0;
+                  totals.clicks += variant.clicks || 0;
+                  totals.unique_clicks += variant.unique_clicks || 0;
+                  totals.unsubscribes += variant.unsubscribes || 0;
+                  totals.bounces += variant.bounces || 0;
+                }
+              }
+              
+              // Process push channels (ios_push, android_push, web_push)
+              for (const pushChannel of ['ios_push', 'android_push', 'web_push']) {
+                if (messages[pushChannel] && Array.isArray(messages[pushChannel])) {
+                  for (const variant of messages[pushChannel]) {
+                    totals.sends += variant.sent || 0;
+                    totals.opens += (variant.direct_opens || 0) + (variant.total_opens || 0);
+                    totals.clicks += variant.body_clicks || 0;
+                    totals.bounces += variant.bounces || 0;
+                  }
+                }
+              }
+              
+              // Process SMS
+              if (messages.sms && Array.isArray(messages.sms)) {
+                for (const variant of messages.sms) {
+                  totals.sends += variant.sent || 0;
+                  totals.deliveries += variant.delivered || 0;
+                  totals.clicks += variant.clicks || 0;
+                }
+              }
+              
+              // Process in-app messages
+              if (messages.in_app_message && Array.isArray(messages.in_app_message)) {
+                for (const variant of messages.in_app_message) {
+                  totals.sends += variant.impressions || 0;
+                  totals.clicks += variant.clicks || 0;
+                }
+              }
+              
+              // Process content cards
+              if (messages.content_cards && Array.isArray(messages.content_cards)) {
+                for (const variant of messages.content_cards) {
+                  totals.sends += variant.sent || 0;
+                  totals.clicks += variant.total_clicks || variant.unique_clicks || 0;
+                }
+              }
+            }
+          }
+          
+          // Only add if we got any data
+          if (totals.sends > 0 || totals.opens > 0 || totals.clicks > 0) {
             campaignAnalytics.push({
               campaign_id: campaign.id,
               campaign_name: campaign.name,
+              channel: campaign.channels?.[0],
               ...totals,
             });
 
             // Also update the campaign object with analytics
             Object.assign(campaign, totals);
+            console.log(`Campaign ${campaign.name}: sends=${totals.sends}, opens=${totals.unique_opens}, clicks=${totals.unique_clicks}`);
           }
         } catch (e) {
           console.log(`Could not fetch analytics for campaign ${campaign.id}:`, e);
         }
       }
       
-      // Fetch analytics for canvases
-      const enabledCanvases = results.canvases.filter(c => c.enabled).slice(0, 10);
+      // Fetch analytics for canvases (use canvas/data_summary for better overview)
+      const enabledCanvases = results.canvases.filter(c => c.enabled).slice(0, 15);
+      console.log(`Fetching analytics for ${enabledCanvases.length} canvases...`);
+      
       for (const canvas of enabledCanvases) {
         try {
-          // Braze limits data_series to 14 days max
-          const analyticsUrl = `canvas/data_series?canvas_id=${canvas.id}&length=14&ending_at=${endDate}T00:00:00Z`;
-          const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
+          // Use canvas's last_entry date if available, otherwise fallback
+          const canvasEndDate = canvas.last_entry 
+            ? new Date(new Date(canvas.last_entry).getTime() + 86400000).toISOString().split('T')[0]
+            : fallbackEndDate;
           
-          if (data.data && data.data.length > 0) {
-            const totals = data.data.reduce((acc: any, d: any) => ({
-              entries: acc.entries + (d.entries || 0),
-              conversions: acc.conversions + (d.conversions || 0),
-              revenue: acc.revenue + (d.revenue || 0),
-            }), { entries: 0, conversions: 0, revenue: 0 });
+          // Try data_summary first for overall stats, fallback to data_series
+          let totals = { entries: 0, conversions: 0, revenue: 0 };
+          const variantStats: Array<{ name: string; entries: number; conversions: number; revenue: number }> = [];
+          
+          try {
+            // data_summary gives aggregate totals
+            const summaryUrl = `canvas/data_summary?canvas_id=${canvas.id}&length=14&ending_at=${canvasEndDate}T23:59:59Z`;
+            const summaryData = await brazeFetch(summaryUrl, apiKey, brazeRestEndpoint);
+            
+            if (summaryData.data) {
+              totals.entries = summaryData.data.total_entries || 0;
+              totals.conversions = summaryData.data.conversions || summaryData.data.primary_conversions || 0;
+              totals.revenue = summaryData.data.revenue || 0;
+              
+              // Extract variant stats if available
+              if (summaryData.data.variant_stats && Array.isArray(summaryData.data.variant_stats)) {
+                for (const vs of summaryData.data.variant_stats) {
+                  variantStats.push({
+                    name: vs.name || vs.variant_name || 'Variant',
+                    entries: vs.entries || 0,
+                    conversions: vs.conversions || 0,
+                    revenue: vs.revenue || 0,
+                  });
+                }
+              }
+            }
+          } catch {
+            // Fallback to data_series
+            const analyticsUrl = `canvas/data_series?canvas_id=${canvas.id}&length=14&ending_at=${canvasEndDate}T23:59:59Z`;
+            const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
+            
+            if (data.data && Array.isArray(data.data)) {
+              for (const d of data.data) {
+                totals.entries += d.entries || 0;
+                totals.conversions += (d.conversions || 0) + (d.primary_conversions || 0);
+                totals.revenue += d.revenue || 0;
+              }
+            }
+          }
 
+          if (totals.entries > 0 || totals.conversions > 0) {
             canvasAnalytics.push({
               canvas_id: canvas.id,
               canvas_name: canvas.name,
               ...totals,
+              variants: variantStats.length > 0 ? variantStats : undefined,
             });
 
             // Also update the canvas object with analytics
             Object.assign(canvas, totals);
+            if (variantStats.length > 0) {
+              // Merge variant stats with existing variants
+              canvas.variants = canvas.variants.map(v => {
+                const stats = variantStats.find(vs => vs.name === v.name);
+                return stats ? { ...v, entries: stats.entries, conversions: stats.conversions, revenue: stats.revenue } : v;
+              });
+            }
+            console.log(`Canvas ${canvas.name}: entries=${totals.entries}, conversions=${totals.conversions}`);
           }
         } catch (e) {
           console.log(`Could not fetch analytics for canvas ${canvas.id}:`, e);
@@ -1084,7 +1234,7 @@ serve(async (req) => {
         campaigns: campaignAnalytics,
         canvases: canvasAnalytics,
         summary,
-        date_range: { start: startDate, end: endDate },
+        date_range: { start: fallbackEndDate, end: fallbackEndDate },
       };
       
       console.log('Analytics fetched:', {
