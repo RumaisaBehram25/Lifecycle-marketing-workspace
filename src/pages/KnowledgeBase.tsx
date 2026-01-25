@@ -27,6 +27,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { PlatformBadge } from '@/components/ui/platform-badge';
 import { DocumentPreview } from '@/components/knowledge/DocumentPreview';
 import { SyncStatus } from '@/components/knowledge/SyncStatus';
+import { CodeGeneratorEmbed } from '@/components/knowledge/CodeGeneratorEmbed';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useLinktreeClient, useLinktreePlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useLinktreeClient';
@@ -351,22 +352,9 @@ export default function KnowledgeBase() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Code Generator Tab - Embedded from CodeGenerator page */}
+          {/* Code Generator Tab - Fully Embedded */}
           <TabsContent value="code" className="space-y-6">
-            <Card className="border-emerald-500/30 bg-emerald-500/5">
-              <CardContent className="p-4 flex items-center gap-3">
-                <Database className="h-5 w-5 text-emerald-500" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">Braze Code Generator</p>
-                  <p className="text-xs text-muted-foreground">
-                    Generate Liquid code snippets using your synced attributes, events, and segments
-                  </p>
-                </div>
-                <Button asChild>
-                  <a href="/code-generator">Open Full Generator</a>
-                </Button>
-              </CardContent>
-            </Card>
+            <CodeGeneratorEmbed />
           </TabsContent>
 
 

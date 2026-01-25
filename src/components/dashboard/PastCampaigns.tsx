@@ -28,14 +28,18 @@ export function PastCampaigns() {
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
   const schemaCache = brazePlatform?.schema_cache as any;
   
-  // Get all campaigns, sorted by most recent activity (last_sent or first_sent)
+  // Get the 5 most recent campaigns, sorted by most recent activity (last_sent or first_sent)
   const allCampaigns: BrazeCampaign[] = (schemaCache?.campaigns || [])
     .map((c: any) => ({
       ...c,
       sortDate: c.last_sent || c.first_sent || c.created_at || null
     }))
-    .filter((c: any) => c.sortDate && !c.archived)
-    .sort((a: any, b: any) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime())
+    .filter((c: any) => !c.archived)
+    .sort((a: any, b: any) => {
+      const dateA = a.sortDate ? new Date(a.sortDate).getTime() : 0;
+      const dateB = b.sortDate ? new Date(b.sortDate).getTime() : 0;
+      return dateB - dateA;
+    })
     .slice(0, 5);
 
   const getChannelIcon = (channel: string) => {

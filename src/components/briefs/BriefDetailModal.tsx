@@ -35,7 +35,10 @@ import {
   Calendar,
   Save,
   Trash2,
+  ExternalLink,
+  Palette,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -411,33 +414,64 @@ export function BriefDetailModal({
             <TabsContent value="design" className="mt-0 space-y-4">
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Template Recommendations</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Palette className="h-4 w-4 text-violet-500" />
+                    <CardTitle className="text-sm">Template Recommendations</CardTitle>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground mb-4">
                     Based on your campaign type and content, we recommend these templates:
                   </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors">
-                      <div className="h-24 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg mb-3 flex items-center justify-center">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors group">
+                      <div className="h-24 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg mb-3 flex items-center justify-center group-hover:from-primary/20 group-hover:to-primary/10 transition-colors">
                         <Mail className="h-8 w-8 text-primary/50" />
                       </div>
-                      <p className="font-medium text-sm">Standard Promo</p>
-                      <p className="text-xs text-muted-foreground">Clean layout for promotions</p>
+                      <p className="font-medium text-sm">Welcome Series - Hero</p>
+                      <p className="text-xs text-muted-foreground">Welcome</p>
                     </div>
-                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors">
-                      <div className="h-24 bg-gradient-to-br from-blue-500/10 to-blue-500/5 rounded-lg mb-3 flex items-center justify-center">
+                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors group">
+                      <div className="h-24 bg-gradient-to-br from-blue-500/10 to-blue-500/5 rounded-lg mb-3 flex items-center justify-center group-hover:from-blue-500/20 group-hover:to-blue-500/10 transition-colors">
                         <Mail className="h-8 w-8 text-blue-500/50" />
                       </div>
+                      <p className="font-medium text-sm">Pro Upgrade Nudge</p>
+                      <p className="text-xs text-muted-foreground">Conversion</p>
+                    </div>
+                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors group">
+                      <div className="h-24 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 rounded-lg mb-3 flex items-center justify-center group-hover:from-emerald-500/20 group-hover:to-emerald-500/10 transition-colors">
+                        <Mail className="h-8 w-8 text-emerald-500/50" />
+                      </div>
                       <p className="font-medium text-sm">Feature Announcement</p>
-                      <p className="text-xs text-muted-foreground">Highlight new features</p>
+                      <p className="text-xs text-muted-foreground">Education</p>
                     </div>
                   </div>
                   <div className="mt-4 pt-4 border-t">
-                    <Button variant="outline" size="sm" className="w-full">
-                      Browse Template Library
+                    <Button variant="outline" size="sm" className="w-full" asChild>
+                      <Link to="/brand" onClick={() => onOpenChange(false)}>
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Browse Full Template Library
+                      </Link>
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Competitor Inspiration */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Design Inspiration</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    View competitor emails for design inspiration.
+                  </p>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/brand" onClick={() => onOpenChange(false)}>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      View Inspiration Gallery
+                    </Link>
+                  </Button>
                 </CardContent>
               </Card>
             </TabsContent>

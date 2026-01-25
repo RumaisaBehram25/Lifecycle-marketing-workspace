@@ -560,7 +560,8 @@ export default function Campaigns() {
                     <div className="border rounded-lg overflow-hidden bg-white mt-2">
                       <iframe
                         srcDoc={selectedCampaign.html_preview}
-                        className="w-full h-[500px]"
+                        className="w-full"
+                        style={{ height: 'calc(100vh - 300px)', minHeight: '600px' }}
                         title="Email Preview"
                         sandbox="allow-same-origin"
                       />
