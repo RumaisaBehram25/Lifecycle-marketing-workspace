@@ -191,15 +191,19 @@ function CreativePreview({ step }: { step: CanvasStep }) {
       <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/20 rounded-t-lg">
         <div className="w-full bg-card border rounded-2xl p-5 shadow-xl">
           <div className="flex items-start gap-4">
-            <div className="h-14 w-14 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-lg font-bold text-primary-foreground">L</span>
-            </div>
+            <img 
+              src="/logos/linktree-logo.png" 
+              alt="Linktree" 
+              className="h-14 w-14 rounded-xl object-contain flex-shrink-0"
+            />
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground">Linktree • now</p>
               <p className="font-semibold text-base mt-1.5 line-clamp-2">{message?.title || step.name}</p>
-              <p className="text-sm text-muted-foreground line-clamp-4 mt-2">
-                {message?.body || 'Push notification content will appear here'}
-              </p>
+              {message?.body && (
+                <p className="text-sm text-muted-foreground line-clamp-4 mt-2">
+                  {message.body}
+                </p>
+              )}
             </div>
           </div>
         </div>

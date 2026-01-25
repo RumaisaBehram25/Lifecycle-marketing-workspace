@@ -776,12 +776,25 @@ serve(async (req) => {
                       }));
                     }
                     
+                    // Extract body/message - handle different field names per channel
+                    let bodyText: string | undefined;
+                    if (channel.includes('push') || channel === 'ios_push' || channel === 'android_push' || channel === 'web_push') {
+                      // Push uses alert, message, or body
+                      bodyText = msg.alert || msg.message || msg.body || msg.text;
+                    } else if (channel === 'email') {
+                      // Email - body is HTML, don't use for text preview
+                      bodyText = undefined;
+                    } else {
+                      // In-app and others
+                      bodyText = typeof msg.body === 'string' && msg.body.length < 500 ? msg.body : msg.message || msg.text;
+                    }
+                    
                     messages.push({
                       channel,
                       subject: msg.subject,
                       preheader: msg.preheader,
-                      title: msg.title || msg.header,
-                      body: typeof msg.body === 'string' && msg.body.length < 500 ? msg.body : msg.message || msg.text,
+                      title: msg.title || msg.header || msg.alert_title,
+                      body: bodyText,
                       html_content: htmlContent,
                       image_url: msg.image_url || msg.icon,
                       buttons,
