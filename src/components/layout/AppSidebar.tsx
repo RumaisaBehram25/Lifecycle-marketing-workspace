@@ -66,7 +66,7 @@ export function AppSidebar() {
           <img 
             src="/logos/linktree-logo.png" 
             alt="Linktree" 
-            className="h-10 w-10 rounded-xl object-contain flex-shrink-0"
+            className={`rounded-xl object-contain flex-shrink-0 transition-all ${isCollapsed ? 'h-8 w-8' : 'h-10 w-10'}`}
           />
           {!isCollapsed && (
             <div className="flex flex-col">

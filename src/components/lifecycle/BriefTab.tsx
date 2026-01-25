@@ -56,7 +56,7 @@ import { TasksSection } from '@/components/briefs/TasksSection';
 
 type ContentType = 'campaign' | 'lifecycle';
 type Channel = 'email' | 'push' | 'inapp';
-type BriefStatus = 'draft' | 'in_review' | 'approved' | 'in_progress' | 'complete';
+type BriefStatus = 'to_brief' | 'pending_copy' | 'pending_design' | 'design_review' | 'in_development' | 'qa_ready' | 'live' | 'draft' | 'in_review' | 'approved' | 'in_progress' | 'complete';
 
 interface Brief {
   id: string;
@@ -82,20 +82,30 @@ const CHANNELS: { id: Channel; label: string; icon: React.ReactNode }[] = [
   { id: 'inapp', label: 'In-App', icon: <Smartphone className="h-4 w-4" /> },
 ];
 
-const STATUS_CONFIG: Record<BriefStatus, { label: string; color: string }> = {
-  draft: { label: 'Draft', color: 'bg-muted text-muted-foreground' },
-  in_review: { label: 'In Review', color: 'bg-amber-500/20 text-amber-600' },
-  approved: { label: 'Approved', color: 'bg-blue-500/20 text-blue-600' },
-  in_progress: { label: 'In Progress', color: 'bg-purple-500/20 text-purple-600' },
-  complete: { label: 'Complete', color: 'bg-green-500/20 text-green-600' },
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  to_brief: { label: 'To Brief', color: 'bg-muted text-muted-foreground' },
+  pending_copy: { label: 'Pending Copy', color: 'bg-amber-500/20 text-amber-600' },
+  pending_design: { label: 'Pending Design', color: 'bg-orange-500/20 text-orange-600' },
+  design_review: { label: 'In Design Review', color: 'bg-blue-500/20 text-blue-600' },
+  in_development: { label: 'In Development', color: 'bg-purple-500/20 text-purple-600' },
+  qa_ready: { label: 'QA Ready', color: 'bg-cyan-500/20 text-cyan-600' },
+  live: { label: 'Live', color: 'bg-green-500/20 text-green-600' },
+  // Legacy mappings
+  draft: { label: 'To Brief', color: 'bg-muted text-muted-foreground' },
+  in_review: { label: 'In Design Review', color: 'bg-blue-500/20 text-blue-600' },
+  approved: { label: 'In Development', color: 'bg-purple-500/20 text-purple-600' },
+  in_progress: { label: 'In Development', color: 'bg-purple-500/20 text-purple-600' },
+  complete: { label: 'Live', color: 'bg-green-500/20 text-green-600' },
 };
 
 const PROGRESS_STEPS = [
-  { id: 'draft', label: 'Draft' },
-  { id: 'in_review', label: 'Review' },
-  { id: 'approved', label: 'Approved' },
-  { id: 'in_progress', label: 'Building' },
-  { id: 'complete', label: 'Live' },
+  { id: 'to_brief', label: 'Brief' },
+  { id: 'pending_copy', label: 'Copy' },
+  { id: 'pending_design', label: 'Design' },
+  { id: 'design_review', label: 'Review' },
+  { id: 'in_development', label: 'Dev' },
+  { id: 'qa_ready', label: 'QA' },
+  { id: 'live', label: 'Live' },
 ];
 
 export function BriefTab() {
@@ -366,8 +376,8 @@ export function BriefTab() {
 
 // Brief Card Component
 function BriefCard({ brief, onClick }: { brief: Brief; onClick: () => void }) {
-  const statusConfig = STATUS_CONFIG[brief.status];
-  const currentStepIndex = PROGRESS_STEPS.findIndex(s => s.id === brief.status);
+  const statusConfig = STATUS_CONFIG[brief.status] || STATUS_CONFIG.to_brief;
+  const currentStepIndex = PROGRESS_STEPS.findIndex(s => s.id === brief.status || (brief.status === 'draft' && s.id === 'to_brief'));
 
   return (
     <Card 
@@ -426,7 +436,7 @@ function BriefCard({ brief, onClick }: { brief: Brief; onClick: () => void }) {
 
 // Brief List Item Component
 function BriefListItem({ brief, onClick }: { brief: Brief; onClick: () => void }) {
-  const statusConfig = STATUS_CONFIG[brief.status];
+  const statusConfig = STATUS_CONFIG[brief.status] || STATUS_CONFIG.to_brief;
 
   return (
     <Card 

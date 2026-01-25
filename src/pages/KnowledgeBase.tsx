@@ -331,15 +331,15 @@ export default function KnowledgeBase() {
           </Card>
         </div>
 
-        <Tabs defaultValue="library" className="space-y-6">
+        <Tabs defaultValue="integrations" className="space-y-6">
           <TabsList className="bg-muted/50 p-1">
-            <TabsTrigger value="library" className="gap-2">
-              <Database className="h-4 w-4" />
-              Library
-            </TabsTrigger>
             <TabsTrigger value="integrations" className="gap-2">
               <LinkIcon className="h-4 w-4" />
               Integrations
+            </TabsTrigger>
+            <TabsTrigger value="code" className="gap-2">
+              <Database className="h-4 w-4" />
+              Code Generator
             </TabsTrigger>
             <TabsTrigger value="platforms" className="gap-2">
               <BookOpen className="h-4 w-4" />
@@ -351,57 +351,25 @@ export default function KnowledgeBase() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Library Tab */}
-          <TabsContent value="library" className="space-y-6">
-            {/* Search & Filter Bar */}
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search documents..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                  <Select value={filterPlatform} onValueChange={setFilterPlatform}>
-                    <SelectTrigger className="w-full sm:w-48">
-                      <Filter className="h-4 w-4 mr-2" />
-                      <SelectValue placeholder="Filter by platform" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Platforms</SelectItem>
-                      {Object.entries(PLATFORM_INFO).map(([key, info]) => (
-                        <SelectItem key={key} value={key}>
-                          {info.icon} {info.name} ({platformCounts[key] || 0})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+          {/* Code Generator Tab - Embedded from CodeGenerator page */}
+          <TabsContent value="code" className="space-y-6">
+            <Card className="border-emerald-500/30 bg-emerald-500/5">
+              <CardContent className="p-4 flex items-center gap-3">
+                <Database className="h-5 w-5 text-emerald-500" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Braze Code Generator</p>
+                  <p className="text-xs text-muted-foreground">
+                    Generate Liquid code snippets using your synced attributes, events, and segments
+                  </p>
                 </div>
+                <Button asChild>
+                  <a href="/code-generator">Open Full Generator</a>
+                </Button>
               </CardContent>
             </Card>
+          </TabsContent>
 
-            {/* Category Overview */}
-            {Object.keys(categoryCounts).length > 1 && (
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(categoryCounts).slice(0, 8).map(([cat, count]) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSearchQuery(cat)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-sm transition-colors"
-                  >
-                    <span>{CATEGORY_ICONS[cat] || '📄'}</span>
-                    <span className="capitalize">{cat.replace(/_/g, ' ')}</span>
-                    <span className="text-muted-foreground">({count})</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Document List */}
+          {/* Integrations Tab */}
             {filteredDocuments.length === 0 ? (
               <Card>
                 <CardContent className="py-12">

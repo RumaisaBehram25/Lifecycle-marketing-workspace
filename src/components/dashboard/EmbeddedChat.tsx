@@ -8,6 +8,8 @@ import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClie
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -24,18 +26,54 @@ export function EmbeddedChat() {
   const { data: client } = useLinktreeClient();
   const { data: platforms } = useLinktreePlatforms();
 
+  // Fetch briefs for context
+  const { data: briefs } = useQuery({
+    queryKey: ['briefs-context', client?.id],
+    queryFn: async () => {
+      if (!client?.id) return [];
+      const { data, error } = await supabase
+        .from('briefs')
+        .select('name, status, deadline, content_type, channels')
+        .eq('client_id', client.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!client?.id,
+  });
+
   const connectedPlatforms = platforms?.filter(p => p.is_connected) || [];
+  
+  // Build comprehensive platform context
   const platformContexts = connectedPlatforms
     .filter(cp => cp.schema_cache)
-    .map(cp => ({
-      platform: cp.platform,
-      events: ((cp.schema_cache as any)?.metrics?.map((m: any) => m.name) || []),
-      lists: ((cp.schema_cache as any)?.lists?.map((l: any) => ({ name: l.name, count: l.profile_count })) || []),
-      templates: ((cp.schema_cache as any)?.templates?.map((t: any) => t.name) || []),
-      profile_properties: extractProfileProperties((cp.schema_cache as any)?.sample_profiles || []),
-      segments: ((cp.schema_cache as any)?.segments?.map((s: any) => s.name) || []),
-      last_sync_at: cp.last_sync_at || undefined,
-    }));
+    .map(cp => {
+      const cache = cp.schema_cache as any;
+      return {
+        platform: cp.platform,
+        campaigns: cache?.campaigns?.slice(0, 20)?.map((c: any) => ({
+          name: c.name,
+          channels: c.channels,
+          first_sent: c.first_sent,
+          last_sent: c.last_sent,
+          campaign_type: c.campaign_type,
+        })) || [],
+        canvases: cache?.canvases?.slice(0, 20)?.map((c: any) => ({
+          name: c.name,
+          state: c.state,
+          first_entry: c.first_entry,
+        })) || [],
+        segments: cache?.segments?.slice(0, 30)?.map((s: any) => ({
+          name: s.name,
+          size: s.size,
+        })) || [],
+        custom_events: cache?.custom_events?.slice(0, 20)?.map((e: any) => e.name) || [],
+        custom_attributes: cache?.custom_attributes?.slice(0, 20)?.map((a: any) => a.name) || [],
+        templates: cache?.templates?.slice(0, 10)?.map((t: any) => t.template_name) || [],
+        last_sync_at: cp.last_sync_at || undefined,
+      };
+    });
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -75,6 +113,7 @@ export function EmbeddedChat() {
               legal_requirements: client.legal_requirements,
             },
             platformContext: platformContexts,
+            briefsContext: briefs || [],
           }),
         }
       );
@@ -188,7 +227,7 @@ export function EmbeddedChat() {
           {messages.length === 0 ? (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground text-center">
-                Ask about campaigns, segments, or get copy suggestions
+                Ask about campaigns, lifecycle, segments, or get copy suggestions
               </p>
               <div className="flex flex-wrap gap-2 justify-center">
                 {quickPrompts.map((prompt) => (
@@ -256,22 +295,4 @@ export function EmbeddedChat() {
       </div>
     </Card>
   );
-}
-
-function extractProfileProperties(sampleProfiles: any[]): string[] {
-  const properties = new Set<string>();
-  sampleProfiles.forEach(profile => {
-    const extractProps = (obj: any, prefix = '') => {
-      if (!obj || typeof obj !== 'object') return;
-      Object.keys(obj).forEach(key => {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        properties.add(fullKey);
-        if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-          extractProps(obj[key], fullKey);
-        }
-      });
-    };
-    extractProps(profile);
-  });
-  return Array.from(properties);
 }
