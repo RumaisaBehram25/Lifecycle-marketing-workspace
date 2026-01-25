@@ -44,6 +44,7 @@ import {
 } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { PerformanceTrends, type CampaignDailyTrendPoint } from '@/components/analytics/PerformanceTrends';
 
 interface CampaignAnalytics {
   campaign_id: string;
@@ -96,6 +97,9 @@ interface BrazeSchemaCache {
       total_conversions: number;
       total_revenue: number;
     };
+    trends?: {
+      campaigns_daily?: CampaignDailyTrendPoint[];
+    };
     date_range?: { start: string; end: string };
   };
 }
@@ -130,12 +134,8 @@ export default function Analytics() {
 
   // Calculate metrics from available data
   const campaignMetrics = useMemo(() => {
-    if (!schemaCache?.campaigns) return null;
-    
-    const campaigns = schemaCache.campaigns.filter(c => 
-      (c.sends && c.sends > 0) || (c.deliveries && c.deliveries > 0) || c.last_sent
-    );
-    if (campaigns.length === 0) return null;
+    const campaigns = schemaCache?.analytics?.campaigns;
+    if (!campaigns || campaigns.length === 0) return null;
 
     const totals = campaigns.reduce((acc, c) => ({
       sends: acc.sends + (c.sends || 0),
@@ -164,13 +164,11 @@ export default function Analytics() {
       campaigns,
       count: campaigns.length,
     };
-  }, [schemaCache?.campaigns]);
+  }, [schemaCache?.analytics?.campaigns]);
 
   const canvasMetrics = useMemo(() => {
-    if (!schemaCache?.canvases) return null;
-    
-    const canvases = schemaCache.canvases.filter(c => c.enabled !== false);
-    if (canvases.length === 0) return null;
+    const canvases = schemaCache?.analytics?.canvases;
+    if (!canvases || canvases.length === 0) return null;
 
     const totals = canvases.reduce((acc, c) => ({
       entries: acc.entries + (c.entries || 0),
@@ -184,7 +182,7 @@ export default function Analytics() {
       canvases,
       count: canvases.length,
     };
-  }, [schemaCache?.canvases]);
+  }, [schemaCache?.analytics?.canvases]);
 
   // Top campaigns by engagement
   const topCampaigns = useMemo(() => {
@@ -201,15 +199,16 @@ export default function Analytics() {
     
     const byChannel: Record<string, { sends: number; opens: number; clicks: number; count: number }> = {};
     campaignMetrics.campaigns.forEach(c => {
-      const channels = (c as any).channels || ['email'];
-      channels.forEach((channel: string) => {
-        if (!byChannel[channel]) {
-          byChannel[channel] = { sends: 0, opens: 0, clicks: 0, count: 0 };
+      const channel = (c.channel || (c as any).channels?.[0] || 'email') as string;
+      const channels = [channel];
+      channels.forEach((channelName: string) => {
+        if (!byChannel[channelName]) {
+          byChannel[channelName] = { sends: 0, opens: 0, clicks: 0, count: 0 };
         }
-        byChannel[channel].sends += c.sends || 0;
-        byChannel[channel].opens += c.unique_opens || 0;
-        byChannel[channel].clicks += c.unique_clicks || 0;
-        byChannel[channel].count += 1;
+        byChannel[channelName].sends += c.sends || 0;
+        byChannel[channelName].opens += c.unique_opens || 0;
+        byChannel[channelName].clicks += c.unique_clicks || 0;
+        byChannel[channelName].count += 1;
       });
     });
 
@@ -296,7 +295,10 @@ export default function Analytics() {
     );
   }
 
-  const hasData = campaignMetrics || canvasMetrics;
+  const hasData =
+    !!campaignMetrics ||
+    !!canvasMetrics ||
+    ((schemaCache?.analytics?.trends?.campaigns_daily?.length || 0) > 0);
 
   return (
     <AppLayout>
@@ -401,6 +403,13 @@ export default function Analytics() {
                   format="number"
                 />
               </div>
+
+              {/* Historical trend charts */}
+              {schemaCache?.analytics?.trends?.campaigns_daily && schemaCache.analytics.trends.campaigns_daily.length > 0 && (
+                <div className="mt-4">
+                  <PerformanceTrends data={schemaCache.analytics.trends.campaigns_daily} />
+                </div>
+              )}
 
               {/* Channel Breakdown */}
               {channelBreakdown.length > 0 && (

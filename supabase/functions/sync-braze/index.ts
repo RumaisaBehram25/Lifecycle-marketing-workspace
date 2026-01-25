@@ -980,16 +980,42 @@ serve(async (req) => {
     interface CampaignAnalyticsItem { campaign_id: string; campaign_name: string; channel?: string; sends: number; deliveries: number; opens: number; unique_opens: number; clicks: number; unique_clicks: number; unsubscribes: number; bounces: number; conversions: number; revenue: number }
     interface CanvasAnalyticsItem { canvas_id: string; canvas_name: string; entries: number; conversions: number; revenue: number; variants?: Array<{ name: string; entries: number; conversions: number; revenue: number }> }
     interface AnalyticsSummary { total_sends: number; total_deliveries: number; total_opens: number; total_clicks: number; total_unsubscribes: number; avg_open_rate: number; avg_click_rate: number; total_conversions: number; total_revenue: number }
+    interface CampaignDailyTrendPoint {
+      date: string; // YYYY-MM-DD
+      sends: number;
+      deliveries: number;
+      opens: number;
+      unique_opens: number;
+      clicks: number;
+      unique_clicks: number;
+      unsubscribes: number;
+      bounces: number;
+      conversions: number;
+      revenue: number;
+    }
     
     let analyticsData: {
       campaigns: CampaignAnalyticsItem[];
       canvases: CanvasAnalyticsItem[];
       summary: AnalyticsSummary;
+      trends?: { campaigns_daily: CampaignDailyTrendPoint[] };
       date_range?: { start: string; end: string };
     } | null = null;
 
     if (includeAnalytics) {
       console.log('Fetching analytics data...');
+
+      // Braze limits data_series to 14 days max; we respect the requested window but clamp to 14.
+      const requestedWindowDays = (() => {
+        const start = analyticsDateRange?.start;
+        const end = analyticsDateRange?.end;
+        if (!start || !end) return 14;
+        const startMs = new Date(start).getTime();
+        const endMs = new Date(end).getTime();
+        if (isNaN(startMs) || isNaN(endMs)) return 14;
+        const diffDays = Math.floor((endMs - startMs) / 86400000) + 1;
+        return Math.max(1, Math.min(14, diffDays));
+      })();
       
       // Try to determine a realistic end date - use any available dates from synced data
       // This handles cases where the system date might be in the "future" from Braze's perspective
@@ -1032,6 +1058,46 @@ serve(async (req) => {
       
       const campaignAnalytics: CampaignAnalyticsItem[] = [];
       const canvasAnalytics: CanvasAnalyticsItem[] = [];
+
+      // Aggregate daily totals across all campaigns so the UI can show time-series trends.
+      const campaignDailyMap = new Map<string, Omit<CampaignDailyTrendPoint, 'date'>>();
+
+      function ensureCampaignDay(date: string) {
+        const existing = campaignDailyMap.get(date);
+        if (existing) return existing;
+        const empty = {
+          sends: 0,
+          deliveries: 0,
+          opens: 0,
+          unique_opens: 0,
+          clicks: 0,
+          unique_clicks: 0,
+          unsubscribes: 0,
+          bounces: 0,
+          conversions: 0,
+          revenue: 0,
+        };
+        campaignDailyMap.set(date, empty);
+        return empty;
+      }
+
+      function dayKeyFromBraze(dayData: any): string | null {
+        const raw = dayData?.time || dayData?.date || dayData?.date_time || dayData?.timestamp;
+        if (typeof raw !== 'string') return null;
+        // Handles both "YYYY-MM-DD" and ISO timestamps.
+        const key = raw.slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
+      }
+
+      // Ensure our series is aligned to a single end date (otherwise campaigns with different last_sent dates
+      // create an unusable aggregate). We clamp requested end to a realistic end date from Braze data.
+      const requestedEndDate = analyticsDateRange?.end || new Date().toISOString().split('T')[0];
+      const effectiveEndDate = requestedEndDate <= fallbackEndDate ? requestedEndDate : fallbackEndDate;
+      const effectiveStartDate = (() => {
+        const d = new Date(effectiveEndDate);
+        d.setDate(d.getDate() - (requestedWindowDays - 1));
+        return d.toISOString().split('T')[0];
+      })();
       
       // Fetch analytics for ALL campaigns (not just those with last_sent)
       // Take up to 30 campaigns for analytics
@@ -1040,13 +1106,8 @@ serve(async (req) => {
       
       for (const campaign of campaignsForAnalytics) {
         try {
-          // Use campaign's last_sent date if available, otherwise fallback
-          const campaignEndDate = campaign.last_sent 
-            ? new Date(new Date(campaign.last_sent).getTime() + 86400000).toISOString().split('T')[0]
-            : fallbackEndDate;
-          
-          // Braze limits data_series to 14 days max
-          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=14&ending_at=${campaignEndDate}T23:59:59Z`;
+          const campaignEndDate = effectiveEndDate;
+          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=${requestedWindowDays}&ending_at=${campaignEndDate}T23:59:59Z`;
           const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
           
           // Braze response structure: data[].messages.<channel>[] with stats per variant
@@ -1059,9 +1120,18 @@ serve(async (req) => {
           
           if (data.data && Array.isArray(data.data)) {
             for (const dayData of data.data) {
-              // Add conversions and revenue from top-level
-              totals.conversions += (dayData.conversions || 0) + (dayData.conversions1 || 0);
-              totals.revenue += dayData.revenue || 0;
+              const dayTotals = {
+                sends: 0,
+                deliveries: 0,
+                opens: 0,
+                unique_opens: 0,
+                clicks: 0,
+                unique_clicks: 0,
+                unsubscribes: 0,
+                bounces: 0,
+                conversions: (dayData.conversions || 0) + (dayData.conversions1 || 0),
+                revenue: dayData.revenue || 0,
+              };
               
               // Extract metrics from messages.<channel>[] arrays
               const messages = dayData.messages || {};
@@ -1069,14 +1139,14 @@ serve(async (req) => {
               // Process email channel
               if (messages.email && Array.isArray(messages.email)) {
                 for (const variant of messages.email) {
-                  totals.sends += variant.sent || 0;
-                  totals.deliveries += variant.delivered || 0;
-                  totals.opens += variant.opens || 0;
-                  totals.unique_opens += variant.unique_opens || 0;
-                  totals.clicks += variant.clicks || 0;
-                  totals.unique_clicks += variant.unique_clicks || 0;
-                  totals.unsubscribes += variant.unsubscribes || 0;
-                  totals.bounces += variant.bounces || 0;
+                  dayTotals.sends += variant.sent || 0;
+                  dayTotals.deliveries += variant.delivered || 0;
+                  dayTotals.opens += variant.opens || 0;
+                  dayTotals.unique_opens += variant.unique_opens || 0;
+                  dayTotals.clicks += variant.clicks || 0;
+                  dayTotals.unique_clicks += variant.unique_clicks || 0;
+                  dayTotals.unsubscribes += variant.unsubscribes || 0;
+                  dayTotals.bounces += variant.bounces || 0;
                 }
               }
               
@@ -1084,10 +1154,10 @@ serve(async (req) => {
               for (const pushChannel of ['ios_push', 'android_push', 'web_push']) {
                 if (messages[pushChannel] && Array.isArray(messages[pushChannel])) {
                   for (const variant of messages[pushChannel]) {
-                    totals.sends += variant.sent || 0;
-                    totals.opens += (variant.direct_opens || 0) + (variant.total_opens || 0);
-                    totals.clicks += variant.body_clicks || 0;
-                    totals.bounces += variant.bounces || 0;
+                    dayTotals.sends += variant.sent || 0;
+                    dayTotals.opens += (variant.direct_opens || 0) + (variant.total_opens || 0);
+                    dayTotals.clicks += variant.body_clicks || 0;
+                    dayTotals.bounces += variant.bounces || 0;
                   }
                 }
               }
@@ -1095,26 +1165,54 @@ serve(async (req) => {
               // Process SMS
               if (messages.sms && Array.isArray(messages.sms)) {
                 for (const variant of messages.sms) {
-                  totals.sends += variant.sent || 0;
-                  totals.deliveries += variant.delivered || 0;
-                  totals.clicks += variant.clicks || 0;
+                  dayTotals.sends += variant.sent || 0;
+                  dayTotals.deliveries += variant.delivered || 0;
+                  dayTotals.clicks += variant.clicks || 0;
                 }
               }
               
               // Process in-app messages
               if (messages.in_app_message && Array.isArray(messages.in_app_message)) {
                 for (const variant of messages.in_app_message) {
-                  totals.sends += variant.impressions || 0;
-                  totals.clicks += variant.clicks || 0;
+                  dayTotals.sends += variant.impressions || 0;
+                  dayTotals.clicks += variant.clicks || 0;
                 }
               }
               
               // Process content cards
               if (messages.content_cards && Array.isArray(messages.content_cards)) {
                 for (const variant of messages.content_cards) {
-                  totals.sends += variant.sent || 0;
-                  totals.clicks += variant.total_clicks || variant.unique_clicks || 0;
+                  dayTotals.sends += variant.sent || 0;
+                  dayTotals.clicks += variant.total_clicks || variant.unique_clicks || 0;
                 }
+              }
+
+              // Roll day totals into campaign totals
+              totals.sends += dayTotals.sends;
+              totals.deliveries += dayTotals.deliveries;
+              totals.opens += dayTotals.opens;
+              totals.unique_opens += dayTotals.unique_opens;
+              totals.clicks += dayTotals.clicks;
+              totals.unique_clicks += dayTotals.unique_clicks;
+              totals.unsubscribes += dayTotals.unsubscribes;
+              totals.bounces += dayTotals.bounces;
+              totals.conversions += dayTotals.conversions;
+              totals.revenue += dayTotals.revenue;
+
+              // Roll into cross-campaign daily trend
+              const key = dayKeyFromBraze(dayData);
+              if (key) {
+                const bucket = ensureCampaignDay(key);
+                bucket.sends += dayTotals.sends;
+                bucket.deliveries += dayTotals.deliveries;
+                bucket.opens += dayTotals.opens;
+                bucket.unique_opens += dayTotals.unique_opens;
+                bucket.clicks += dayTotals.clicks;
+                bucket.unique_clicks += dayTotals.unique_clicks;
+                bucket.unsubscribes += dayTotals.unsubscribes;
+                bucket.bounces += dayTotals.bounces;
+                bucket.conversions += dayTotals.conversions;
+                bucket.revenue += dayTotals.revenue;
               }
             }
           }
@@ -1230,11 +1328,16 @@ serve(async (req) => {
         summary.avg_click_rate = (summary.total_clicks / summary.total_deliveries) * 100;
       }
 
+      const campaignsDaily: CampaignDailyTrendPoint[] = Array.from(campaignDailyMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, totals]) => ({ date, ...totals }));
+
       analyticsData = {
         campaigns: campaignAnalytics,
         canvases: canvasAnalytics,
         summary,
-        date_range: { start: fallbackEndDate, end: fallbackEndDate },
+        trends: { campaigns_daily: campaignsDaily },
+        date_range: { start: effectiveStartDate, end: effectiveEndDate },
       };
       
       console.log('Analytics fetched:', {
