@@ -20,6 +20,7 @@ import {
   FileText,
   Users,
   BarChart3,
+  Palette,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -41,6 +42,7 @@ const navigation = [
   { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Audience', href: '/audience', icon: Users },
+  { name: 'Brand', href: '/brand', icon: Palette },
   { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   { name: 'Knowledge Base', href: '/knowledge', icon: Database },
   { name: 'Settings', href: '/settings', icon: Settings },
