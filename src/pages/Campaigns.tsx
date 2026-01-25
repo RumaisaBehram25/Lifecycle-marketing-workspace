@@ -560,7 +560,7 @@ export default function Campaigns() {
                     <div className="border rounded-lg overflow-hidden bg-white mt-2">
                       <iframe
                         srcDoc={selectedCampaign.html_preview}
-                        className="w-full h-[280px]"
+                        className="w-full h-[500px]"
                         title="Email Preview"
                         sandbox="allow-same-origin"
                       />
@@ -823,10 +823,10 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold line-clamp-1">{campaign.displayName}</h3>
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                {taxonomy.dateString && (
+                {campaign.first_sent && (
                   <Badge variant="outline" className="text-xs bg-muted/50">
                     <Calendar className="h-3 w-3 mr-1" />
-                    {taxonomy.dateString}
+                    {new Date(campaign.first_sent).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </Badge>
                 )}
                 <Badge variant="outline" className={`text-xs ${getChannelColor(primaryChannel)}`}>
@@ -844,12 +844,12 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
   // Grid view with large content preview
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all overflow-hidden cursor-pointer" onClick={onClick}>
-      {/* Header badges - date and channel only */}
+      {/* Header badges - date and channel */}
       <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5">
-        {taxonomy.dateString && (
+        {campaign.first_sent && (
           <Badge variant="outline" className="text-xs bg-background">
             <Calendar className="h-3 w-3 mr-1" />
-            {taxonomy.dateString}
+            {new Date(campaign.first_sent).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
           </Badge>
         )}
         <Badge variant="outline" className={`text-xs bg-background ${getChannelColor(primaryChannel)}`}>
@@ -905,31 +905,54 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
               </div>
             </div>
           </div>
-        ) : (
-          <div className="p-6 flex items-center justify-center" style={{ height: '280px' }}>
-            <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-2 border-purple-500/30 rounded-2xl p-6 text-center w-full max-w-xs">
-              {campaign.inapp_image_url ? (
-                <img 
-                  src={campaign.inapp_image_url} 
-                  alt="In-app" 
-                  className="w-full h-20 object-cover rounded-lg mb-3"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              ) : (
-                <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-3">
-                  <Smartphone className="h-6 w-6 text-purple-500" />
+        ) : campaign.campaignType === 'inapp' || campaign.channels?.some(ch => ch.toLowerCase().includes('in_app') || ch.toLowerCase().includes('inapp')) ? (
+          // Check if there's HTML content for in-app
+          (() => {
+            const variant = campaign.variants?.[0];
+            const htmlContent = variant?.content?.body_html || campaign.inapp_body;
+            const isHtml = htmlContent && (htmlContent.includes('<') || htmlContent.includes('&lt;'));
+            
+            if (isHtml) {
+              return (
+                <div className="bg-white overflow-hidden" style={{ height: '280px' }}>
+                  <iframe
+                    srcDoc={htmlContent}
+                    className="w-full h-full pointer-events-none"
+                    title="In-App Preview"
+                    sandbox="allow-same-origin"
+                    style={{ transform: 'scale(0.4)', transformOrigin: 'top left', width: '250%', height: '250%' }}
+                  />
                 </div>
-              )}
-              <h4 className="font-bold line-clamp-2">{campaign.inapp_title || campaign.displayName}</h4>
-              {campaign.inapp_body && (
-                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{campaign.inapp_body}</p>
-              )}
-              {campaign.inapp_cta && (
-                <Button size="sm" className="mt-3">{campaign.inapp_cta}</Button>
-              )}
-            </div>
-          </div>
-        )}
+              );
+            }
+            
+            return (
+              <div className="p-6 flex items-center justify-center" style={{ height: '280px' }}>
+                <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border-2 border-purple-500/30 rounded-2xl p-6 text-center w-full max-w-xs">
+                  {campaign.inapp_image_url ? (
+                    <img 
+                      src={campaign.inapp_image_url} 
+                      alt="In-app" 
+                      className="w-full h-20 object-cover rounded-lg mb-3"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-3">
+                      <Smartphone className="h-6 w-6 text-purple-500" />
+                    </div>
+                  )}
+                  <h4 className="font-bold line-clamp-2">{campaign.inapp_title || campaign.displayName}</h4>
+                  {campaign.inapp_body && !isHtml && (
+                    <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{campaign.inapp_body}</p>
+                  )}
+                  {campaign.inapp_cta && (
+                    <Button size="sm" className="mt-3">{campaign.inapp_cta}</Button>
+                  )}
+                </div>
+              </div>
+            );
+          })()
+        ) : null}
       </div>
 
       {/* Footer - just title */}

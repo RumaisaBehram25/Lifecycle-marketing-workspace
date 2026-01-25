@@ -41,14 +41,14 @@ import { cn } from '@/lib/utils';
 
 type ContentType = 'campaign' | 'lifecycle';
 type Channel = 'email' | 'push' | 'inapp';
-type BriefStatus = 'draft' | 'in_review' | 'approved' | 'in_progress' | 'complete';
+type BriefStatus = 'to_brief' | 'pending_copy' | 'pending_design' | 'design_review' | 'in_development' | 'qa_ready' | 'live' | 'draft' | 'in_review' | 'approved' | 'in_progress' | 'complete';
 
 interface Brief {
   id: string;
   name: string;
   content_type: ContentType;
   channels: Channel[];
-  status: BriefStatus;
+  status: string;
   deadline: string | null;
   about: string | null;
   created_at: string;
@@ -73,12 +73,14 @@ interface BriefDetailModalProps {
   onUpdate: () => void;
 }
 
-const STATUS_OPTIONS: { value: BriefStatus; label: string }[] = [
-  { value: 'draft', label: 'Draft' },
-  { value: 'in_review', label: 'In Review' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'complete', label: 'Complete' },
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'to_brief', label: 'To Brief' },
+  { value: 'pending_copy', label: 'Pending Copy' },
+  { value: 'pending_design', label: 'Pending Design' },
+  { value: 'design_review', label: 'In Design Review' },
+  { value: 'in_development', label: 'In Development' },
+  { value: 'qa_ready', label: 'QA Ready' },
+  { value: 'live', label: 'Live' },
 ];
 
 const CHANNEL_CONFIG: Record<Channel, { label: string; icon: React.ReactNode; color: string }> = {
@@ -209,7 +211,7 @@ export function BriefDetailModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
+        <DialogHeader className="pr-10">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -229,15 +231,15 @@ export function BriefDetailModal({
                     {editedBrief.content_type}
                   </Badge>
                   {editedBrief.channels.map(ch => (
-                    <div key={ch} className={cn("h-5 w-5 rounded flex items-center justify-center", CHANNEL_CONFIG[ch].color)}>
-                      {CHANNEL_CONFIG[ch].icon}
+                    <div key={ch} className={cn("h-5 w-5 rounded flex items-center justify-center", CHANNEL_CONFIG[ch]?.color || 'bg-muted')}>
+                      {CHANNEL_CONFIG[ch]?.icon || <Mail className="h-4 w-4" />}
                     </div>
                   ))}
                 </div>
               </div>
             </div>
             {editedBrief.deadline && (
-              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+              <div className="flex items-center gap-1 text-sm text-muted-foreground mr-4">
                 <Calendar className="h-4 w-4" />
                 {format(new Date(editedBrief.deadline), 'MMM d, yyyy')}
               </div>
@@ -249,6 +251,7 @@ export function BriefDetailModal({
           <TabsList className="w-full justify-start">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="copy">Email Copy</TabsTrigger>
+            <TabsTrigger value="design">Design</TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto py-4">
@@ -258,9 +261,9 @@ export function BriefDetailModal({
                 <Label>Status</Label>
                 <Select 
                   value={editedBrief.status} 
-                  onValueChange={(v) => setEditedBrief({ ...editedBrief, status: v as BriefStatus })}
+                  onValueChange={(v) => setEditedBrief({ ...editedBrief, status: v as any })}
                 >
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-56">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -304,144 +307,139 @@ export function BriefDetailModal({
               </div>
             </TabsContent>
 
-            <TabsContent value="copy" className="mt-0 space-y-4">
-              {/* AI Generate Button */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  Fill in the email copy framework below or generate with AI
-                </p>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleGenerateCopy}
-                  disabled={aiLoading}
-                >
-                  {aiLoading ? <LoadingSpinner size="sm" className="mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                  Generate with AI
-                </Button>
-              </div>
-
-              {/* Email Copy Framework */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
+            <TabsContent value="copy" className="mt-0">
+              {/* Document-style Email Copy Editor */}
+              <div className="bg-background border rounded-lg shadow-sm">
+                {/* Header with generate button */}
+                <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+                  <div className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-primary" />
-                    Email Copy Framework
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Subject Line */}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Subject Line
-                    </Label>
-                    <Input 
-                      value={emailCopy.subject_line || ''}
-                      onChange={(e) => setEmailCopy({ ...emailCopy, subject_line: e.target.value })}
-                      placeholder="The first thing recipients see..."
-                      className="font-medium"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {(emailCopy.subject_line || '').length}/60 characters recommended
-                    </p>
+                    <span className="font-medium text-sm">Email Copy</span>
                   </div>
-
-                  {/* Preheader */}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Preheader Text
-                    </Label>
-                    <Input 
-                      value={emailCopy.preheader || ''}
-                      onChange={(e) => setEmailCopy({ ...emailCopy, preheader: e.target.value })}
-                      placeholder="Preview text that appears after the subject..."
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {(emailCopy.preheader || '').length}/100 characters recommended
-                    </p>
-                  </div>
-
-                  <div className="border-t pt-4">
-                    {/* Headline */}
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Headline / Title
-                      </Label>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={handleGenerateCopy}
+                    disabled={aiLoading}
+                  >
+                    {aiLoading ? <LoadingSpinner size="sm" className="mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                    Generate with AI
+                  </Button>
+                </div>
+                
+                {/* Document content - single scrollable page */}
+                <div className="p-6 space-y-6 max-h-[50vh] overflow-y-auto">
+                  {/* Subject & Preheader block */}
+                  <div className="space-y-3 pb-4 border-b">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Subject Line</label>
                       <Input 
-                        value={emailCopy.headline || ''}
-                        onChange={(e) => setEmailCopy({ ...emailCopy, headline: e.target.value })}
-                        placeholder="Main heading in the email body..."
-                        className="text-lg font-semibold"
+                        value={emailCopy.subject_line || ''}
+                        onChange={(e) => setEmailCopy({ ...emailCopy, subject_line: e.target.value })}
+                        placeholder="The first thing recipients see..."
+                        className="mt-1 text-base font-semibold border-none shadow-none px-0 focus-visible:ring-0 bg-transparent"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {(emailCopy.subject_line || '').length}/60 chars
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Preheader</label>
+                      <Input 
+                        value={emailCopy.preheader || ''}
+                        onChange={(e) => setEmailCopy({ ...emailCopy, preheader: e.target.value })}
+                        placeholder="Preview text after subject..."
+                        className="mt-1 text-sm border-none shadow-none px-0 focus-visible:ring-0 bg-transparent text-muted-foreground"
                       />
                     </div>
                   </div>
 
-                  {/* Body */}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Body Copy
-                    </Label>
+                  {/* Headline block */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Headline</label>
+                    <Input 
+                      value={emailCopy.headline || ''}
+                      onChange={(e) => setEmailCopy({ ...emailCopy, headline: e.target.value })}
+                      placeholder="Main heading..."
+                      className="mt-1 text-xl font-bold border-none shadow-none px-0 focus-visible:ring-0 bg-transparent"
+                    />
+                  </div>
+
+                  {/* Body block */}
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Body Copy</label>
                     <Textarea 
                       value={emailCopy.body || ''}
                       onChange={(e) => setEmailCopy({ ...emailCopy, body: e.target.value })}
                       placeholder="The main message content..."
-                      rows={6}
+                      className="mt-1 min-h-[120px] border-none shadow-none px-0 focus-visible:ring-0 bg-transparent resize-none"
                     />
                   </div>
 
-                  <div className="border-t pt-4">
-                    {/* CTA */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          CTA Button Text
-                        </Label>
+                  {/* CTA block */}
+                  <div className="pt-4 border-t">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Call to Action</label>
+                    <div className="flex items-center gap-3 mt-2">
+                      <div className="flex-1">
                         <Input 
                           value={emailCopy.cta_text || ''}
                           onChange={(e) => setEmailCopy({ ...emailCopy, cta_text: e.target.value })}
-                          placeholder="e.g., Get Started, Learn More..."
+                          placeholder="Button text..."
+                          className="font-medium"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          CTA URL
-                        </Label>
+                      <span className="text-muted-foreground text-sm">→</span>
+                      <div className="flex-1">
                         <Input 
                           value={emailCopy.cta_url || ''}
                           onChange={(e) => setEmailCopy({ ...emailCopy, cta_url: e.target.value })}
                           placeholder="https://..."
+                          className="text-sm"
                         />
                       </div>
                     </div>
+                    {emailCopy.cta_text && (
+                      <div className="mt-4 flex justify-center">
+                        <Button size="sm">{emailCopy.cta_text}</Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="design" className="mt-0 space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">Template Recommendations</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Based on your campaign type and content, we recommend these templates:
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors">
+                      <div className="h-24 bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg mb-3 flex items-center justify-center">
+                        <Mail className="h-8 w-8 text-primary/50" />
+                      </div>
+                      <p className="font-medium text-sm">Standard Promo</p>
+                      <p className="text-xs text-muted-foreground">Clean layout for promotions</p>
+                    </div>
+                    <div className="border rounded-lg p-4 hover:border-primary/50 cursor-pointer transition-colors">
+                      <div className="h-24 bg-gradient-to-br from-blue-500/10 to-blue-500/5 rounded-lg mb-3 flex items-center justify-center">
+                        <Mail className="h-8 w-8 text-blue-500/50" />
+                      </div>
+                      <p className="font-medium text-sm">Feature Announcement</p>
+                      <p className="text-xs text-muted-foreground">Highlight new features</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t">
+                    <Button variant="outline" size="sm" className="w-full">
+                      Browse Template Library
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
-
-              {/* Preview Card */}
-              {(emailCopy.subject_line || emailCopy.headline) && (
-                <Card className="bg-muted/50">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">Preview</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="bg-background rounded-lg p-4 border">
-                      <p className="font-semibold text-sm">{emailCopy.subject_line || 'Subject line...'}</p>
-                      <p className="text-xs text-muted-foreground">{emailCopy.preheader || 'Preheader text...'}</p>
-                    </div>
-                    <div className="bg-background rounded-lg p-6 border text-center space-y-4">
-                      <h2 className="text-xl font-bold">{emailCopy.headline || 'Headline...'}</h2>
-                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                        {emailCopy.body || 'Body copy goes here...'}
-                      </p>
-                      {emailCopy.cta_text && (
-                        <Button size="sm" className="mt-4">
-                          {emailCopy.cta_text}
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </TabsContent>
           </div>
         </Tabs>
