@@ -140,6 +140,7 @@ interface BrazeSegment {
   analytics_tracking_enabled?: boolean;
   tags?: string[];
   is_starred?: boolean;
+  size?: number;
 }
 
 interface BrazeSubscriptionGroup {
@@ -904,18 +905,52 @@ serve(async (req) => {
         }
       }
       
-      results.segments = allSegments.map((s: any) => ({
+      // Fetch details (including size) for top segments (limit to 30 for performance)
+      const segmentsWithDetails = await Promise.all(
+        allSegments.slice(0, 30).map(async (s: any) => {
+          try {
+            const details = await brazeFetch(`segments/details?segment_id=${s.id}`, apiKey, brazeRestEndpoint);
+            return {
+              id: s.id,
+              name: s.name,
+              description: details.description || s.description,
+              analytics_tracking_enabled: s.analytics_tracking_enabled,
+              tags: s.tags,
+              is_starred: (s.tags || []).some((t: string) => 
+                t.toLowerCase() === 'starred' || t.toLowerCase() === 'favorite' || t.toLowerCase() === 'star'
+              ),
+              size: details.size || 0,
+            };
+          } catch (err) {
+            // If details fetch fails, return without size
+            return {
+              id: s.id,
+              name: s.name,
+              description: s.description,
+              analytics_tracking_enabled: s.analytics_tracking_enabled,
+              tags: s.tags,
+              is_starred: (s.tags || []).some((t: string) => 
+                t.toLowerCase() === 'starred' || t.toLowerCase() === 'favorite' || t.toLowerCase() === 'star'
+              ),
+            };
+          }
+        })
+      );
+      
+      // Map remaining segments without size (beyond first 30)
+      const remainingSegments = allSegments.slice(30).map((s: any) => ({
         id: s.id,
         name: s.name,
         description: s.description,
         analytics_tracking_enabled: s.analytics_tracking_enabled,
         tags: s.tags,
-        // Check if segment is starred (Braze uses tags for this)
         is_starred: (s.tags || []).some((t: string) => 
           t.toLowerCase() === 'starred' || t.toLowerCase() === 'favorite' || t.toLowerCase() === 'star'
         ),
       }));
-      console.log('Fetched segments:', results.segments.length, 'pages:', page, 'starred:', results.segments.filter(s => s.is_starred).length);
+      
+      results.segments = [...segmentsWithDetails, ...remainingSegments];
+      console.log('Fetched segments:', results.segments.length, 'pages:', page, 'with sizes:', segmentsWithDetails.length);
     } catch (e) {
       console.error('Failed to fetch segments:', e);
     }
