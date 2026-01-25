@@ -51,6 +51,7 @@ import {
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, isSameMonth, addMonths, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { TemplatePickerModal } from '@/components/briefs/TemplatePickerModal';
+import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 
 type ContentType = 'campaign' | 'lifecycle';
 type Channel = 'email' | 'push' | 'inapp';
@@ -66,6 +67,7 @@ interface Brief {
   about: string | null;
   created_at: string;
   conversation_id: string | null;
+  ai_generated_copy?: any;
 }
 
 interface Segment {
@@ -104,6 +106,8 @@ export function BriefTab() {
   const [viewMode, setViewMode] = useState<'cards' | 'list' | 'calendar'>('cards');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
 
   // Fetch briefs
   const { data: briefs, isLoading, refetch } = useQuery({
@@ -165,8 +169,8 @@ export function BriefTab() {
   }, [calendarMonth]);
 
   const handleBriefClick = (brief: Brief) => {
-    // TODO: Open brief detail/edit modal
-    console.log('Brief clicked:', brief.id);
+    setSelectedBrief(brief);
+    setDetailModalOpen(true);
   };
 
   if (isLoading) {
@@ -341,6 +345,17 @@ export function BriefTab() {
           setCreateModalOpen(false);
         }}
       />
+
+      {/* Brief Detail Modal */}
+      {client?.id && (
+        <BriefDetailModal
+          brief={selectedBrief}
+          open={detailModalOpen}
+          onOpenChange={setDetailModalOpen}
+          clientId={client.id}
+          onUpdate={() => refetch()}
+        />
+      )}
     </div>
   );
 }
