@@ -796,11 +796,14 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
                     {taxonomy.dateString}
                   </Badge>
                 )}
-                {campaign.channels?.map((ch: string) => (
-                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
-                    {ch === 'in_app_message' ? 'In-App' : ch}
-                  </Badge>
-                ))}
+        {campaign.channels?.map((ch: string) => {
+                  const displayChannel = ch === 'in_app_message' ? 'In-App' : ch.charAt(0).toUpperCase() + ch.slice(1);
+                  return (
+                    <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
+                      {displayChannel}
+                    </Badge>
+                  );
+                })}
               </div>
               {campaign.subject && (
                 <p className="text-sm text-muted-foreground truncate mt-1">{campaign.subject}</p>
@@ -823,11 +826,14 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
             {taxonomy.dateString}
           </Badge>
         )}
-        {campaign.channels?.map((ch: string) => (
-          <Badge key={ch} variant="outline" className={`text-xs bg-background ${getChannelColor(ch)}`}>
-            {ch === 'in_app_message' ? 'In-App' : ch}
-          </Badge>
-        ))}
+        {campaign.channels?.map((ch: string) => {
+          const displayChannel = ch === 'in_app_message' ? 'In-App' : ch.charAt(0).toUpperCase() + ch.slice(1);
+          return (
+            <Badge key={ch} variant="outline" className={`text-xs bg-background ${getChannelColor(ch)}`}>
+              {displayChannel}
+            </Badge>
+          );
+        })}
       </div>
 
       {/* Email Preview */}
