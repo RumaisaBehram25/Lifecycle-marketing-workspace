@@ -2,14 +2,12 @@ import { useState, useMemo } from 'react';
 import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Separator } from '@/components/ui/separator';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -17,15 +15,18 @@ import {
   MousePointerClick, 
   Users, 
   Send, 
-  AlertTriangle,
-  CalendarIcon,
   RefreshCw,
   Loader2,
   ArrowUpRight,
   ArrowDownRight,
+  Bell,
+  Smartphone,
+  CheckCircle2,
+  AlertCircle,
+  GitCompare,
+  Filter,
 } from 'lucide-react';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
-import { DateRange } from 'react-day-picker';
+import { format, subDays } from 'date-fns';
 import { 
   LineChart, 
   Line, 
@@ -47,7 +48,7 @@ import { useToast } from '@/hooks/use-toast';
 interface CampaignAnalytics {
   campaign_id: string;
   campaign_name: string;
-  channel: string;
+  channel?: string;
   sends: number;
   deliveries: number;
   opens: number;
@@ -70,18 +71,17 @@ interface CanvasAnalytics {
   revenue: number;
   first_entry?: string;
   last_entry?: string;
-  step_analytics?: Array<{
-    step_name: string;
-    channel: string;
-    sends: number;
-    opens: number;
-    clicks: number;
+  variants?: Array<{
+    name: string;
+    percentage: number;
+    entries?: number;
+    conversions?: number;
   }>;
 }
 
 interface BrazeSchemaCache {
-  campaigns?: Array<CampaignAnalytics & { id: string; name: string }>;
-  canvases?: Array<CanvasAnalytics & { id: string; name: string; enabled?: boolean }>;
+  campaigns?: Array<CampaignAnalytics & { id: string; name: string; channels?: string[] }>;
+  canvases?: Array<CanvasAnalytics & { id: string; name: string; enabled?: boolean; variants?: any[] }>;
   analytics?: {
     campaigns: CampaignAnalytics[];
     canvases: CanvasAnalytics[];
@@ -96,9 +96,16 @@ interface BrazeSchemaCache {
       total_conversions: number;
       total_revenue: number;
     };
-    date_range: { start: string; end: string };
+    date_range?: { start: string; end: string };
   };
 }
+
+const DATE_PRESETS = [
+  { label: 'Last 7 days', value: '7', days: 7 },
+  { label: 'Last 14 days', value: '14', days: 14 },
+  { label: 'Last 30 days', value: '30', days: 30 },
+  { label: 'Last 90 days', value: '90', days: 90 },
+];
 
 const CHART_COLORS = [
   'hsl(var(--primary))',
@@ -114,22 +121,20 @@ export default function Analytics() {
   const { toast } = useToast();
   
   const [syncing, setSyncing] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 30),
-    to: new Date(),
-  });
-  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
-  const [selectedCanvases, setSelectedCanvases] = useState<string[]>([]);
+  const [datePreset, setDatePreset] = useState('14');
+  const [selectedFlow, setSelectedFlow] = useState<string>('all');
+  const [compareFlows, setCompareFlows] = useState<string[]>([]);
 
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
   const schemaCache = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
-  const analytics = schemaCache?.analytics;
 
   // Calculate metrics from available data
   const campaignMetrics = useMemo(() => {
     if (!schemaCache?.campaigns) return null;
     
-    const campaigns = schemaCache.campaigns.filter(c => c.sends || c.deliveries);
+    const campaigns = schemaCache.campaigns.filter(c => 
+      (c.sends && c.sends > 0) || (c.deliveries && c.deliveries > 0) || c.last_sent
+    );
     if (campaigns.length === 0) return null;
 
     const totals = campaigns.reduce((acc, c) => ({
@@ -157,6 +162,7 @@ export default function Analytics() {
       delivery_rate: totals.sends > 0 ? (totals.deliveries / totals.sends) * 100 : 0,
       unsubscribe_rate: totals.deliveries > 0 ? (totals.unsubscribes / totals.deliveries) * 100 : 0,
       campaigns,
+      count: campaigns.length,
     };
   }, [schemaCache?.campaigns]);
 
@@ -176,6 +182,7 @@ export default function Analytics() {
       ...totals,
       conversion_rate: totals.entries > 0 ? (totals.conversions / totals.entries) * 100 : 0,
       canvases,
+      count: canvases.length,
     };
   }, [schemaCache?.canvases]);
 
@@ -183,6 +190,7 @@ export default function Analytics() {
   const topCampaigns = useMemo(() => {
     if (!campaignMetrics?.campaigns) return [];
     return [...campaignMetrics.campaigns]
+      .filter(c => c.sends > 0 || c.unique_opens > 0)
       .sort((a, b) => (b.unique_opens || 0) - (a.unique_opens || 0))
       .slice(0, 10);
   }, [campaignMetrics?.campaigns]);
@@ -191,38 +199,67 @@ export default function Analytics() {
   const channelBreakdown = useMemo(() => {
     if (!campaignMetrics?.campaigns) return [];
     
-    const byChannel: Record<string, { sends: number; opens: number; clicks: number }> = {};
+    const byChannel: Record<string, { sends: number; opens: number; clicks: number; count: number }> = {};
     campaignMetrics.campaigns.forEach(c => {
-      const channel = c.channel || 'email';
-      if (!byChannel[channel]) {
-        byChannel[channel] = { sends: 0, opens: 0, clicks: 0 };
-      }
-      byChannel[channel].sends += c.sends || 0;
-      byChannel[channel].opens += c.unique_opens || 0;
-      byChannel[channel].clicks += c.unique_clicks || 0;
+      const channels = (c as any).channels || ['email'];
+      channels.forEach((channel: string) => {
+        if (!byChannel[channel]) {
+          byChannel[channel] = { sends: 0, opens: 0, clicks: 0, count: 0 };
+        }
+        byChannel[channel].sends += c.sends || 0;
+        byChannel[channel].opens += c.unique_opens || 0;
+        byChannel[channel].clicks += c.unique_clicks || 0;
+        byChannel[channel].count += 1;
+      });
     });
 
     return Object.entries(byChannel).map(([channel, data]) => ({
-      channel: channel.charAt(0).toUpperCase() + channel.slice(1),
+      channel: channel === 'in_app_message' ? 'In-App' : channel.charAt(0).toUpperCase() + channel.slice(1),
       ...data,
       openRate: data.sends > 0 ? (data.opens / data.sends) * 100 : 0,
     }));
   }, [campaignMetrics?.campaigns]);
+
+  // Lifecycle flows for filter/comparison
+  const lifecycleFlows = useMemo(() => {
+    if (!canvasMetrics?.canvases) return [];
+    return canvasMetrics.canvases.map(c => ({
+      id: c.canvas_id || (c as any).id,
+      name: c.canvas_name || (c as any).name,
+      entries: c.entries || 0,
+      conversions: c.conversions || 0,
+      revenue: c.revenue || 0,
+      variants: (c as any).variants || [],
+    }));
+  }, [canvasMetrics?.canvases]);
+
+  // Selected flow for detailed view
+  const selectedFlowData = useMemo(() => {
+    if (selectedFlow === 'all' || !lifecycleFlows.length) return null;
+    return lifecycleFlows.find(f => f.id === selectedFlow);
+  }, [selectedFlow, lifecycleFlows]);
+
+  // Comparison data
+  const comparisonData = useMemo(() => {
+    if (compareFlows.length < 2) return null;
+    return lifecycleFlows.filter(f => compareFlows.includes(f.id));
+  }, [compareFlows, lifecycleFlows]);
 
   const handleSyncAnalytics = async () => {
     if (!client || !brazePlatform) return;
     
     setSyncing(true);
     try {
+      const days = parseInt(datePreset) || 14;
+      const endDate = format(new Date(), 'yyyy-MM-dd');
+      const startDate = format(subDays(new Date(), days), 'yyyy-MM-dd');
+
       const { error } = await supabase.functions.invoke('sync-braze', {
         body: {
           clientId: client.id,
           platformId: brazePlatform.id,
           includeAnalytics: true,
-          analyticsDateRange: dateRange ? {
-            start: format(dateRange.from!, 'yyyy-MM-dd'),
-            end: format(dateRange.to || new Date(), 'yyyy-MM-dd'),
-          } : undefined,
+          analyticsDateRange: { start: startDate, end: endDate },
         },
       });
 
@@ -238,6 +275,14 @@ export default function Analytics() {
     }
   };
 
+  const toggleCompareFlow = (flowId: string) => {
+    setCompareFlows(prev => 
+      prev.includes(flowId) 
+        ? prev.filter(id => id !== flowId)
+        : prev.length < 4 ? [...prev, flowId] : prev
+    );
+  };
+
   if (clientLoading || platformsLoading) {
     return (
       <AppLayout>
@@ -251,7 +296,7 @@ export default function Analytics() {
     );
   }
 
-  const hasAnalytics = campaignMetrics || canvasMetrics;
+  const hasData = campaignMetrics || canvasMetrics;
 
   return (
     <AppLayout>
@@ -261,38 +306,24 @@ export default function Analytics() {
           description="Track messaging performance across campaigns and lifecycle flows"
           actions={
             <div className="flex items-center gap-3">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-[280px] justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateRange?.from ? (
-                      dateRange.to ? (
-                        <>
-                          {format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}
-                        </>
-                      ) : (
-                        format(dateRange.from, "LLL dd, y")
-                      )
-                    ) : (
-                      <span>Pick a date range</span>
-                    )}
+              {/* Quick Date Presets */}
+              <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+                {DATE_PRESETS.map(preset => (
+                  <Button
+                    key={preset.value}
+                    variant={datePreset === preset.value ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => setDatePreset(preset.value)}
+                  >
+                    {preset.label.replace('Last ', '')}
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    initialFocus
-                    mode="range"
-                    defaultMonth={dateRange?.from}
-                    selected={dateRange}
-                    onSelect={setDateRange}
-                    numberOfMonths={2}
-                  />
-                </PopoverContent>
-              </Popover>
+                ))}
+              </div>
               
               <Button onClick={handleSyncAnalytics} disabled={syncing || !brazePlatform}>
                 {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                Sync Analytics
+                Sync
               </Button>
             </div>
           }
@@ -311,7 +342,7 @@ export default function Analytics() {
               </Button>
             </CardContent>
           </Card>
-        ) : !hasAnalytics ? (
+        ) : !hasData ? (
           <Card>
             <CardContent className="py-12 text-center">
               <TrendingUp className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -326,243 +357,400 @@ export default function Analytics() {
             </CardContent>
           </Card>
         ) : (
-          <>
-            {/* Summary Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <MetricCard
-                title="Total Sends"
-                value={campaignMetrics?.sends || 0}
-                icon={Send}
-                format="number"
-              />
-              <MetricCard
-                title="Unique Opens"
-                value={campaignMetrics?.unique_opens || 0}
-                icon={Mail}
-                format="number"
-                subtitle={`${campaignMetrics?.open_rate?.toFixed(1) || 0}% open rate`}
-              />
-              <MetricCard
-                title="Unique Clicks"
-                value={campaignMetrics?.unique_clicks || 0}
-                icon={MousePointerClick}
-                format="number"
-                subtitle={`${campaignMetrics?.click_rate?.toFixed(2) || 0}% CTR`}
-              />
-              <MetricCard
-                title="Conversions"
-                value={(campaignMetrics?.conversions || 0) + (canvasMetrics?.conversions || 0)}
-                icon={TrendingUp}
-                format="number"
-                subtitle={canvasMetrics?.revenue ? `$${canvasMetrics.revenue.toLocaleString()} revenue` : undefined}
-              />
-            </div>
+          <div className="space-y-8">
+            {/* ==================== OVERVIEW SECTION ==================== */}
+            <section>
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary" />
+                Overview
+              </h2>
+              
+              {/* Summary Cards */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                <MetricCard
+                  title="Total Sends"
+                  value={campaignMetrics?.sends || 0}
+                  icon={Send}
+                  format="number"
+                />
+                <MetricCard
+                  title="Deliveries"
+                  value={campaignMetrics?.deliveries || 0}
+                  icon={CheckCircle2}
+                  format="number"
+                  subtitle={`${(campaignMetrics?.delivery_rate || 0).toFixed(1)}% rate`}
+                />
+                <MetricCard
+                  title="Unique Opens"
+                  value={campaignMetrics?.unique_opens || 0}
+                  icon={Mail}
+                  format="number"
+                  subtitle={`${(campaignMetrics?.open_rate || 0).toFixed(1)}% open rate`}
+                />
+                <MetricCard
+                  title="Unique Clicks"
+                  value={campaignMetrics?.unique_clicks || 0}
+                  icon={MousePointerClick}
+                  format="number"
+                  subtitle={`${(campaignMetrics?.click_rate || 0).toFixed(2)}% CTR`}
+                />
+                <MetricCard
+                  title="Conversions"
+                  value={(campaignMetrics?.conversions || 0) + (canvasMetrics?.conversions || 0)}
+                  icon={TrendingUp}
+                  format="number"
+                />
+              </div>
 
-            {/* Tabs for Campaigns vs Lifecycle */}
-            <Tabs defaultValue="campaigns" className="space-y-6">
-              <TabsList>
-                <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
-                <TabsTrigger value="lifecycle">Lifecycle Flows</TabsTrigger>
-                <TabsTrigger value="comparison">Compare</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="campaigns" className="space-y-6">
-                {/* Delivery Metrics */}
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Delivery Performance</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <MetricRow label="Sends" value={campaignMetrics?.sends || 0} />
-                        <MetricRow label="Deliveries" value={campaignMetrics?.deliveries || 0} rate={campaignMetrics?.delivery_rate} />
-                        <MetricRow label="Bounces" value={campaignMetrics?.bounces || 0} isNegative />
-                        <MetricRow label="Unsubscribes" value={campaignMetrics?.unsubscribes || 0} rate={campaignMetrics?.unsubscribe_rate} isNegative />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Engagement Metrics</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <MetricRow label="Opens" value={campaignMetrics?.opens || 0} />
-                        <MetricRow label="Unique Opens" value={campaignMetrics?.unique_opens || 0} rate={campaignMetrics?.open_rate} />
-                        <MetricRow label="Clicks" value={campaignMetrics?.clicks || 0} />
-                        <MetricRow label="Click-to-Open" value={campaignMetrics?.unique_clicks || 0} rate={campaignMetrics?.cto_rate} />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Channel Breakdown */}
-                {channelBreakdown.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Channel Breakdown</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={channelBreakdown}>
-                            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                            <XAxis dataKey="channel" className="text-xs" />
-                            <YAxis className="text-xs" />
-                            <Tooltip 
-                              contentStyle={{ 
-                                backgroundColor: 'hsl(var(--card))', 
-                                border: '1px solid hsl(var(--border))' 
-                              }} 
-                            />
-                            <Legend />
-                            <Bar dataKey="sends" name="Sends" fill="hsl(var(--primary))" />
-                            <Bar dataKey="opens" name="Opens" fill="hsl(var(--chart-2))" />
-                            <Bar dataKey="clicks" name="Clicks" fill="hsl(var(--chart-3))" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Top Campaigns Table */}
-                {topCampaigns.length > 0 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Top Performing Campaigns</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b">
-                              <th className="text-left py-2 font-medium">Campaign</th>
-                              <th className="text-right py-2 font-medium">Sends</th>
-                              <th className="text-right py-2 font-medium">Open Rate</th>
-                              <th className="text-right py-2 font-medium">Click Rate</th>
-                              <th className="text-right py-2 font-medium">Conversions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {topCampaigns.map((c, i) => (
-                              <tr key={c.campaign_id || i} className="border-b last:border-0">
-                                <td className="py-2 max-w-[300px] truncate">{c.campaign_name || c.name}</td>
-                                <td className="text-right py-2">{(c.sends || 0).toLocaleString()}</td>
-                                <td className="text-right py-2">
-                                  {c.deliveries ? ((c.unique_opens || 0) / c.deliveries * 100).toFixed(1) : 0}%
-                                </td>
-                                <td className="text-right py-2">
-                                  {c.deliveries ? ((c.unique_clicks || 0) / c.deliveries * 100).toFixed(2) : 0}%
-                                </td>
-                                <td className="text-right py-2">{(c.conversions || 0).toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-
-              <TabsContent value="lifecycle" className="space-y-6">
-                {canvasMetrics ? (
-                  <>
+              {/* Channel Breakdown */}
+              {channelBreakdown.length > 0 && (
+                <Card className="mt-4">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Channel Performance</CardTitle>
+                  </CardHeader>
+                  <CardContent>
                     <div className="grid gap-4 md:grid-cols-3">
-                      <MetricCard
-                        title="Journey Entries"
-                        value={canvasMetrics.entries}
-                        icon={Users}
-                        format="number"
-                      />
-                      <MetricCard
-                        title="Conversions"
-                        value={canvasMetrics.conversions}
-                        icon={TrendingUp}
-                        format="number"
-                        subtitle={`${canvasMetrics.conversion_rate.toFixed(1)}% conversion rate`}
-                      />
-                      <MetricCard
-                        title="Revenue"
-                        value={canvasMetrics.revenue}
-                        icon={BarChart3}
-                        format="currency"
-                      />
-                    </div>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">Active Lifecycle Flows</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          {canvasMetrics.canvases.map((canvas, i) => (
-                            <div key={canvas.canvas_id || i} className="flex items-center justify-between p-3 rounded-lg border bg-card">
-                              <div>
-                                <p className="font-medium">{canvas.canvas_name || canvas.name}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {canvas.first_entry ? `First entry: ${format(new Date(canvas.first_entry), 'MMM d, yyyy')}` : 'No entries yet'}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-medium">{(canvas.entries || 0).toLocaleString()} entries</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {canvas.conversions || 0} conversions
-                                </p>
-                              </div>
-                            </div>
-                          ))}
+                      {channelBreakdown.map(channel => (
+                        <div key={channel.channel} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+                          <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                            channel.channel.toLowerCase() === 'email' ? 'bg-blue-500/10' :
+                            channel.channel.toLowerCase() === 'push' ? 'bg-orange-500/10' : 'bg-purple-500/10'
+                          }`}>
+                            {channel.channel.toLowerCase() === 'email' ? <Mail className="h-5 w-5 text-blue-500" /> :
+                             channel.channel.toLowerCase() === 'push' ? <Bell className="h-5 w-5 text-orange-500" /> :
+                             <Smartphone className="h-5 w-5 text-purple-500" />}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{channel.channel}</p>
+                            <p className="text-xs text-muted-foreground">{channel.count} campaigns</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-sm">{channel.sends.toLocaleString()}</p>
+                            <p className="text-xs text-muted-foreground">{channel.openRate.toFixed(1)}% open</p>
+                          </div>
                         </div>
-                      </CardContent>
-                    </Card>
-                  </>
-                ) : (
-                  <Card>
-                    <CardContent className="py-8 text-center">
-                      <p className="text-muted-foreground">No lifecycle flow analytics available</p>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </section>
 
-              <TabsContent value="comparison" className="space-y-6">
+            <Separator />
+
+            {/* ==================== CAMPAIGNS SECTION ==================== */}
+            <section>
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Send className="h-5 w-5 text-primary" />
+                Campaigns
+                {campaignMetrics?.count && (
+                  <Badge variant="secondary" className="text-xs">{campaignMetrics.count} total</Badge>
+                )}
+              </h2>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                {/* Delivery Metrics */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Delivery Performance</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <MetricRow label="Sends" value={campaignMetrics?.sends || 0} />
+                      <MetricRow label="Deliveries" value={campaignMetrics?.deliveries || 0} rate={campaignMetrics?.delivery_rate} />
+                      <MetricRow label="Bounces" value={campaignMetrics?.bounces || 0} isNegative />
+                      <MetricRow label="Unsubscribes" value={campaignMetrics?.unsubscribes || 0} rate={campaignMetrics?.unsubscribe_rate} isNegative />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Engagement Metrics */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Engagement Metrics</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <MetricRow label="Total Opens" value={campaignMetrics?.opens || 0} />
+                      <MetricRow label="Unique Opens" value={campaignMetrics?.unique_opens || 0} rate={campaignMetrics?.open_rate} />
+                      <MetricRow label="Total Clicks" value={campaignMetrics?.clicks || 0} />
+                      <MetricRow label="Click-to-Open" value={campaignMetrics?.unique_clicks || 0} rate={campaignMetrics?.cto_rate} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Top Campaigns Table */}
+              {topCampaigns.length > 0 && (
+                <Card className="mt-4">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Top Performing Campaigns</CardTitle>
+                    <CardDescription>By unique opens in the selected period</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 font-medium">Campaign</th>
+                            <th className="text-right py-2 font-medium">Sends</th>
+                            <th className="text-right py-2 font-medium">Open Rate</th>
+                            <th className="text-right py-2 font-medium">Click Rate</th>
+                            <th className="text-right py-2 font-medium">Conversions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {topCampaigns.map((c, i) => {
+                            const openRate = c.deliveries ? ((c.unique_opens || 0) / c.deliveries * 100) : 0;
+                            const clickRate = c.deliveries ? ((c.unique_clicks || 0) / c.deliveries * 100) : 0;
+                            return (
+                              <tr key={c.campaign_id || i} className="border-b last:border-0 hover:bg-muted/50">
+                                <td className="py-2.5 max-w-[300px] truncate">{c.campaign_name || (c as any).name}</td>
+                                <td className="text-right py-2.5">{(c.sends || 0).toLocaleString()}</td>
+                                <td className="text-right py-2.5">
+                                  <span className={openRate > 20 ? 'text-green-600' : openRate < 10 ? 'text-amber-600' : ''}>
+                                    {openRate.toFixed(1)}%
+                                  </span>
+                                </td>
+                                <td className="text-right py-2.5">
+                                  <span className={clickRate > 3 ? 'text-green-600' : clickRate < 1 ? 'text-amber-600' : ''}>
+                                    {clickRate.toFixed(2)}%
+                                  </span>
+                                </td>
+                                <td className="text-right py-2.5">{(c.conversions || 0).toLocaleString()}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </section>
+
+            <Separator />
+
+            {/* ==================== LIFECYCLE SECTION ==================== */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  Lifecycle Flows
+                  {canvasMetrics?.count && (
+                    <Badge variant="secondary" className="text-xs">{canvasMetrics.count} active</Badge>
+                  )}
+                </h2>
+                
+                {/* Flow Filter */}
+                <Select value={selectedFlow} onValueChange={setSelectedFlow}>
+                  <SelectTrigger className="w-[200px]">
+                    <Filter className="h-4 w-4 mr-2" />
+                    <SelectValue placeholder="Filter by flow" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Flows</SelectItem>
+                    {lifecycleFlows.map(flow => (
+                      <SelectItem key={flow.id} value={flow.id}>{flow.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Summary Cards */}
+              <div className="grid gap-4 md:grid-cols-3 mb-4">
+                <MetricCard
+                  title="Journey Entries"
+                  value={canvasMetrics?.entries || 0}
+                  icon={Users}
+                  format="number"
+                />
+                <MetricCard
+                  title="Conversions"
+                  value={canvasMetrics?.conversions || 0}
+                  icon={TrendingUp}
+                  format="number"
+                  subtitle={`${(canvasMetrics?.conversion_rate || 0).toFixed(1)}% conversion rate`}
+                />
+                <MetricCard
+                  title="Revenue"
+                  value={canvasMetrics?.revenue || 0}
+                  icon={BarChart3}
+                  format="currency"
+                />
+              </div>
+
+              {/* Flow List / Selected Flow */}
+              {selectedFlow === 'all' ? (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">All Active Flows</CardTitle>
+                    <CardDescription>Click the compare icon to add flows for A/B comparison</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {lifecycleFlows.map((flow) => (
+                        <div key={flow.id} className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <Button
+                              variant={compareFlows.includes(flow.id) ? 'default' : 'outline'}
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => toggleCompareFlow(flow.id)}
+                            >
+                              <GitCompare className="h-4 w-4" />
+                            </Button>
+                            <div>
+                              <p className="font-medium">{flow.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {flow.variants?.length || 0} variants
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-6 text-right">
+                            <div>
+                              <p className="font-medium">{flow.entries.toLocaleString()}</p>
+                              <p className="text-xs text-muted-foreground">entries</p>
+                            </div>
+                            <div>
+                              <p className="font-medium">{flow.conversions.toLocaleString()}</p>
+                              <p className="text-xs text-muted-foreground">conversions</p>
+                            </div>
+                            <div>
+                              <p className="font-medium">
+                                {flow.entries > 0 ? ((flow.conversions / flow.entries) * 100).toFixed(1) : 0}%
+                              </p>
+                              <p className="text-xs text-muted-foreground">rate</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : selectedFlowData && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Campaign vs Lifecycle Performance</CardTitle>
+                    <CardTitle className="text-base">{selectedFlowData.name}</CardTitle>
+                    <CardDescription>
+                      {selectedFlowData.entries.toLocaleString()} entries • 
+                      {selectedFlowData.conversions.toLocaleString()} conversions
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {selectedFlowData.variants && selectedFlowData.variants.length > 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-muted-foreground">Variant Performance</p>
+                        {selectedFlowData.variants.map((variant, i) => (
+                          <div key={i} className="flex items-center gap-4 p-3 rounded-lg border">
+                            <div className="h-8 w-8 rounded-full flex items-center justify-center" 
+                                 style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '20' }}>
+                              <span className="text-xs font-bold" style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}>
+                                {String.fromCharCode(65 + i)}
+                              </span>
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{variant.name}</p>
+                              <p className="text-xs text-muted-foreground">{variant.percentage}% traffic</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-medium">{variant.entries?.toLocaleString() || '-'}</p>
+                              <p className="text-xs text-muted-foreground">entries</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No variant data available</p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* A/B Comparison Section */}
+              {compareFlows.length >= 2 && comparisonData && (
+                <Card className="mt-4">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <GitCompare className="h-4 w-4" />
+                          Flow Comparison
+                        </CardTitle>
+                        <CardDescription>Comparing {compareFlows.length} flows</CardDescription>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => setCompareFlows([])}>
+                        Clear
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="h-[300px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={[
-                          { 
-                            name: 'Campaigns', 
-                            conversions: campaignMetrics?.conversions || 0,
-                            revenue: campaignMetrics?.revenue || 0,
-                          },
-                          { 
-                            name: 'Lifecycle', 
-                            conversions: canvasMetrics?.conversions || 0,
-                            revenue: canvasMetrics?.revenue || 0,
-                          },
-                        ]}>
+                        <BarChart data={comparisonData.map(f => ({
+                          name: f.name.length > 20 ? f.name.substring(0, 20) + '...' : f.name,
+                          entries: f.entries,
+                          conversions: f.conversions,
+                          rate: f.entries > 0 ? (f.conversions / f.entries) * 100 : 0,
+                        }))}>
                           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip />
+                          <XAxis dataKey="name" className="text-xs" />
+                          <YAxis className="text-xs" />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: 'hsl(var(--card))', 
+                              border: '1px solid hsl(var(--border))' 
+                            }} 
+                          />
                           <Legend />
-                          <Bar dataKey="conversions" name="Conversions" fill="hsl(var(--primary))" />
-                          <Bar dataKey="revenue" name="Revenue ($)" fill="hsl(var(--chart-2))" />
+                          <Bar dataKey="entries" name="Entries" fill="hsl(var(--primary))" />
+                          <Bar dataKey="conversions" name="Conversions" fill="hsl(var(--chart-2))" />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
+
+                    {/* Comparison Table */}
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 font-medium">Flow</th>
+                            <th className="text-right py-2 font-medium">Entries</th>
+                            <th className="text-right py-2 font-medium">Conversions</th>
+                            <th className="text-right py-2 font-medium">Conv. Rate</th>
+                            <th className="text-right py-2 font-medium">Revenue</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {comparisonData.map((flow, i) => {
+                            const rate = flow.entries > 0 ? (flow.conversions / flow.entries) * 100 : 0;
+                            const bestRate = Math.max(...comparisonData.map(f => f.entries > 0 ? (f.conversions / f.entries) * 100 : 0));
+                            return (
+                              <tr key={flow.id} className="border-b last:border-0">
+                                <td className="py-2.5 flex items-center gap-2">
+                                  <div className="h-3 w-3 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                                  {flow.name}
+                                </td>
+                                <td className="text-right py-2.5">{flow.entries.toLocaleString()}</td>
+                                <td className="text-right py-2.5">{flow.conversions.toLocaleString()}</td>
+                                <td className="text-right py-2.5">
+                                  <span className={rate === bestRate ? 'text-green-600 font-medium' : ''}>
+                                    {rate.toFixed(2)}%
+                                    {rate === bestRate && <ArrowUpRight className="h-3 w-3 inline ml-1" />}
+                                  </span>
+                                </td>
+                                <td className="text-right py-2.5">${flow.revenue.toLocaleString()}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
-            </Tabs>
-          </>
+              )}
+            </section>
+          </div>
         )}
       </div>
     </AppLayout>
@@ -576,14 +764,12 @@ function MetricCard({
   icon: Icon, 
   format = 'number',
   subtitle,
-  trend,
 }: { 
   title: string; 
   value: number; 
   icon: React.ElementType;
   format?: 'number' | 'currency' | 'percent';
   subtitle?: string;
-  trend?: { value: number; isPositive: boolean };
 }) {
   const formattedValue = format === 'currency' 
     ? `$${value.toLocaleString()}` 
@@ -593,22 +779,16 @@ function MetricCard({
 
   return (
     <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          {trend && (
-            <Badge variant={trend.isPositive ? 'default' : 'destructive'} className="text-xs">
-              {trend.isPositive ? <ArrowUpRight className="h-3 w-3 mr-1" /> : <ArrowDownRight className="h-3 w-3 mr-1" />}
-              {Math.abs(trend.value).toFixed(1)}%
-            </Badge>
-          )}
-        </div>
-        <div className="mt-4">
-          <p className="text-2xl font-bold">{formattedValue}</p>
-          <p className="text-sm text-muted-foreground">{title}</p>
-          {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+          <div>
+            <p className="text-2xl font-bold">{formattedValue}</p>
+            <p className="text-xs text-muted-foreground">{title}</p>
+            {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+          </div>
         </div>
       </CardContent>
     </Card>

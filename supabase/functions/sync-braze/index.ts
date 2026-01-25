@@ -1000,7 +1000,8 @@ serve(async (req) => {
       const recentCampaigns = results.campaigns.filter(c => c.last_sent).slice(0, 20);
       for (const campaign of recentCampaigns) {
         try {
-          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=30&ending_at=${endDate}T00:00:00Z`;
+          // Braze limits data_series to 14 days max
+          const analyticsUrl = `campaigns/data_series?campaign_id=${campaign.id}&length=14&ending_at=${endDate}T00:00:00Z`;
           const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
           
           if (data.data && data.data.length > 0) {
@@ -1036,7 +1037,8 @@ serve(async (req) => {
       const enabledCanvases = results.canvases.filter(c => c.enabled).slice(0, 10);
       for (const canvas of enabledCanvases) {
         try {
-          const analyticsUrl = `canvas/data_series?canvas_id=${canvas.id}&length=30&ending_at=${endDate}T00:00:00Z`;
+          // Braze limits data_series to 14 days max
+          const analyticsUrl = `canvas/data_series?canvas_id=${canvas.id}&length=14&ending_at=${endDate}T00:00:00Z`;
           const data = await brazeFetch(analyticsUrl, apiKey, brazeRestEndpoint);
           
           if (data.data && data.data.length > 0) {
