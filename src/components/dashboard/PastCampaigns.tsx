@@ -119,7 +119,7 @@ export function PastCampaigns() {
       </CardHeader>
       <CardContent>
         {allCampaigns.length > 0 ? (
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="flex gap-4 overflow-x-auto pb-2">
             {allCampaigns.map((campaign) => {
               const channels = inferChannels(campaign);
               const primaryChannel = channels[0] || 'email';
@@ -128,10 +128,10 @@ export function PastCampaigns() {
                 <Link 
                   key={campaign.id} 
                   to="/campaigns"
-                  className="flex-shrink-0 w-48 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                  className="flex-shrink-0 w-56 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
                 >
                   {/* Mini preview */}
-                  <div className="w-full h-24 rounded-lg overflow-hidden bg-muted/50 mb-2">
+                  <div className="w-full h-32 rounded-lg overflow-hidden bg-muted/50 mb-3">
                     {primaryChannel === 'email' && campaign.html_preview ? (
                       <div className="w-full h-full bg-white overflow-hidden">
                         <iframe
@@ -139,36 +139,33 @@ export function PastCampaigns() {
                           className="w-full h-full pointer-events-none"
                           title="Preview"
                           sandbox="allow-same-origin"
-                          style={{ transform: 'scale(0.12)', transformOrigin: 'top left', width: '833%', height: '833%' }}
+                          style={{ transform: 'scale(0.1)', transformOrigin: 'top left', width: '1000%', height: '1000%' }}
                         />
                       </div>
                     ) : primaryChannel.includes('push') ? (
                       <div className="w-full h-full flex items-center justify-center">
-                        <div className="bg-card border rounded-lg p-1.5 scale-75">
-                          <div className="flex items-center gap-1">
-                            <img src="/logos/linktree-logo.png" alt="L" className="h-4 w-4 rounded" />
-                            <div className="text-[8px] truncate max-w-[50px]">{campaign.push_title || campaign.name}</div>
+                        <div className="bg-card border rounded-lg p-2">
+                          <div className="flex items-center gap-1.5">
+                            <img src="/logos/linktree-logo.png" alt="L" className="h-5 w-5 rounded" />
+                            <div className="text-[10px] truncate max-w-[80px]">{campaign.push_title || campaign.name}</div>
                           </div>
                         </div>
                       </div>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-purple-500/10">
-                        <Smartphone className="h-5 w-5 text-purple-500" />
+                        <Smartphone className="h-6 w-6 text-purple-500" />
                       </div>
                     )}
                   </div>
                   
-                  <p className="font-medium text-xs truncate">{campaign.name}</p>
-                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      <Calendar className="h-2.5 w-2.5 mr-0.5" />
+                  <p className="font-medium text-sm truncate mb-2">{campaign.name}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge variant="outline" className="text-xs px-2 py-0.5">
+                      {getChannelIcon(primaryChannel)}
+                      <span className="ml-1">{getChannelLabel(primaryChannel)}</span>
+                      <span className="mx-1 text-muted-foreground">•</span>
                       {getDisplayDate(campaign)}
                     </Badge>
-                    {channels.slice(0, 1).map((channel) => (
-                      <Badge key={channel} variant="outline" className="text-[10px] px-1.5 py-0">
-                        {getChannelIcon(channel)}
-                      </Badge>
-                    ))}
                   </div>
                 </Link>
               );
