@@ -4,6 +4,7 @@ import {
   buildUnifiedContext, 
   buildSystemPromptFromContext,
 } from "../_shared/unified-context.ts";
+import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,7 +17,22 @@ serve(async (req) => {
   }
 
   try {
+    // Validate JWT authentication
+    const authResult = await validateAuth(req);
+    if (!authResult.success) {
+      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+    }
+
     const { input, client } = await req.json();
+
+    // Validate user has access to this client if client.id is provided
+    if (client?.id) {
+      const accessResult = await validateClientAccess(authResult.userClient!, client.id);
+      if (!accessResult.success) {
+        return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+      }
+    }
+
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
