@@ -7,6 +7,7 @@ import {
   type UnifiedContext,
   type PlatformData,
 } from "../_shared/unified-context.ts";
+import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,11 +45,23 @@ serve(async (req) => {
   }
 
   try {
+    // Validate JWT authentication
+    const authResult = await validateAuth(req);
+    if (!authResult.success) {
+      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+    }
+
     const { messages, client, platformContext } = await req.json() as {
       messages: ChatMessage[];
       client: LegacyClientContext;
       platformContext?: LegacyPlatformContext | LegacyPlatformContext[];
     };
+
+    // Validate user has access to this client
+    const accessResult = await validateClientAccess(authResult.userClient!, client.id);
+    if (!accessResult.success) {
+      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+    }
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -59,6 +72,7 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
+    // Use service role for data operations that require elevated access
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Get latest user query for context-aware knowledge retrieval

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateAuth, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +12,12 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Validate JWT authentication
+    const authResult = await validateAuth(req);
+    if (!authResult.success) {
+      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+    }
+
     const { query, platform, limit = 10 } = await req.json();
 
     if (!query) {

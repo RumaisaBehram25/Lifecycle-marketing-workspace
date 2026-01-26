@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,7 +13,21 @@ serve(async (req) => {
   }
 
   try {
+    // Validate JWT authentication
+    const authResult = await validateAuth(req);
+    if (!authResult.success) {
+      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+    }
+
     const { contentType, channels, about, clientId } = await req.json();
+
+    // Validate user has access to this client if clientId is provided
+    if (clientId) {
+      const accessResult = await validateClientAccess(authResult.userClient!, clientId);
+      if (!accessResult.success) {
+        return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+      }
+    }
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {

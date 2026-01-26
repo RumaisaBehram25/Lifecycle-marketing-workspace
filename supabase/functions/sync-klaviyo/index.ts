@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -70,10 +71,22 @@ serve(async (req) => {
   }
 
   try {
+    // Validate JWT authentication
+    const authResult = await validateAuth(req);
+    if (!authResult.success) {
+      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+    }
+
     const { clientId, platformId } = await req.json();
 
     if (!clientId || !platformId) {
       throw new Error('clientId and platformId are required');
+    }
+
+    // Validate user has access to this client
+    const accessResult = await validateClientAccess(authResult.userClient!, clientId);
+    if (!accessResult.success) {
+      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
     }
 
     const supabase = createClient(

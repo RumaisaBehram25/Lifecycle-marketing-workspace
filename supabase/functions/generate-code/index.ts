@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,7 +12,22 @@ serve(async (req) => {
   }
 
   try {
+    // Validate JWT authentication
+    const authResult = await validateAuth(req);
+    if (!authResult.success) {
+      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+    }
+
     const { input, client } = await req.json();
+
+    // Validate user has access to this client if client.id is provided
+    if (client?.id) {
+      const accessResult = await validateClientAccess(authResult.userClient!, client.id);
+      if (!accessResult.success) {
+        return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+      }
+    }
+
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY not configured');
 
