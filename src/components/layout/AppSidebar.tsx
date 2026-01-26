@@ -21,6 +21,7 @@ import {
   Users,
   BarChart3,
   Palette,
+  User,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -119,8 +120,8 @@ export function AppSidebar() {
             <button className="flex w-full items-center gap-3 rounded-lg px-2 py-2 hover:bg-sidebar-accent transition-colors">
               <Avatar className="h-9 w-9 flex-shrink-0">
                 <AvatarImage src={profile?.avatar_url || undefined} />
-                <AvatarFallback className="bg-primary text-primary-foreground font-bold">
-                  {profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || '?'}
+                <AvatarFallback className="bg-primary text-primary-foreground">
+                  <User className="h-4 w-4" />
                 </AvatarFallback>
               </Avatar>
               {!isCollapsed && (
