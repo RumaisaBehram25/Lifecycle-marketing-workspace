@@ -11,6 +11,13 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { 
   User, 
   Shield, 
@@ -22,6 +29,12 @@ import {
   RefreshCw,
   Search,
   Star,
+  MessageSquarePlus,
+  Bug,
+  Lightbulb,
+  CheckCircle,
+  Clock,
+  XCircle,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -220,6 +233,12 @@ export default function Settings() {
               <TabsTrigger value="data-visibility" className="gap-2">
                 <Eye className="h-4 w-4" />
                 Data Visibility
+              </TabsTrigger>
+            )}
+            {isAdmin && (
+              <TabsTrigger value="feedback" className="gap-2">
+                <MessageSquarePlus className="h-4 w-4" />
+                Feedback
               </TabsTrigger>
             )}
           </TabsList>
@@ -448,8 +467,154 @@ export default function Settings() {
               </Card>
             </TabsContent>
           )}
+
+          {/* Feedback Tab - Admin Only */}
+          {isAdmin && (
+            <TabsContent value="feedback" className="space-y-6">
+              <FeedbackAdmin />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </AppLayout>
+  );
+}
+
+// Feedback Admin Component
+function FeedbackAdmin() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  const { data: feedbackItems, isLoading } = useQuery({
+    queryKey: ['feedback-admin'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('feedback')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const updateStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const { error } = await supabase
+        .from('feedback')
+        .update({ status })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedback-admin'] });
+      toast({ title: 'Status updated' });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to update', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'open': return <Clock className="h-4 w-4 text-amber-500" />;
+      case 'in_progress': return <RefreshCw className="h-4 w-4 text-blue-500" />;
+      case 'resolved': return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'closed': return <XCircle className="h-4 w-4 text-muted-foreground" />;
+      default: return <Clock className="h-4 w-4" />;
+    }
+  };
+
+  const getTypeIcon = (type: string) => {
+    return type === 'bug_report' 
+      ? <Bug className="h-4 w-4 text-red-500" /> 
+      : <Lightbulb className="h-4 w-4 text-amber-500" />;
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <LoadingSpinner />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MessageSquarePlus className="h-5 w-5" />
+          User Feedback
+        </CardTitle>
+        <CardDescription>
+          Product requests and bug reports submitted by users.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!feedbackItems?.length ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <MessageSquarePlus className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            <p>No feedback submitted yet</p>
+          </div>
+        ) : (
+          <ScrollArea className="h-[400px]">
+            <div className="space-y-3">
+              {feedbackItems.map((item) => (
+                <div key={item.id} className="p-4 border rounded-lg space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      {getTypeIcon(item.type)}
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{item.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(item.created_at).toLocaleDateString()} • {item.type === 'bug_report' ? 'Bug Report' : 'Product Request'}
+                        </p>
+                      </div>
+                    </div>
+                    <Select 
+                      value={item.status} 
+                      onValueChange={(status) => updateStatus.mutate({ id: item.id, status })}
+                    >
+                      <SelectTrigger className="w-[130px]">
+                        <SelectValue>
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(item.status)}
+                            <span className="capitalize">{item.status.replace('_', ' ')}</span>
+                          </div>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="open">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-amber-500" /> Open
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="in_progress">
+                          <div className="flex items-center gap-2">
+                            <RefreshCw className="h-4 w-4 text-blue-500" /> In Progress
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="resolved">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" /> Resolved
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="closed">
+                          <div className="flex items-center gap-2">
+                            <XCircle className="h-4 w-4 text-muted-foreground" /> Closed
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+      </CardContent>
+    </Card>
   );
 }

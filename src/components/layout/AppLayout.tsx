@@ -2,6 +2,7 @@ import { ReactNode, useState, useEffect } from 'react';
 import { Menu } from 'lucide-react';
 import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from './AppSidebar';
+import { FeedbackWidget } from './FeedbackWidget';
 
 const SIDEBAR_STORAGE_KEY = 'sidebar-collapsed';
 
@@ -47,6 +48,9 @@ export function AppLayout({ children }: AppLayoutProps) {
             {children}
           </main>
         </SidebarInset>
+        
+        {/* Feedback Widget */}
+        <FeedbackWidget />
       </div>
     </SidebarProvider>
   );
