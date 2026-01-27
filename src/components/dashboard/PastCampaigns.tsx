@@ -146,11 +146,17 @@ export function PastCampaigns() {
                           />
                         </div>
                       ) : primaryChannel.includes('push') ? (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <div className="bg-card border rounded-lg p-2">
-                            <div className="flex items-center gap-1.5">
-                              <img src="/logos/linktree-logo.png" alt="L" className="h-5 w-5 rounded" />
-                              <div className="text-[10px] truncate max-w-[80px]">{campaign.push_title || campaign.name}</div>
+                        <div className="w-full h-full flex items-center justify-center p-2">
+                          <div className="bg-card border rounded-lg p-2 w-full">
+                            <div className="flex items-start gap-1.5">
+                              <img src="/logos/linktree-logo.png" alt="L" className="h-4 w-4 rounded flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[9px] text-muted-foreground">now</p>
+                                <p className="text-[10px] font-medium line-clamp-1">{campaign.push_title || campaign.name}</p>
+                                {campaign.push_body && (
+                                  <p className="text-[9px] text-muted-foreground line-clamp-2">{campaign.push_body}</p>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>

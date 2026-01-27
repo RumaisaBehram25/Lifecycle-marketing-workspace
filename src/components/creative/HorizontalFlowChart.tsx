@@ -189,25 +189,25 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   if (channel === 'push' || channel.includes('push')) {
     return (
       <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/20 rounded-t-lg">
-        <div className="w-full bg-card border rounded-2xl p-5 shadow-xl">
-          <div className="flex items-start gap-4">
+        <div className="w-full bg-card border rounded-2xl p-4 shadow-xl">
+          <div className="flex items-start gap-3">
             <img 
               src="/logos/linktree-logo.png" 
               alt="Linktree" 
-              className="h-14 w-14 rounded-xl object-contain flex-shrink-0"
+              className="h-10 w-10 rounded-lg object-contain flex-shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground">Linktree • now</p>
-              <p className="font-semibold text-base mt-1.5 line-clamp-2">{message?.title || step.name}</p>
+              <p className="text-[10px] text-muted-foreground">Linktree • now</p>
+              <p className="font-semibold text-sm mt-1 line-clamp-1">{message?.title || step.name}</p>
               {message?.body && (
-                <p className="text-sm text-muted-foreground line-clamp-4 mt-2">
+                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
                   {message.body}
                 </p>
               )}
             </div>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground mt-6 font-medium">Push Notification</p>
+        <p className="text-xs text-muted-foreground mt-4 font-medium">Push Notification</p>
       </div>
     );
   }
@@ -731,18 +731,18 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
   if (channel === 'push' || channel.includes('push')) {
     return (
       <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
-        <div className="w-full max-w-sm bg-card border rounded-2xl p-6 shadow-xl">
-          <div className="flex items-start gap-4">
+        <div className="w-full max-w-sm bg-card border rounded-2xl p-5 shadow-xl">
+          <div className="flex items-start gap-3">
             <img 
               src="/logos/linktree-logo.png" 
               alt="Linktree" 
-              className="h-16 w-16 rounded-xl object-contain flex-shrink-0"
+              className="h-12 w-12 rounded-xl object-contain flex-shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-muted-foreground">Linktree • now</p>
-              <p className="font-semibold text-lg mt-1">{message?.title || step.name}</p>
+              <p className="text-xs text-muted-foreground">Linktree • now</p>
+              <p className="font-semibold text-base mt-1 line-clamp-2">{message?.title || step.name}</p>
               {message?.body && (
-                <p className="text-muted-foreground mt-2">{message.body}</p>
+                <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3">{message.body}</p>
               )}
             </div>
           </div>
