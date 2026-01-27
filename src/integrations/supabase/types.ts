@@ -550,6 +550,13 @@ export type Database = {
             referencedRelation: "client_platforms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "platform_schemas_client_platform_id_fkey"
+            columns: ["client_platform_id"]
+            isOneToOne: false
+            referencedRelation: "client_platforms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       profiles: {
@@ -709,7 +716,47 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      client_platforms_public: {
+        Row: {
+          client_id: string | null
+          created_at: string | null
+          id: string | null
+          is_connected: boolean | null
+          last_sync_at: string | null
+          platform: Database["public"]["Enums"]["platform_type"] | null
+          schema_cache: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          is_connected?: boolean | null
+          last_sync_at?: string | null
+          platform?: Database["public"]["Enums"]["platform_type"] | null
+          schema_cache?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          is_connected?: boolean | null
+          last_sync_at?: string | null
+          platform?: Database["public"]["Enums"]["platform_type"] | null
+          schema_cache?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_platforms_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       has_role: {
