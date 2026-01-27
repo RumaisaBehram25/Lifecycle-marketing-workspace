@@ -40,7 +40,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
-import { parseCampaignTaxonomy, getChannelColor, ParsedCampaign } from '@/lib/campaign-taxonomy';
+import { parseCampaignTaxonomy, getChannelColor, getCategoryColor, ParsedCampaign, CampaignCategory } from '@/lib/campaign-taxonomy';
 
 // Normalized content structure from Braze sync
 interface NormalizedContent {
@@ -151,9 +151,9 @@ const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
     status: 'active',
     subject: "Welcome to Linktree – let's get you set up!",
     preheader: 'Your link in bio is ready. Here\'s how to make it yours.',
-    tags: ['welcome', 'onboarding'],
-    last_sent: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Welcome to Linktree! 🌳'),
+    tags: ['welcome', 'onboarding', 'marketing'],
+    first_sent: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    taxonomy: parseCampaignTaxonomy('Welcome to Linktree! 🌳', ['welcome', 'onboarding', 'marketing']),
   },
   {
     id: '2',
@@ -167,12 +167,25 @@ const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
     push_title: 'New: QR Codes are here!',
     push_body: 'Generate custom QR codes for your Linktree. Try it now!',
     push_deep_link: 'linktree://features/qr',
-    tags: ['feature', 'announcement'],
-    last_sent: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('New Feature Alert 🚀'),
+    tags: ['feature', 'announcement', 'marketing'],
+    first_sent: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    taxonomy: parseCampaignTaxonomy('New Feature Alert 🚀', ['feature', 'announcement', 'marketing']),
   },
   {
     id: '3',
+    name: 'Password Reset Confirmation',
+    displayName: 'Password Reset Confirmation',
+    channels: ['email'],
+    campaignType: 'email',
+    status: 'active',
+    subject: 'Your password has been reset',
+    preheader: 'Your Linktree account password was successfully changed.',
+    tags: ['transactional', 'security'],
+    first_sent: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    taxonomy: parseCampaignTaxonomy('Password Reset Confirmation', ['transactional', 'security']),
+  },
+  {
+    id: '4',
     name: 'Pro Upgrade Prompt',
     displayName: 'Pro Upgrade Prompt',
     channels: ['in_app_message'],
@@ -185,9 +198,9 @@ const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
     inapp_cta: 'Upgrade to Pro',
     inapp_image_url: 'https://example.com/pro-banner.png',
     inapp_buttons: [{ text: 'Upgrade to Pro', action: 'deep_link', url: 'linktree://upgrade' }],
-    tags: ['upsell', 'monetization'],
-    last_sent: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Pro Upgrade Prompt'),
+    tags: ['upsell', 'monetization', 'marketing'],
+    first_sent: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    taxonomy: parseCampaignTaxonomy('Pro Upgrade Prompt', ['upsell', 'monetization', 'marketing']),
   },
 ];
 
@@ -244,7 +257,7 @@ export default function Campaigns() {
     return brazeData.campaigns
       .filter(campaign => !campaign.archived)
       .map(campaign => {
-        const taxonomy = parseCampaignTaxonomy(campaign.name);
+        const taxonomy = parseCampaignTaxonomy(campaign.name, campaign.tags);
         
         const matchingTemplate = Array.from(templateMap.values()).find(t => 
           campaign.name.toLowerCase().includes(t.template_name.toLowerCase()) ||
@@ -830,15 +843,21 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold line-clamp-1">{campaign.displayName}</h3>
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                {/* Category pill first */}
+                <Badge variant="outline" className={`text-xs ${getCategoryColor(taxonomy.category)}`}>
+                  {taxonomy.category === 'marketing' ? 'Marketing' : 'Transactional'}
+                </Badge>
+                {/* Channel pill second */}
+                <Badge variant="outline" className={`text-xs ${getChannelColor(primaryChannel)}`}>
+                  {displayChannel}
+                </Badge>
+                {/* Send date */}
                 {campaign.first_sent && (
                   <Badge variant="outline" className="text-xs bg-muted/50">
                     <Calendar className="h-3 w-3 mr-1" />
                     {new Date(campaign.first_sent).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </Badge>
                 )}
-                <Badge variant="outline" className={`text-xs ${getChannelColor(primaryChannel)}`}>
-                  {displayChannel}
-                </Badge>
               </div>
             </div>
             <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-2" />
@@ -851,17 +870,23 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
   // Grid view with large content preview
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all overflow-hidden cursor-pointer" onClick={onClick}>
-      {/* Header badges - date and channel */}
-      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5">
-        {campaign.first_sent && (
-          <Badge variant="outline" className="text-xs bg-background">
-            <Calendar className="h-3 w-3 mr-1" />
-            {new Date(campaign.first_sent).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </Badge>
-        )}
+      {/* Header badges - category, channel, date */}
+      <div className="px-4 py-2 bg-muted/30 border-b flex items-center gap-1.5 flex-wrap">
+        {/* Category pill first */}
+        <Badge variant="outline" className={`text-xs bg-background ${getCategoryColor(taxonomy.category)}`}>
+          {taxonomy.category === 'marketing' ? 'Marketing' : 'Transactional'}
+        </Badge>
+        {/* Channel pill second */}
         <Badge variant="outline" className={`text-xs bg-background ${getChannelColor(primaryChannel)}`}>
           {displayChannel}
         </Badge>
+        {/* Send date */}
+        {campaign.first_sent && (
+          <Badge variant="outline" className="text-xs bg-background ml-auto">
+            <Calendar className="h-3 w-3 mr-1" />
+            {new Date(campaign.first_sent).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </Badge>
+        )}
       </div>
 
       {/* Content Preview - Large */}
