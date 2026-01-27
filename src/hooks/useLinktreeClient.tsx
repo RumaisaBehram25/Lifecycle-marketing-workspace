@@ -121,8 +121,10 @@ export function useLinktreePlatforms() {
     queryKey: ['linktree-platforms', client?.id],
     queryFn: async () => {
       if (!client?.id) return [];
+      // Use the public view which excludes sensitive API credentials
+      // but includes schema_cache with campaigns/templates for all approved users
       const { data, error } = await supabase
-        .from('client_platforms')
+        .from('client_platforms_public')
         .select('*')
         .eq('client_id', client.id);
       if (error) throw error;
