@@ -803,13 +803,13 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
                       <img 
                         src="/logos/linktree-logo.png" 
                         alt="Linktree" 
-                        className="h-6 w-6 rounded-lg object-contain flex-shrink-0"
+                        className="h-5 w-5 rounded object-contain flex-shrink-0"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[10px] text-muted-foreground">Linktree • now</p>
-                        <p className="text-xs font-semibold line-clamp-1">{campaign.push_title || campaign.displayName}</p>
+                        <p className="text-[9px] text-muted-foreground">Linktree • now</p>
+                        <p className="text-[11px] font-semibold line-clamp-1">{campaign.push_title || campaign.displayName}</p>
                         {campaign.push_body && (
-                          <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">{campaign.push_body}</p>
+                          <p className="text-[9px] text-muted-foreground line-clamp-2 mt-0.5">{campaign.push_body}</p>
                         )}
                       </div>
                     </div>
@@ -900,13 +900,13 @@ function CampaignCard({ campaign, viewMode, onClick }: { campaign: EnrichedCampa
                 <img 
                   src="/logos/linktree-logo.png" 
                   alt="Linktree" 
-                  className="h-12 w-12 rounded-lg object-contain flex-shrink-0"
+                  className="h-10 w-10 rounded-lg object-contain flex-shrink-0"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-muted-foreground">Linktree • now</p>
-                  <p className="font-semibold mt-0.5 line-clamp-2">{campaign.push_title || campaign.displayName}</p>
+                  <p className="text-[10px] text-muted-foreground">Linktree • now</p>
+                  <p className="font-semibold text-sm mt-0.5 line-clamp-1">{campaign.push_title || campaign.displayName}</p>
                   {campaign.push_body && (
-                    <p className="text-sm text-muted-foreground line-clamp-3 mt-1">{campaign.push_body}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{campaign.push_body}</p>
                   )}
                 </div>
               </div>

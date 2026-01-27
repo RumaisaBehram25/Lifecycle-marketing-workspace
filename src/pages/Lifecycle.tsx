@@ -692,9 +692,16 @@ function JourneyCard({
                 {journey.displayName || journey.name}
               </h3>
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                {journey.channels?.map((ch: string) => (
-                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
-                    {ch === 'in_app_message' ? 'In-App' : ch}
+                {[...new Set(journey.channels?.map((ch: string) => {
+                  const normalized = ch.toLowerCase().replace(/[-_]/g, '');
+                  if (normalized.includes('email')) return 'Email';
+                  if (normalized.includes('push')) return 'Push';
+                  if (normalized.includes('inapp') || normalized.includes('in_app') || normalized.includes('in-app')) return 'In-App';
+                  if (normalized.includes('sms')) return 'SMS';
+                  return null;
+                }).filter(Boolean))]?.map((ch: string) => (
+                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>
+                    {ch}
                   </Badge>
                 ))}
               </div>
@@ -730,21 +737,23 @@ function JourneyCard({
           <span>{journey.total_steps || Object.keys(journey.steps || {}).length} touchpoints</span>
         </div>
 
-        {/* Channel badges */}
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {journey.channels?.map((ch: string) => (
-            <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch)}`}>
-              {ch === 'in_app_message' ? 'In-App' : ch}
+        {/* Channel badges - show unique channels in the flow */}
+        <div className="flex flex-wrap gap-1.5">
+          {[...new Set(journey.channels?.map((ch: string) => {
+            const normalized = ch.toLowerCase().replace(/[-_]/g, '');
+            if (normalized.includes('email')) return 'Email';
+            if (normalized.includes('push')) return 'Push';
+            if (normalized.includes('inapp') || normalized.includes('in_app') || normalized.includes('in-app')) return 'In-App';
+            if (normalized.includes('sms')) return 'SMS';
+            return null;
+          }).filter(Boolean))]?.map((ch: string) => (
+            <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>
+              {ch}
             </Badge>
           ))}
         </div>
 
-        <div className="flex items-center justify-between pt-3 border-t">
-          <div className="flex items-center gap-1">
-            {journey.channels?.map((channel: string) => (
-              <ChannelIcon key={channel} channel={channel} />
-            ))}
-          </div>
+        <div className="flex items-center justify-end pt-3 border-t mt-3">
           <Button variant="ghost" size="sm" className="gap-1">
             View Journey
             <ArrowRight className="h-3 w-3" />
@@ -843,11 +852,17 @@ function JourneyDetail({
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-semibold leading-tight">{journey.displayName || journey.name}</h2>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                {Object.entries(channelCounts).map(([channel, count]) => (
-                  <span key={channel} className="flex items-center gap-1">
-                    <ChannelIcon channel={channel} size="sm" />
-                    {channel === 'in_app_message' ? 'In-App' : channel}: {count as number}
-                  </span>
+                {[...new Set(Object.entries(channelCounts).map(([channel]) => {
+                  const normalized = channel.toLowerCase().replace(/[-_]/g, '');
+                  if (normalized.includes('email')) return 'Email';
+                  if (normalized.includes('push')) return 'Push';
+                  if (normalized.includes('inapp') || normalized.includes('in_app') || normalized.includes('in-app')) return 'In-App';
+                  if (normalized.includes('sms')) return 'SMS';
+                  return null;
+                }).filter(Boolean))]?.map((ch: string) => (
+                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>
+                    {ch}
+                  </Badge>
                 ))}
                 {journey.first_entry && (
                   <span className="border-l pl-2 ml-1">Launched: {new Date(journey.first_entry).toLocaleDateString()}</span>
