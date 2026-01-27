@@ -10,6 +10,7 @@ interface AuthContextType {
   role: AppRole | null;
   isLoading: boolean;
   isAdmin: boolean;
+  isApproved: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -115,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     role,
     isLoading,
     isAdmin: role === 'admin',
+    isApproved: profile?.is_approved === true || role === 'admin',
     signIn,
     signUp,
     signOut,

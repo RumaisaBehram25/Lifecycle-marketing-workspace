@@ -22,6 +22,7 @@ import {
   BarChart3,
   Palette,
   User,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -36,25 +37,29 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Briefs', href: '/briefs', icon: FileText },
-  { name: 'Campaigns', href: '/campaigns', icon: Send },
-  { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Audience', href: '/audience', icon: Users },
-  { name: 'Brand', href: '/brand', icon: Palette },
-  { name: 'AI Chat', href: '/chat', icon: MessageSquare },
-  { name: 'Knowledge Base', href: '/knowledge', icon: Database },
-  { name: 'Settings', href: '/settings', icon: Settings },
-];
+// Navigation is now built dynamically in the component to support admin-only items
 
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, isAdmin } = useAuth();
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
+
+  // Build navigation items, including admin-only items
+  const navItems = [
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Briefs', href: '/briefs', icon: FileText },
+    { name: 'Campaigns', href: '/campaigns', icon: Send },
+    { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
+    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+    { name: 'Audience', href: '/audience', icon: Users },
+    { name: 'Brand', href: '/brand', icon: Palette },
+    { name: 'AI Chat', href: '/chat', icon: MessageSquare },
+    { name: 'Knowledge Base', href: '/knowledge', icon: Database },
+    ...(isAdmin ? [{ name: 'User Management', href: '/users', icon: ShieldCheck }] : []),
+    { name: 'Settings', href: '/settings', icon: Settings },
+  ];
 
   const handleSignOut = async () => {
     await signOut();
@@ -89,7 +94,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigation.map((item) => {
+              {navItems.map((item) => {
                 const isActive = location.pathname === item.href || 
                   (item.href !== '/dashboard' && location.pathname.startsWith(item.href));
                 return (
