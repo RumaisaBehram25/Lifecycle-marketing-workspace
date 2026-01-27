@@ -95,6 +95,7 @@ interface BrazeCanvas {
   entry_audience_filter?: string;
   entry_segment_id?: string;
   entry_segment_name?: string;
+  trigger_event_name?: string;
   exception_events?: string[];
   filters?: Array<{ type: string; value: string }>;
 }
@@ -285,6 +286,7 @@ export default function Lifecycle() {
           // Entry criteria info
           entry_type: (canvas as any).entry_type,
           entry_segment_name: (canvas as any).entry_segment_name,
+          trigger_event_name: (canvas as any).trigger_event_name,
           exception_events: (canvas as any).exception_events,
           filters: (canvas as any).filters,
         };
@@ -950,6 +952,12 @@ function JourneyDetail({
               <Badge className="bg-primary/10 text-primary border-primary/30">
                 {getEntryType()} Entry
               </Badge>
+              {journey.trigger_event_name && (
+                <Badge variant="outline" className="bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 gap-1">
+                  <Zap className="h-3 w-3" />
+                  {journey.trigger_event_name}
+                </Badge>
+              )}
               {journey.entry_segment_name && (
                 <Badge variant="outline" className="gap-1">
                   <FilterIcon className="h-3 w-3" />

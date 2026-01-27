@@ -122,7 +122,9 @@ interface BrazeCanvas {
   entry_audience_filter?: string;
   entry_segment_id?: string;
   entry_segment_name?: string;
+  trigger_event_name?: string;
   exception_events?: string[];
+  filters?: Array<{ type: string; value: string }>;
 }
 
 interface BrazeTemplate {
@@ -733,20 +735,41 @@ serve(async (req) => {
     // Fetch canvases with FULL hierarchical structure: variants -> steps graph
     // We'll fetch details first to determine enabled status, then filter to ONLY sync active canvases
     try {
-      const canvasesData = await brazeFetch('canvas/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
-      const canvasList = canvasesData.canvases || [];
+      // PAGINATE through all canvas pages to get complete list
+      let allCanvasList: any[] = [];
+      let canvasPage = 0;
+      let hasMoreCanvases = true;
       
-      console.log(`Found ${canvasList.length} canvases total, fetching details to filter active only...`);
+      while (hasMoreCanvases) {
+        const canvasesData = await brazeFetch(`canvas/list?page=${canvasPage}&include_archived=false&sort_direction=desc`, apiKey, brazeRestEndpoint);
+        const canvases = canvasesData.canvases || [];
+        
+        if (canvases.length === 0) {
+          hasMoreCanvases = false;
+        } else {
+          allCanvasList = [...allCanvasList, ...canvases];
+          canvasPage++;
+          // Safety limit
+          if (canvasPage > 10) {
+            console.log('Reached max canvas pages (10), stopping pagination');
+            hasMoreCanvases = false;
+          }
+        }
+      }
       
-      // Increase limit to 100 to capture all active canvases (you mentioned ~40 live)
+      console.log(`Found ${allCanvasList.length} canvases total across ${canvasPage} pages, fetching details to filter active only...`);
+      
+      // Fetch details for all canvases to get enabled status and full structure
       const canvasesWithDetails = await Promise.all(
-        canvasList.slice(0, 100).map(async (c: any): Promise<BrazeCanvas> => {
+        allCanvasList.map(async (c: any): Promise<BrazeCanvas> => {
           const variants: CanvasVariant[] = [];
           const steps: Record<string, CanvasStep> = {};
           let enabled = false;
           let entryType: string | undefined;
           let entrySegmentName: string | undefined;
+          let triggerEventName: string | undefined;
           let exceptionEvents: string[] = [];
+          let filters: Array<{ type: string; value: string }> = [];
           
           try {
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
@@ -763,17 +786,48 @@ serve(async (req) => {
               if (details.entry_schedule.type) {
                 entryType = details.entry_schedule.type;
               }
+              // Capture the actual trigger event name
+              if (details.entry_schedule.trigger_properties?.name) {
+                triggerEventName = details.entry_schedule.trigger_properties.name;
+              }
+              if (details.entry_schedule.trigger_event_name) {
+                triggerEventName = details.entry_schedule.trigger_event_name;
+              }
+            }
+            // Also check trigger_events array for action-based entry
+            if (details.trigger_events && Array.isArray(details.trigger_events) && details.trigger_events.length > 0) {
+              triggerEventName = details.trigger_events.map((t: any) => 
+                typeof t === 'string' ? t : t.name || t.event_name || 'Event'
+              ).join(', ');
+            }
+            // Check entry_rules for trigger event
+            if (details.entry_rules?.trigger?.custom_event?.custom_event_name) {
+              triggerEventName = details.entry_rules.trigger.custom_event.custom_event_name;
             }
             if (details.entry_audience_ids && details.entry_audience_ids.length > 0) {
               entryType = 'segment';
+            }
+            // Capture segment name if available
+            if (details.entry_audience_name) {
+              entrySegmentName = details.entry_audience_name;
+            }
+            if (details.entry_segment?.name) {
+              entrySegmentName = details.entry_segment.name;
             }
             if (details.exception_events && Array.isArray(details.exception_events)) {
               exceptionEvents = details.exception_events.map((e: any) => 
                 typeof e === 'string' ? e : e.name || e.event_name || 'Exception'
               );
             }
+            // Capture audience filters
+            if (details.entry_rules?.audience?.filters && Array.isArray(details.entry_rules.audience.filters)) {
+              filters = details.entry_rules.audience.filters.map((f: any) => ({
+                type: f.type || 'filter',
+                value: f.value || f.name || JSON.stringify(f),
+              }));
+            }
             
-            console.log(`Canvas "${c.name}" (${c.id}): enabled=${enabled}, draft=${c.draft}, schedule=${entryType}`);
+            console.log(`Canvas "${c.name}" (${c.id}): enabled=${enabled}, draft=${c.draft}, schedule=${entryType}, trigger=${triggerEventName || 'none'}`);
             
             // Parse variants - these are entry points with percentage allocations
             if (details.variants && Array.isArray(details.variants)) {
@@ -922,7 +976,9 @@ serve(async (req) => {
             // Entry criteria
             entry_type: entryType as any,
             entry_segment_name: entrySegmentName,
+            trigger_event_name: triggerEventName,
             exception_events: exceptionEvents.length > 0 ? exceptionEvents : undefined,
+            filters: filters.length > 0 ? filters : undefined,
           };
         })
       );
@@ -935,7 +991,7 @@ serve(async (req) => {
       results.canvases = activeCanvases;
       
       const withStepsCount = activeCanvases.filter(c => Object.keys(c.steps).length > 0).length;
-      console.log(`Synced canvases: ${activeCanvases.length} active (from ${canvasesWithDetails.length} fetched, ${canvasList.length} total), ${withStepsCount} with steps`);
+      console.log(`Synced canvases: ${activeCanvases.length} active (from ${canvasesWithDetails.length} fetched, ${allCanvasList.length} total), ${withStepsCount} with steps`);
     } catch (e) {
       console.error('Failed to fetch canvases:', e);
     }

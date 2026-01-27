@@ -673,9 +673,9 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
         </DialogContent>
       </Dialog>
       
-      {/* Split/Audience Path Details Modal */}
+      {/* Split/Audience Path Details Modal - Enhanced to show full path content */}
       <Dialog open={!!selectedSplit} onOpenChange={(open) => !open && setSelectedSplit(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitBranch className="h-5 w-5 text-violet-600" />
@@ -683,30 +683,105 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
             </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="flex-1 overflow-auto space-y-4">
             <p className="text-sm text-muted-foreground">
               This step splits users into {selectedSplit?.next_paths?.length || 2} different paths based on audience criteria.
             </p>
             
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Paths:</p>
-              {selectedSplit?.next_paths?.map((path, idx) => (
-                <div 
-                  key={path.next_step_id || idx}
-                  className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg border"
-                >
-                  <div className="h-8 w-8 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-medium text-violet-700 dark:text-violet-300">{idx + 1}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{path.name}</p>
-                    {path.percentage !== undefined && (
-                      <p className="text-xs text-muted-foreground">{Math.round(path.percentage)}% of users</p>
+            <div className="space-y-4">
+              <p className="text-sm font-medium">Paths & Content:</p>
+              {selectedSplit?.next_paths?.map((path, idx) => {
+                // Build the path content for this branch
+                const pathSteps = buildLinearPath(path.next_step_id, canvas.steps);
+                const messageSteps = pathSteps.filter(s => {
+                  const type = s.type?.toLowerCase() || 'message';
+                  return !BRANCHING_TYPES.includes(type);
+                });
+                
+                return (
+                  <div 
+                    key={path.next_step_id || idx}
+                    className="border rounded-lg overflow-hidden"
+                  >
+                    <div className="flex items-center gap-3 p-3 bg-muted/30">
+                      <div className="h-8 w-8 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-medium text-violet-700 dark:text-violet-300">{idx + 1}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium">{path.name}</p>
+                        {path.percentage !== undefined && (
+                          <p className="text-xs text-muted-foreground">{Math.round(path.percentage)}% of users • {messageSteps.length} touchpoint{messageSteps.length !== 1 ? 's' : ''}</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {messageSteps.length > 0 ? (
+                      <ScrollArea className="w-full">
+                        <div className="flex items-start gap-4 p-4 min-w-max">
+                          {messageSteps.map((step) => (
+                            <div 
+                              key={step.id} 
+                              className="w-[200px] flex-shrink-0 cursor-pointer"
+                              onClick={() => {
+                                setSelectedSplit(null);
+                                setPreviewStep(step);
+                              }}
+                            >
+                              <Card className="hover:shadow-md transition-shadow border-2 overflow-hidden">
+                                <CardContent className="p-0">
+                                  <div className="bg-muted/30 p-2 border-b">
+                                    <div className="flex items-center gap-2">
+                                      {getChannelIcon(step.channel, "h-4 w-4")}
+                                      <span className="text-xs font-medium truncate">{step.name}</span>
+                                    </div>
+                                  </div>
+                                  <div className="p-2 h-24 overflow-hidden bg-background">
+                                    {(() => {
+                                      const msg = pickBestMessage(step);
+                                      const channel = normalizeChannel(step.channel);
+                                      if (channel === 'email' && msg?.subject) {
+                                        return (
+                                          <div className="text-xs">
+                                            <p className="font-medium truncate">{msg.subject}</p>
+                                            {msg.preheader && <p className="text-muted-foreground truncate mt-1">{msg.preheader}</p>}
+                                          </div>
+                                        );
+                                      }
+                                      if ((channel === 'push' || channel.includes('push')) && (msg?.title || msg?.body)) {
+                                        return (
+                                          <div className="text-xs">
+                                            <p className="font-medium truncate">{msg?.title || step.name}</p>
+                                            {msg?.body && <p className="text-muted-foreground line-clamp-2 mt-1">{msg.body}</p>}
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div className="h-full flex items-center justify-center text-muted-foreground">
+                                          {getChannelIcon(step.channel, "h-6 w-6 opacity-30")}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                              {step.delay_formatted && step.delay_formatted !== '0h' && (
+                                <Badge variant="outline" className="mt-2 text-xs bg-amber-500/10 border-amber-500/50 text-amber-700">
+                                  +{step.delay_formatted}
+                                </Badge>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <ScrollBar orientation="horizontal" />
+                      </ScrollArea>
+                    ) : (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        No message steps in this path
+                      </div>
                     )}
                   </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                </div>
-              ))}
+                );
+              })}
               
               {(!selectedSplit?.next_paths || selectedSplit.next_paths.length === 0) && (
                 <p className="text-sm text-muted-foreground italic">Path details not available</p>
