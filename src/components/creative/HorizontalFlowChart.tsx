@@ -154,9 +154,13 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   if (channel === 'email') {
     return (
       <div className="w-full h-[520px] bg-card overflow-hidden flex flex-col">
+        {/* Step name header */}
+        <div className="bg-primary/10 px-2 py-1.5 flex-shrink-0 border-b border-primary/20">
+          <p className="text-xs font-semibold text-primary truncate">{step.name}</p>
+        </div>
         <div className="bg-muted/30 px-2 py-2 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground truncate">From: Linktree</p>
-          <p className="text-sm font-medium truncate">{message?.subject || step.name}</p>
+          <p className="text-sm font-medium truncate">{message?.subject || 'No subject'}</p>
           {message?.preheader && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">{message.preheader}</p>
           )}
@@ -189,6 +193,10 @@ function CreativePreview({ step }: { step: CanvasStep }) {
   if (channel === 'push' || channel.includes('push')) {
     return (
       <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/20 rounded-t-lg">
+        {/* Step name header */}
+        <div className="w-full bg-primary/10 px-3 py-1.5 rounded-t-lg mb-2 -mt-2">
+          <p className="text-xs font-semibold text-primary truncate text-center">{step.name}</p>
+        </div>
         <div className="w-full bg-card border rounded-2xl p-4 shadow-xl">
           <div className="flex items-start gap-3">
             <img 
@@ -221,6 +229,10 @@ function CreativePreview({ step }: { step: CanvasStep }) {
       // Render as sandboxed iframe like email
       return (
         <div className="w-full h-[520px] bg-card rounded-t-lg overflow-hidden flex flex-col">
+          {/* Step name header */}
+          <div className="bg-primary/10 px-3 py-1.5 flex-shrink-0 border-b border-primary/20">
+            <p className="text-xs font-semibold text-primary truncate">{step.name}</p>
+          </div>
           <div className="bg-muted/30 px-3 py-3 border-b flex-shrink-0 flex items-center gap-2">
             <Smartphone className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">In-App Message</span>
@@ -241,6 +253,10 @@ function CreativePreview({ step }: { step: CanvasStep }) {
     // Fallback to simple card rendering
     return (
       <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/20 rounded-t-lg">
+        {/* Step name header */}
+        <div className="w-full bg-primary/10 px-3 py-1.5 rounded-t-lg mb-2 -mt-2">
+          <p className="text-xs font-semibold text-primary truncate text-center">{step.name}</p>
+        </div>
         <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center shadow-lg">
           {message?.image_url ? (
             <img src={message.image_url} alt="" className="w-20 h-20 object-cover rounded-xl mx-auto mb-5" />
@@ -297,7 +313,7 @@ function formatDelayCompact(seconds?: number): string | null {
   return null;
 }
 
-// Delay/Filter/Split module BELOW step
+// Delay/Filter/Split module BELOW step - Enhanced with more detail
 function StepMetaModule({ 
   step, 
   delaySeconds,
@@ -310,19 +326,33 @@ function StepMetaModule({
   onSplitClick?: (splitStep: CanvasStep) => void;
 }) {
   const type = step.type?.toLowerCase() || 'message';
-  const isFilter = type === 'decision_split' || type === 'branch' || type === 'action_paths' || type === 'filter';
+  const isFilter = type === 'decision_split' || type === 'branch' || type === 'filter';
+  const isAudiencePath = type === 'audience_paths';
+  const isActionPath = type === 'action_paths';
+  const isExperiment = type === 'experiment_paths';
   const delayLabel = formatDelayCompact(delaySeconds);
   
-  if (!delayLabel && !isFilter && !splitStep) {
+  if (!delayLabel && !isFilter && !isAudiencePath && !isActionPath && !isExperiment && !splitStep) {
     return null;
   }
+  
+  // Determine split type label
+  const getSplitLabel = (s: CanvasStep) => {
+    const sType = s.type?.toLowerCase() || '';
+    if (sType === 'decision_split' || sType === 'branch') return 'Decision Split';
+    if (sType === 'audience_paths') return 'Audience Path';
+    if (sType === 'action_paths') return 'Action Path';
+    if (sType === 'experiment_paths') return 'A/B Test';
+    if (sType === 'filter') return 'Filter';
+    return `${s.next_paths?.length || 2} paths`;
+  };
   
   return (
     <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
       {delayLabel && (
         <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 text-xs gap-1.5 py-1 font-semibold">
           <Timer className="h-3.5 w-3.5" />
-          {delayLabel}
+          {delayLabel} delay
         </Badge>
       )}
       {splitStep && (
@@ -335,7 +365,7 @@ function StepMetaModule({
           }}
         >
           <GitBranch className="h-3.5 w-3.5" />
-          {splitStep.next_paths?.length || 2} paths
+          {getSplitLabel(splitStep)}
         </Badge>
       )}
       {isFilter && !splitStep && (
@@ -697,9 +727,13 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
   if (channel === 'email') {
     return (
       <div className="flex flex-col h-full">
+        {/* Step name header */}
+        <div className="bg-primary/10 px-4 py-2 flex-shrink-0 border-b border-primary/20">
+          <p className="text-sm font-semibold text-primary">{step.name}</p>
+        </div>
         <div className="bg-muted/30 px-4 py-3 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground">From: Linktree</p>
-          <p className="font-medium">{message?.subject || step.name}</p>
+          <p className="font-medium">{message?.subject || 'No subject'}</p>
           {message?.preheader && (
             <p className="text-sm text-muted-foreground mt-1">{message.preheader}</p>
           )}

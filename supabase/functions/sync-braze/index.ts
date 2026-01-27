@@ -117,6 +117,12 @@ interface BrazeCanvas {
   variants: CanvasVariant[];
   steps: Record<string, CanvasStep>;
   total_steps?: number;
+  // Entry criteria info
+  entry_type?: 'trigger' | 'segment' | 'api' | 'scheduled' | 'action_based';
+  entry_audience_filter?: string;
+  entry_segment_id?: string;
+  entry_segment_name?: string;
+  exception_events?: string[];
 }
 
 interface BrazeTemplate {
@@ -738,6 +744,9 @@ serve(async (req) => {
           const variants: CanvasVariant[] = [];
           const steps: Record<string, CanvasStep> = {};
           let enabled = false;
+          let entryType: string | undefined;
+          let entrySegmentName: string | undefined;
+          let exceptionEvents: string[] = [];
           
           try {
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
@@ -745,7 +754,26 @@ serve(async (req) => {
             // Capture enabled status - this is the key field for "active"
             enabled = details.enabled === true;
             
-            console.log(`Canvas "${c.name}" (${c.id}): enabled=${enabled}, draft=${c.draft}`);
+            // Parse entry criteria
+            if (details.schedule_type) {
+              entryType = details.schedule_type;
+            }
+            if (details.entry_schedule) {
+              // Braze stores trigger info here
+              if (details.entry_schedule.type) {
+                entryType = details.entry_schedule.type;
+              }
+            }
+            if (details.entry_audience_ids && details.entry_audience_ids.length > 0) {
+              entryType = 'segment';
+            }
+            if (details.exception_events && Array.isArray(details.exception_events)) {
+              exceptionEvents = details.exception_events.map((e: any) => 
+                typeof e === 'string' ? e : e.name || e.event_name || 'Exception'
+              );
+            }
+            
+            console.log(`Canvas "${c.name}" (${c.id}): enabled=${enabled}, draft=${c.draft}, schedule=${entryType}`);
             
             // Parse variants - these are entry points with percentage allocations
             if (details.variants && Array.isArray(details.variants)) {
@@ -881,7 +909,7 @@ serve(async (req) => {
             description: c.description,
             draft: c.draft,
             enabled, // Key field for active status
-            schedule_type: c.schedule_type,
+            schedule_type: c.schedule_type || entryType,
             first_entry: c.first_entry,
             last_entry: c.last_entry,
             tags: c.tags,
@@ -891,6 +919,10 @@ serve(async (req) => {
             variants,
             steps,
             total_steps: Object.keys(steps).length,
+            // Entry criteria
+            entry_type: entryType as any,
+            entry_segment_name: entrySegmentName,
+            exception_events: exceptionEvents.length > 0 ? exceptionEvents : undefined,
           };
         })
       );

@@ -40,6 +40,7 @@ import {
   RefreshCw,
   AlertCircle,
   Workflow,
+  Filter as FilterIcon,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -89,6 +90,13 @@ interface BrazeCanvas {
   variants: CanvasVariant[];
   steps: Record<string, CanvasStep>;
   total_steps?: number;
+  // Entry criteria from Braze
+  entry_type?: 'trigger' | 'segment' | 'api' | 'scheduled' | 'action_based';
+  entry_audience_filter?: string;
+  entry_segment_id?: string;
+  entry_segment_name?: string;
+  exception_events?: string[];
+  filters?: Array<{ type: string; value: string }>;
 }
 
 interface BrazeSchemaCache {
@@ -155,6 +163,24 @@ const MOCK_JOURNEYS: Array<{
     total_steps: 4,
   },
 ];
+
+// Helper to count only message steps (email, push, in-app, sms)
+function countMessageSteps(steps?: Record<string, CanvasStep>): number {
+  if (!steps) return 0;
+  const stepsList = Object.values(steps);
+  return stepsList.filter((s) => {
+    const type = s.type?.toLowerCase() || 'message';
+    const channel = (s.channel || '').toLowerCase();
+    // Exclude non-message step types
+    if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths', 'webhook'].includes(type)) {
+      return false;
+    }
+    // Only count email, push, in-app, sms
+    return channel.includes('email') || channel.includes('push') || 
+           channel.includes('in_app') || channel.includes('in-app') || 
+           channel.includes('sms') || type === 'message';
+  }).length;
+}
 
 export default function Lifecycle() {
   const { data: client } = useLinktreeClient();
@@ -225,6 +251,20 @@ export default function Lifecycle() {
           if (inferredChannels.length === 0) inferredChannels.push('email');
         }
         
+        // Count only message steps (email, push, in-app, sms) for touchpoints
+        const messageStepCount = stepsList.filter((s): s is CanvasStep => {
+          const type = s.type?.toLowerCase() || 'message';
+          const channel = (s.channel || '').toLowerCase();
+          // Exclude delay, decision_split, branch, filter, audience_paths, action_paths, experiment_paths, webhook
+          if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths', 'webhook'].includes(type)) {
+            return false;
+          }
+          // Only count email, push, in-app, sms
+          return channel.includes('email') || channel.includes('push') || 
+                 channel.includes('in_app') || channel.includes('in-app') || 
+                 channel.includes('sms') || type === 'message';
+        }).length;
+
         return {
           id: canvas.id,
           name: canvas.name,
@@ -241,7 +281,12 @@ export default function Lifecycle() {
           taxonomy: { ...taxonomy, type: 'lifecycle' as const },
           variants: canvas.variants || [],
           steps: stepsRecord,
-          total_steps: canvas.total_steps || stepsList.length,
+          total_steps: messageStepCount, // Only count actual message steps
+          // Entry criteria info
+          entry_type: (canvas as any).entry_type,
+          entry_segment_name: (canvas as any).entry_segment_name,
+          exception_events: (canvas as any).exception_events,
+          filters: (canvas as any).filters,
         };
       });
   }, [brazeData?.canvases]);
@@ -708,7 +753,7 @@ function JourneyCard({
             </div>
             <div className="flex items-center gap-2">
               <div className="text-right text-xs text-muted-foreground">
-                <span>{Object.keys(journey.steps || {}).length} touches</span>
+                <span>{journey.total_steps || countMessageSteps(journey.steps)} touches</span>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />
             </div>
@@ -734,7 +779,7 @@ function JourneyCard({
 
         <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
           <Workflow className="h-3.5 w-3.5" />
-          <span>{journey.total_steps || Object.keys(journey.steps || {}).length} touchpoints</span>
+          <span>{journey.total_steps || countMessageSteps(journey.steps)} touchpoints</span>
         </div>
 
         {/* Channel badges - show unique channels in the flow */}
@@ -830,11 +875,36 @@ function JourneyDetail({
   const color = getColor();
 
   const stepsList = journey.steps ? Object.values(journey.steps) : [];
+  const messageStepCount = countMessageSteps(journey.steps);
   const channelCounts = stepsList.reduce((acc: Record<string, number>, step: any) => {
+    const type = step.type?.toLowerCase() || 'message';
+    // Only count message steps
+    if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths', 'webhook'].includes(type)) {
+      return acc;
+    }
     const ch = step.channel || 'email';
     acc[ch] = (acc[ch] || 0) + 1;
     return acc;
   }, {});
+
+  // Determine entry type from schedule_type
+  const getEntryType = (): string => {
+    if (journey.entry_type) {
+      const type = journey.entry_type.toLowerCase();
+      if (type.includes('trigger') || type.includes('action')) return 'Trigger';
+      if (type.includes('segment')) return 'Segment';
+      if (type.includes('api')) return 'API';
+      if (type.includes('schedule')) return 'Scheduled';
+    }
+    if (journey.schedule_type) {
+      const sched = journey.schedule_type.toLowerCase();
+      if (sched.includes('trigger') || sched.includes('action_based')) return 'Trigger';
+      if (sched.includes('segment')) return 'Segment';
+      if (sched.includes('api')) return 'API';
+      if (sched.includes('schedule')) return 'Scheduled';
+    }
+    return 'Trigger'; // Default assumption
+  };
 
   return (
     <div className="space-y-3">
@@ -845,7 +915,7 @@ function JourneyDetail({
       <Card className="overflow-hidden">
         <div className={`h-2 ${color}`} />
         <CardContent className="p-4">
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-3">
             <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
               <Icon className="h-5 w-5 text-white" />
             </div>
@@ -864,6 +934,9 @@ function JourneyDetail({
                     {ch}
                   </Badge>
                 ))}
+                <Badge variant="outline" className="text-xs">
+                  {messageStepCount} touchpoint{messageStepCount !== 1 ? 's' : ''}
+                </Badge>
                 {journey.first_entry && (
                   <span className="border-l pl-2 ml-1">Launched: {new Date(journey.first_entry).toLocaleDateString()}</span>
                 )}
@@ -871,9 +944,38 @@ function JourneyDetail({
             </div>
           </div>
 
+          {/* TLDR Section */}
+          <div className="bg-muted/30 rounded-lg p-3 mb-4 space-y-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              <Badge className="bg-primary/10 text-primary border-primary/30">
+                {getEntryType()} Entry
+              </Badge>
+              {journey.entry_segment_name && (
+                <Badge variant="outline" className="gap-1">
+                  <FilterIcon className="h-3 w-3" />
+                  {journey.entry_segment_name}
+                </Badge>
+              )}
+              {journey.exception_events?.length > 0 && (
+                <Badge variant="outline" className="bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 gap-1">
+                  Excludes: {journey.exception_events.slice(0, 2).join(', ')}
+                  {journey.exception_events.length > 2 && ` +${journey.exception_events.length - 2}`}
+                </Badge>
+              )}
+              {journey.tags?.length > 0 && journey.tags.slice(0, 3).map((tag: string) => (
+                <Badge key={tag} variant="secondary" className="text-xs">
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+            {journey.description && journey.description !== 'Braze Canvas journey' && (
+              <p className="text-sm text-muted-foreground">{journey.description}</p>
+            )}
+          </div>
+
           {/* Horizontal Flow Chart */}
           {journey.steps && Object.keys(journey.steps).length > 0 && (
-            <div className="mt-4">
+            <div>
               <HorizontalFlowChart
                 canvas={{
                   id: journey.id,
