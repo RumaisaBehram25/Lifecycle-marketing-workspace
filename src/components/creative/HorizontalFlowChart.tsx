@@ -616,7 +616,7 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
               key={variant.name + idx}
               variant={variant}
               steps={canvas.steps}
-              onViewStep={setPreviewStep}
+              onViewStep={onViewStep || setPreviewStep}
               onSplitClick={setSelectedSplit}
               isOpen={openVariants.has(idx)}
               onToggle={() => toggleVariant(idx)}
