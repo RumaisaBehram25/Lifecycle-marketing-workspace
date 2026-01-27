@@ -1,6 +1,8 @@
 // Parse campaign name taxonomy: "20260115 | Campaign | Email | Messaging Nudge #2 - Active"
 // Format: YYYYMMDD | Type | Channel | Campaign Name
 
+export type CampaignCategory = 'marketing' | 'transactional';
+
 export interface ParsedCampaign {
   date: Date | null;
   dateString: string | null;
@@ -8,10 +10,14 @@ export interface ParsedCampaign {
   channel: string | null;
   displayName: string;
   originalName: string;
+  category: CampaignCategory;
 }
 
-export function parseCampaignTaxonomy(name: string): ParsedCampaign {
+export function parseCampaignTaxonomy(name: string, tags?: string[]): ParsedCampaign {
   const parts = name.split('|').map(p => p.trim());
+  
+  // Determine category from tags or name
+  const category = determineCampaignCategory(name, tags);
   
   if (parts.length < 4) {
     // Not following taxonomy, return as-is
@@ -22,6 +28,7 @@ export function parseCampaignTaxonomy(name: string): ParsedCampaign {
       channel: null,
       displayName: name,
       originalName: name,
+      category,
     };
   }
 
@@ -62,7 +69,45 @@ export function parseCampaignTaxonomy(name: string): ParsedCampaign {
     channel,
     displayName,
     originalName: name,
+    category,
   };
+}
+
+// Determine if campaign is Marketing or Transactional
+export function determineCampaignCategory(name: string, tags?: string[]): CampaignCategory {
+  const nameLower = name.toLowerCase();
+  const tagSet = new Set((tags || []).map(t => t.toLowerCase()));
+  
+  // Check for transactional indicators
+  const transactionalKeywords = [
+    'transactional', 'receipt', 'confirmation', 'password', 'reset',
+    'verification', 'verify', 'invoice', 'order', 'shipping', 'delivery',
+    'account', 'security', 'login', 'authentication', '2fa', 'otp'
+  ];
+  
+  // Check tags first
+  if (tagSet.has('transactional')) return 'transactional';
+  if (tagSet.has('marketing')) return 'marketing';
+  
+  // Check name for keywords
+  for (const keyword of transactionalKeywords) {
+    if (nameLower.includes(keyword)) return 'transactional';
+  }
+  
+  // Default to marketing
+  return 'marketing';
+}
+
+// Get badge color for category
+export function getCategoryColor(category: CampaignCategory): string {
+  switch (category) {
+    case 'marketing':
+      return 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30';
+    case 'transactional':
+      return 'bg-slate-500/10 text-slate-600 border-slate-500/30';
+    default:
+      return 'bg-muted text-muted-foreground';
+  }
 }
 
 // Get badge color for channel
