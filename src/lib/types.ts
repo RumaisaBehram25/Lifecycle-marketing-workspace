@@ -8,6 +8,9 @@ export interface Profile {
   email: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  is_approved: boolean;
+  approved_at: string | null;
+  approved_by: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -653,7 +654,12 @@ export default function Campaigns() {
                       {selectedCampaign.inapp_body && (
                         <div 
                           className="text-sm text-muted-foreground mt-2 prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{ __html: selectedCampaign.inapp_body }}
+                          dangerouslySetInnerHTML={{ 
+                            __html: DOMPurify.sanitize(selectedCampaign.inapp_body, {
+                              ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'em', 'strong', 'a', 'span', 'div'],
+                              ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style']
+                            })
+                          }}
                         />
                       )}
                       
