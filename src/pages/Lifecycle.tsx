@@ -235,13 +235,13 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform Braze canvases to journey format - only active (non-draft, non-archived) canvases
+  // Transform Braze canvases to journey format - all non-archived canvases (active or stopped)
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
     return brazeData.canvases
-      // Only include active canvases: not archived AND not draft
-      .filter(canvas => !canvas.archived && !canvas.draft)
+      // Include all non-archived canvases - "enabled" means currently running, but we want to see all live journeys
+      .filter(canvas => !canvas.archived)
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
         
