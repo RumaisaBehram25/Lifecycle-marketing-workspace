@@ -235,13 +235,13 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform Braze canvases to journey format - include all non-archived canvases
+  // Transform Braze canvases to journey format - only active (non-draft, non-archived) canvases
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
     return brazeData.canvases
-      // Include all non-archived canvases (enabled OR stopped - just not archived)
-      .filter(canvas => !canvas.archived)
+      // Only include active canvases: not archived AND not draft
+      .filter(canvas => !canvas.archived && !canvas.draft)
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
         
