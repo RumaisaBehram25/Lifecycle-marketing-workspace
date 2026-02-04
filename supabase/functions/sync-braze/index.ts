@@ -118,6 +118,18 @@ interface BrazeCanvas {
   trigger_event_name?: string;
   exception_events?: string[];
   filters?: Array<{ type: string; value: string }>;
+  // Conversion tracking
+  conversion_events?: Array<{
+    name: string;
+    window_seconds?: number;
+    type?: string;
+  }>;
+  entry_filters?: Array<{
+    type: string;
+    property?: string;
+    value?: string;
+    comparator?: string;
+  }>;
 }
 
 interface BrazeTemplate {
@@ -524,6 +536,8 @@ serve(async (req) => {
           let entrySegmentName: string | undefined;
           let triggerEventName: string | undefined;
           let exceptionEvents: string[] = [];
+          let conversionEvents: Array<{ name: string; window_seconds?: number; type?: string }> = [];
+          let entryFilters: Array<{ type: string; property?: string; value?: string; comparator?: string }> = [];
           
           try {
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
@@ -547,6 +561,50 @@ serve(async (req) => {
               exceptionEvents = details.exception_events.map((e: any) => 
                 typeof e === 'string' ? e : e.name || 'Exception'
               );
+            }
+            
+            // Parse conversion events
+            if (details.conversion_behaviors?.length > 0) {
+              conversionEvents = details.conversion_behaviors.map((cv: any) => ({
+                name: cv.type || cv.conversion_event_type || 'Conversion',
+                window_seconds: cv.window_conversion_production_seconds || cv.window,
+                type: cv.type,
+              }));
+            }
+            if (details.conversion_events?.length > 0) {
+              conversionEvents = details.conversion_events.map((cv: any) => ({
+                name: cv.name || cv.event_name || 'Conversion',
+                window_seconds: cv.window_seconds,
+                type: cv.type,
+              }));
+            }
+            
+            // Parse entry filters/audiences
+            if (details.entry_audience_filters?.length > 0) {
+              entryFilters = details.entry_audience_filters.map((f: any) => ({
+                type: f.type || 'filter',
+                property: f.property || f.attribute,
+                value: f.value?.toString() || f.comparator_value?.toString(),
+                comparator: f.comparator || f.comparison,
+              }));
+            }
+            if (details.entry_rules?.audience?.AND?.length > 0) {
+              for (const rule of details.entry_rules.audience.AND) {
+                if (rule.custom_attribute) {
+                  entryFilters.push({
+                    type: 'custom_attribute',
+                    property: rule.custom_attribute.custom_attribute_name,
+                    value: rule.custom_attribute.value?.toString(),
+                    comparator: rule.custom_attribute.comparison,
+                  });
+                }
+                if (rule.email_subscription) {
+                  entryFilters.push({
+                    type: 'email_subscription',
+                    value: rule.email_subscription.subscription_status,
+                  });
+                }
+              }
             }
             
             // Parse variants
@@ -632,6 +690,8 @@ serve(async (req) => {
             entry_segment_name: entrySegmentName,
             trigger_event_name: triggerEventName,
             exception_events: exceptionEvents.length > 0 ? exceptionEvents : undefined,
+            conversion_events: conversionEvents.length > 0 ? conversionEvents : undefined,
+            entry_filters: entryFilters.length > 0 ? entryFilters : undefined,
           };
         },
         3 // Smaller batch size for canvases since they're larger
