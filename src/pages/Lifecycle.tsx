@@ -98,6 +98,18 @@ interface BrazeCanvas {
   trigger_event_name?: string;
   exception_events?: string[];
   filters?: Array<{ type: string; value: string }>;
+  // Conversion tracking
+  conversion_events?: Array<{
+    name: string;
+    window_seconds?: number;
+    type?: string;
+  }>;
+  entry_filters?: Array<{
+    type: string;
+    property?: string;
+    value?: string;
+    comparator?: string;
+  }>;
 }
 
 interface BrazeSchemaCache {
@@ -289,6 +301,8 @@ export default function Lifecycle() {
           trigger_event_name: (canvas as any).trigger_event_name,
           exception_events: (canvas as any).exception_events,
           filters: (canvas as any).filters,
+          conversion_events: (canvas as any).conversion_events,
+          entry_filters: (canvas as any).entry_filters,
         };
       });
   }, [brazeData?.canvases]);
@@ -946,8 +960,9 @@ function JourneyDetail({
             </div>
           </div>
 
-          {/* TLDR Section */}
-          <div className="bg-muted/30 rounded-lg p-3 mb-4 space-y-2">
+          {/* TLDR Section - Enhanced with trigger details, filters, and conversions */}
+          <div className="bg-muted/30 rounded-lg p-4 mb-4 space-y-3">
+            {/* Row 1: Entry Type & Trigger */}
             <div className="flex flex-wrap gap-2 items-center">
               <Badge className="bg-primary/10 text-primary border-primary/30">
                 {getEntryType()} Entry
@@ -964,20 +979,73 @@ function JourneyDetail({
                   {journey.entry_segment_name}
                 </Badge>
               )}
-              {journey.exception_events?.length > 0 && (
-                <Badge variant="outline" className="bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400 gap-1">
-                  Excludes: {journey.exception_events.slice(0, 2).join(', ')}
-                  {journey.exception_events.length > 2 && ` +${journey.exception_events.length - 2}`}
-                </Badge>
-              )}
-              {journey.tags?.length > 0 && journey.tags.slice(0, 3).map((tag: string) => (
-                <Badge key={tag} variant="secondary" className="text-xs">
-                  {tag}
-                </Badge>
-              ))}
             </div>
+            
+            {/* Row 2: Entry Filters/Audience Criteria */}
+            {journey.entry_filters?.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Audience Filters:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {journey.entry_filters.slice(0, 5).map((filter: any, idx: number) => (
+                    <Badge key={idx} variant="outline" className="text-xs bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400">
+                      {filter.property || filter.type}
+                      {filter.comparator && ` ${filter.comparator}`}
+                      {filter.value && ` "${filter.value}"`}
+                    </Badge>
+                  ))}
+                  {journey.entry_filters.length > 5 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{journey.entry_filters.length - 5} more
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Row 3: Exclusions */}
+            {journey.exception_events?.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Exclusions:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {journey.exception_events.map((event: string, idx: number) => (
+                    <Badge key={idx} variant="outline" className="text-xs bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400">
+                      {event}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Row 4: Conversion Events */}
+            {journey.conversion_events?.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Conversion Goals:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {journey.conversion_events.map((cv: any, idx: number) => (
+                    <Badge key={idx} variant="outline" className="text-xs bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-400 gap-1">
+                      <TrendingUp className="h-3 w-3" />
+                      {cv.name}
+                      {cv.window_seconds && ` (${Math.round(cv.window_seconds / 86400)}d window)`}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Tags */}
+            {journey.tags?.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {journey.tags.slice(0, 5).map((tag: string) => (
+                  <Badge key={tag} variant="secondary" className="text-xs">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
+            
+            {/* Description */}
             {journey.description && journey.description !== 'Braze Canvas journey' && (
-              <p className="text-sm text-muted-foreground">{journey.description}</p>
+              <p className="text-sm text-muted-foreground pt-1 border-t">{journey.description}</p>
             )}
           </div>
 
