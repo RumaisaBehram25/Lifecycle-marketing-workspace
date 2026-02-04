@@ -549,23 +549,52 @@ serve(async (req) => {
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
             enabled = details.enabled === true;
             
-            // Parse entry criteria
+            // Log key fields for debugging (first canvas only)
+            if (allCanvasList.indexOf(c) === 0) {
+              console.log('Sample canvas details keys:', Object.keys(details));
+              console.log('schedule_type:', details.schedule_type);
+              console.log('entry_schedule:', JSON.stringify(details.entry_schedule));
+              console.log('entry_rules:', JSON.stringify(details.entry_rules));
+              console.log('exception_events:', JSON.stringify(details.exception_events));
+              console.log('conversion_behaviors:', JSON.stringify(details.conversion_behaviors));
+            }
+            
+            // Parse entry type from schedule_type
             if (details.schedule_type) entryType = details.schedule_type;
             if (details.entry_schedule?.type) entryType = details.entry_schedule.type;
-            if (details.entry_schedule?.trigger_event_name) triggerEventName = details.entry_schedule.trigger_event_name;
-            if (details.trigger_events?.length > 0) {
+            
+            // Parse trigger event name from multiple possible locations
+            if (details.entry_schedule?.trigger_event_name) {
+              triggerEventName = details.entry_schedule.trigger_event_name;
+            }
+            if (!triggerEventName && details.trigger_events?.length > 0) {
               triggerEventName = details.trigger_events.map((t: any) => 
                 typeof t === 'string' ? t : t.name || t.event_name
               ).join(', ');
             }
-            if (details.entry_rules?.trigger?.custom_event?.custom_event_name) {
+            if (!triggerEventName && details.entry_rules?.trigger?.custom_event?.custom_event_name) {
               triggerEventName = details.entry_rules.trigger.custom_event.custom_event_name;
             }
+            // Also check steps for action-based triggers
+            if (!triggerEventName && details.steps?.length > 0) {
+              const firstStep = details.steps[0];
+              if (firstStep?.trigger_properties?.event_name) {
+                triggerEventName = firstStep.trigger_properties.event_name;
+              }
+            }
+            
+            // Parse segment/audience name from multiple locations
             if (details.entry_audience_name) entrySegmentName = details.entry_audience_name;
-            if (details.entry_segment?.name) entrySegmentName = details.entry_segment.name;
+            if (!entrySegmentName && details.entry_segment?.name) entrySegmentName = details.entry_segment.name;
+            if (!entrySegmentName && details.entry_schedule?.segment?.name) entrySegmentName = details.entry_schedule.segment.name;
+            if (!entrySegmentName && details.entry_rules?.segment) {
+              entrySegmentName = details.entry_rules.segment.segment_id ? `Segment: ${details.entry_rules.segment.segment_id}` : undefined;
+            }
+            
+            // Parse exception events
             if (details.exception_events?.length > 0) {
               exceptionEvents = details.exception_events.map((e: any) => 
-                typeof e === 'string' ? e : e.name || 'Exception'
+                typeof e === 'string' ? e : e.name || e.custom_event_name || 'Exception'
               );
             }
             
