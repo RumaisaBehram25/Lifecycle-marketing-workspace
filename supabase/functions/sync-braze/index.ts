@@ -509,25 +509,31 @@ serve(async (req) => {
       console.error('Failed to fetch campaigns:', e);
     }
 
-    // === CANVASES (paginate but limit details to active only, max 40) ===
+    // === CANVASES (paginate to capture all ~35-40 active journeys) ===
     try {
       let allCanvasList: any[] = [];
       let canvasPage = 0;
       
-      // Fetch canvas list (up to 3 pages)
-      while (canvasPage < 3) {
+      // Fetch canvas list (up to 10 pages to capture all journeys)
+      while (canvasPage < 10) {
         const canvasesData = await brazeFetch(`canvas/list?page=${canvasPage}&include_archived=false&sort_direction=desc`, apiKey, brazeRestEndpoint);
         const canvases = canvasesData.canvases || [];
         if (canvases.length === 0) break;
         allCanvasList = [...allCanvasList, ...canvases];
         canvasPage++;
+        // Early exit if we have enough
+        if (allCanvasList.length >= 100) break;
       }
       
-      console.log(`Found ${allCanvasList.length} canvases, fetching details for first 40...`);
+      // Filter to non-draft canvases for detailed fetching (prioritize active)
+      const activeCanvases = allCanvasList.filter((c: any) => !c.draft);
+      const draftCanvases = allCanvasList.filter((c: any) => c.draft);
       
-      // Process canvases in small batches
+      console.log(`Found ${allCanvasList.length} total canvases (${activeCanvases.length} active, ${draftCanvases.length} drafts). Fetching details for active canvases...`);
+      
+      // Process active canvases first (all of them), then basic info for drafts
       const canvasesWithDetails = await processBatches(
-        allCanvasList.slice(0, 40),
+        activeCanvases.slice(0, 50), // Up to 50 active canvases with full details
         async (c: any): Promise<BrazeCanvas> => {
           const variants: CanvasVariant[] = [];
           const steps: Record<string, CanvasStep> = {};
