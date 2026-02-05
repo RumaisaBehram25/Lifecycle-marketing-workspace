@@ -509,27 +509,51 @@ serve(async (req) => {
       console.error('Failed to fetch campaigns:', e);
     }
 
-    // === CANVASES (paginate to capture all ~35-40 active journeys) ===
+    // === CANVASES (paginate through ALL pages to capture lifecycle journeys) ===
     try {
       let allCanvasList: any[] = [];
       let canvasPage = 0;
+      const seenIds = new Set<string>();
       
-      // Fetch canvas list (up to 10 pages to capture all journeys)
-      while (canvasPage < 10) {
-        const canvasesData = await brazeFetch(`canvas/list?page=${canvasPage}&include_archived=false&sort_direction=desc`, apiKey, brazeRestEndpoint);
+      // Fetch ALL canvas pages (Braze returns 100 per page by default)
+      // Keep fetching until we get an empty page or reach max pages
+      console.log('Starting canvas list fetch - will paginate through all pages...');
+      while (canvasPage < 50) { // Up to 50 pages = 5000 canvases max
+        const canvasesData = await brazeFetch(
+          `canvas/list?page=${canvasPage}&include_archived=false&limit=100`, 
+          apiKey, 
+          brazeRestEndpoint
+        );
         const canvases = canvasesData.canvases || [];
+        console.log(`Canvas page ${canvasPage}: found ${canvases.length} canvases`);
+        
         if (canvases.length === 0) break;
-        allCanvasList = [...allCanvasList, ...canvases];
+        
+        // Dedupe by ID
+        for (const c of canvases) {
+          if (!seenIds.has(c.id)) {
+            seenIds.add(c.id);
+            allCanvasList.push(c);
+          }
+        }
+        
         canvasPage++;
-        // Early exit if we have enough
-        if (allCanvasList.length >= 100) break;
+        
+        // Small delay to avoid rate limiting
+        await new Promise(r => setTimeout(r, 100));
       }
+      
+      console.log(`Total unique canvases fetched: ${allCanvasList.length} across ${canvasPage} pages`);
+      
+      // Log canvas names to help debug which are being pulled
+      const canvasNames = allCanvasList.map((c: any) => c.name);
+      console.log('Canvas names found:', JSON.stringify(canvasNames.slice(0, 20)));
       
       // Filter to non-draft canvases for detailed fetching (prioritize active)
       const activeCanvases = allCanvasList.filter((c: any) => !c.draft);
       const draftCanvases = allCanvasList.filter((c: any) => c.draft);
       
-      console.log(`Found ${allCanvasList.length} total canvases (${activeCanvases.length} active, ${draftCanvases.length} drafts). Fetching details for active canvases...`);
+      console.log(`${activeCanvases.length} non-draft canvases, ${draftCanvases.length} drafts. Fetching details for all non-drafts...`);
       
       // Process active canvases first (all of them), then basic info for drafts
       const canvasesWithDetails = await processBatches(
