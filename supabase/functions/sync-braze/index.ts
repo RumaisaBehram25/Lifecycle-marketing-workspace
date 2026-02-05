@@ -1,10 +1,11 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.89.0";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 };
 
 // Batch size for parallel API calls - keep low to avoid memory issues
@@ -259,7 +260,7 @@ function normalizeMessageContent(msgData: any, campaignType: CampaignType): Norm
   return content;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -778,35 +779,53 @@ serve(async (req) => {
     }
 
     // === SAVE TO DATABASE ===
+    const nowIso = new Date().toISOString();
     const schemaCache = {
       cache_version: 5,
-      saved_at: new Date().toISOString(),
+      saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
       campaigns_count: results.campaigns.length,
       canvases_count: results.canvases.length,
-      canvases_enabled_count: results.canvases.filter(c => c.enabled).length,
+      canvases_enabled_count: results.canvases.filter((c) => c.enabled).length,
       templates_count: results.templates.length,
       segments_count: results.segments.length,
-      last_sync: new Date().toISOString(),
+      last_sync: nowIso,
       campaigns: results.campaigns,
       canvases: results.canvases,
       templates: results.templates,
       segments: results.segments,
     };
 
-    await supabase
+    const { error: saveError } = await supabase
       .from('client_platforms')
-      .update({ 
+      .update({
         schema_cache: schemaCache,
-        last_sync_at: new Date().toISOString(),
+        last_sync_at: nowIso,
         additional_config: { rest_endpoint: brazeRestEndpoint },
       })
       .eq('id', platformId);
 
+    if (saveError) {
+      console.error('Failed saving schema_cache:', saveError);
+      throw new Error(`Failed to save sync results: ${saveError.message}`);
+    }
+
     console.log('Braze sync complete');
 
+    // Return a small payload (UI doesn't use the full dataset; it's persisted in the database)
     return new Response(
-      JSON.stringify({ success: true, data: results }),
+      JSON.stringify({
+        success: true,
+        data: {
+          saved_at: nowIso,
+          counts: {
+            campaigns: results.campaigns.length,
+            canvases: results.canvases.length,
+            templates: results.templates.length,
+            segments: results.segments.length,
+          },
+        },
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
