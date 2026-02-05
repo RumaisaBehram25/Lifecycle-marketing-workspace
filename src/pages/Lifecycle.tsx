@@ -41,6 +41,10 @@ import {
   AlertCircle,
   Workflow,
   Filter as FilterIcon,
+  Pencil,
+  Check,
+  X,
+  Users,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -235,13 +239,13 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform Braze canvases to journey format - all non-archived canvases (active or stopped)
+  // Transform Braze canvases to journey format - only ACTIVE canvases (enabled = true)
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
     return brazeData.canvases
-      // Include all non-archived canvases - "enabled" means currently running, but we want to see all live journeys
-      .filter(canvas => !canvas.archived)
+      // Only include active canvases - enabled=true means currently running
+      .filter(canvas => !canvas.archived && canvas.enabled === true)
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
         
@@ -869,6 +873,16 @@ function JourneyDetail({
   );
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   
+  // Editable trigger event
+  const [editableTrigger, setEditableTrigger] = useState<string>(journey.trigger_event_name || '');
+  const [isEditingTrigger, setIsEditingTrigger] = useState(false);
+  const [tempTrigger, setTempTrigger] = useState('');
+  
+  // Editable audience/segment
+  const [editableAudience, setEditableAudience] = useState<string>(journey.entry_segment_name || '');
+  const [isEditingAudience, setIsEditingAudience] = useState(false);
+  const [tempAudience, setTempAudience] = useState('');
+  
   const getIcon = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome')) return Sparkles;
@@ -962,29 +976,137 @@ function JourneyDetail({
 
           {/* TLDR Section - Enhanced with trigger details, filters, and conversions */}
           <div className="bg-muted/30 rounded-lg p-4 mb-4 space-y-3">
-            {/* Row 1: Entry Type & Trigger */}
+            {/* Row 1: Entry Type */}
             <div className="flex flex-wrap gap-2 items-center">
               <Badge className="bg-primary/10 text-primary border-primary/30">
                 {getEntryType()} Entry
               </Badge>
-              {journey.trigger_event_name && (
-                <Badge variant="outline" className="bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 gap-1">
-                  <Zap className="h-3 w-3" />
-                  {journey.trigger_event_name}
-                </Badge>
-              )}
-              {journey.entry_segment_name && (
-                <Badge variant="outline" className="gap-1">
-                  <FilterIcon className="h-3 w-3" />
-                  {journey.entry_segment_name}
-                </Badge>
+            </div>
+            
+            {/* Row 2: Trigger Event - Editable */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Zap className="h-3.5 w-3.5 text-emerald-500" />
+                <p className="text-xs font-medium text-muted-foreground">Trigger Event:</p>
+              </div>
+              {isEditingTrigger ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={tempTrigger}
+                    onChange={(e) => setTempTrigger(e.target.value)}
+                    placeholder="e.g., user_signed_up, purchase_completed"
+                    className="h-8 text-sm flex-1"
+                    autoFocus
+                  />
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-7 w-7" 
+                    onClick={() => {
+                      setEditableTrigger(tempTrigger);
+                      setIsEditingTrigger(false);
+                    }}
+                  >
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  </Button>
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-7 w-7" 
+                    onClick={() => setIsEditingTrigger(false)}
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {editableTrigger ? (
+                    <Badge variant="outline" className="bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 gap-1">
+                      <Zap className="h-3 w-3" />
+                      {editableTrigger}
+                    </Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground italic">No trigger event set</span>
+                  )}
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-6 w-6" 
+                    onClick={() => {
+                      setTempTrigger(editableTrigger);
+                      setIsEditingTrigger(true);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                </div>
               )}
             </div>
             
-            {/* Row 2: Entry Filters/Audience Criteria */}
+            {/* Row 3: Audience/Segment - Editable */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Users className="h-3.5 w-3.5 text-blue-500" />
+                <p className="text-xs font-medium text-muted-foreground">Audience / Segment:</p>
+              </div>
+              {isEditingAudience ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={tempAudience}
+                    onChange={(e) => setTempAudience(e.target.value)}
+                    placeholder="e.g., Active Users, Trial Expiring Soon"
+                    className="h-8 text-sm flex-1"
+                    autoFocus
+                  />
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-7 w-7" 
+                    onClick={() => {
+                      setEditableAudience(tempAudience);
+                      setIsEditingAudience(false);
+                    }}
+                  >
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  </Button>
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-7 w-7" 
+                    onClick={() => setIsEditingAudience(false)}
+                  >
+                    <X className="h-4 w-4 text-muted-foreground" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {editableAudience ? (
+                    <Badge variant="outline" className="bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400 gap-1">
+                      <Users className="h-3 w-3" />
+                      {editableAudience}
+                    </Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground italic">No audience defined</span>
+                  )}
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="h-6 w-6" 
+                    onClick={() => {
+                      setTempAudience(editableAudience);
+                      setIsEditingAudience(true);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                </div>
+              )}
+            </div>
+            
+            {/* Row 4: Entry Filters/Audience Criteria from Braze */}
             {journey.entry_filters?.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Audience Filters:</p>
+                <p className="text-xs font-medium text-muted-foreground">Additional Filters:</p>
                 <div className="flex flex-wrap gap-1.5">
                   {journey.entry_filters.slice(0, 5).map((filter: any, idx: number) => (
                     <Badge key={idx} variant="outline" className="text-xs bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-400">
