@@ -239,13 +239,14 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform Braze canvases to journey format - only ACTIVE canvases (enabled = true)
+  // Transform Braze canvases to journey format - only non-archived, non-draft canvases
+  // Note: Braze API doesn't reliably return 'enabled' field, so we filter by !draft && !archived
   const journeys = useMemo(() => {
     if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
     
     return brazeData.canvases
-      // Only include active canvases - enabled=true means currently running
-      .filter(canvas => !canvas.archived && canvas.enabled === true)
+      // Include all non-archived, non-draft canvases (lifecycle journeys)
+      .filter(canvas => !canvas.archived && !canvas.draft)
       .map(canvas => {
         const taxonomy = parseCampaignTaxonomy(canvas.name);
         
