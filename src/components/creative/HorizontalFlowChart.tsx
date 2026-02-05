@@ -197,18 +197,18 @@ function CreativePreview({ step }: { step: CanvasStep }) {
         <div className="w-full bg-primary/10 px-3 py-1.5 rounded-t-lg mb-2 -mt-2">
           <p className="text-xs font-semibold text-primary truncate text-center">{step.name}</p>
         </div>
-        <div className="w-full bg-card border rounded-2xl p-4 shadow-xl">
-          <div className="flex items-start gap-3">
+        <div className="w-full bg-card border rounded-2xl p-3 shadow-xl">
+          <div className="flex items-start gap-2">
             <img 
               src="/logos/linktree-logo.png" 
               alt="Linktree" 
-              className="h-10 w-10 rounded-lg object-contain flex-shrink-0"
+              className="h-6 w-6 rounded-md object-contain flex-shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">Linktree • now</p>
-              <p className="font-semibold text-sm mt-1 line-clamp-1">{message?.title || step.name}</p>
+              <p className="text-[9px] text-muted-foreground">Linktree • now</p>
+              <p className="font-semibold text-xs mt-0.5">{message?.title || step.name}</p>
               {message?.body && (
-                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
                   {message.body}
                 </p>
               )}
