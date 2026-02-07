@@ -214,8 +214,26 @@ export default function Lifecycle() {
   const [syncing, setSyncing] = useState(false);
 
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
-  const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
-  const hasBrazeData = !!brazeData?.last_sync;
+  const brazeJsonCache = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
+  const hasBrazeData = !!brazeJsonCache?.last_sync;
+
+  // Fetch canvases from normalized braze_canvases table
+  const { data: normalizedCanvases, refetch: refetchCanvases } = useQuery({
+    queryKey: ['braze_canvases', client?.id],
+    queryFn: async () => {
+      if (!client?.id) return [];
+      const { data, error } = await supabase
+        .from('braze_canvases')
+        .select('*')
+        .eq('client_id', client.id)
+        .eq('archived', false)
+        .eq('draft', false)
+        .order('name');
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!client?.id,
+  });
 
   // Fetch visibility settings
   const { data: visibilityData } = useQuery({
@@ -239,78 +257,75 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform Braze canvases to journey format - only non-archived, non-draft canvases
-  // Note: Braze API doesn't reliably return 'enabled' field, so we filter by !draft && !archived
+  // Transform canvases to journey format – use normalized table when available, fallback to schema_cache
   const journeys = useMemo(() => {
-    if (!brazeData?.canvases?.length) return MOCK_JOURNEYS;
-    
-    return brazeData.canvases
-      // Include all non-archived, non-draft canvases (lifecycle journeys)
-      .filter(canvas => !canvas.archived && !canvas.draft)
-      .map(canvas => {
-        const taxonomy = parseCampaignTaxonomy(canvas.name);
-        
-        const stepsRecord = canvas.steps || {};
-        const stepsList = Object.values(stepsRecord);
-        
-        let inferredChannels: string[] = [];
-        if (stepsList.length > 0) {
-          const channels = stepsList
-            .filter((s): s is CanvasStep => s.channel !== undefined)
-            .map(s => s.channel as string);
-          inferredChannels = [...new Set(channels)];
-        }
-        if (inferredChannels.length === 0) {
-          const nameLower = canvas.name.toLowerCase();
-          if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
-          if (nameLower.includes('push')) inferredChannels.push('push');
-          if (nameLower.includes('sms')) inferredChannels.push('sms');
-          if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
-          if (inferredChannels.length === 0) inferredChannels.push('email');
-        }
-        
-        // Count only message steps (email, push, in-app, sms) for touchpoints
-        const messageStepCount = stepsList.filter((s): s is CanvasStep => {
-          const type = s.type?.toLowerCase() || 'message';
-          const channel = (s.channel || '').toLowerCase();
-          // Exclude delay, decision_split, branch, filter, audience_paths, action_paths, experiment_paths, webhook
-          if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths', 'webhook'].includes(type)) {
-            return false;
-          }
-          // Only count email, push, in-app, sms
-          return channel.includes('email') || channel.includes('push') || 
-                 channel.includes('in_app') || channel.includes('in-app') || 
-                 channel.includes('sms') || type === 'message';
-        }).length;
+    // Build a unified source array (cast to any then narrow where needed)
+    const rawSource: unknown[] = normalizedCanvases?.length
+      ? normalizedCanvases
+      : (brazeJsonCache?.canvases?.filter((c) => !c.archived && !c.draft) || []);
 
-        return {
-          id: canvas.id,
-          name: canvas.name,
-          displayName: taxonomy.displayName,
-          description: canvas.description || 'Braze Canvas journey',
-          status: 'active' as 'active' | 'draft',
-          enabled: canvas.enabled,
-          draft: canvas.draft,
-          tags: canvas.tags || [],
-          channels: inferredChannels,
-          first_entry: canvas.first_entry,
-          last_entry: canvas.last_entry,
-          schedule_type: canvas.schedule_type,
-          taxonomy: { ...taxonomy, type: 'lifecycle' as const },
-          variants: canvas.variants || [],
-          steps: stepsRecord,
-          total_steps: messageStepCount, // Only count actual message steps
-          // Entry criteria info
-          entry_type: (canvas as any).entry_type,
-          entry_segment_name: (canvas as any).entry_segment_name,
-          trigger_event_name: (canvas as any).trigger_event_name,
-          exception_events: (canvas as any).exception_events,
-          filters: (canvas as any).filters,
-          conversion_events: (canvas as any).conversion_events,
-          entry_filters: (canvas as any).entry_filters,
-        };
-      });
-  }, [brazeData?.canvases]);
+    if (rawSource.length === 0) return MOCK_JOURNEYS;
+
+    return rawSource.map((canvasRaw) => {
+      const canvas = canvasRaw as Record<string, unknown>;
+      const name = (canvas.name as string) ?? '';
+      const taxonomy = parseCampaignTaxonomy(name);
+      const stepsRecord = ((canvas.raw_steps ?? canvas.steps ?? {}) as Record<string, CanvasStep>);
+      const stepsList = Object.values(stepsRecord);
+
+      let inferredChannels: string[] = [];
+      if (stepsList.length > 0) {
+        const channels = stepsList
+          .filter((s): s is CanvasStep => typeof s?.channel === 'string')
+          .map((s) => s.channel as string);
+        inferredChannels = [...new Set(channels)];
+      }
+      if (inferredChannels.length === 0) {
+        const nameLower = name.toLowerCase();
+        if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
+        if (nameLower.includes('push')) inferredChannels.push('push');
+        if (nameLower.includes('sms')) inferredChannels.push('sms');
+        if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
+        if (inferredChannels.length === 0) inferredChannels.push('email');
+      }
+
+      // Count message steps
+      const messageStepCount = stepsList.filter((s): s is CanvasStep => {
+        const type = ((s.type as string) ?? 'message').toLowerCase();
+        const channel = ((s.channel as string) ?? '').toLowerCase();
+        if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths', 'webhook'].includes(type)) return false;
+        return channel.includes('email') || channel.includes('push') || channel.includes('in_app') || channel.includes('in-app') || channel.includes('sms') || type === 'message';
+      }).length;
+
+      const canvasId = (canvas.braze_canvas_id ?? canvas.id ?? '') as string;
+
+      return {
+        id: canvasId,
+        name,
+        displayName: taxonomy.displayName,
+        description: (canvas.description as string | undefined) || 'Braze Canvas journey',
+        status: 'active' as const,
+        enabled: canvas.enabled as boolean | undefined,
+        draft: canvas.draft as boolean | undefined,
+        tags: (canvas.tags as string[] | undefined) || [],
+        channels: inferredChannels,
+        first_entry: canvas.first_entry as string | undefined,
+        last_entry: canvas.last_entry as string | undefined,
+        schedule_type: canvas.schedule_type as string | undefined,
+        taxonomy: { ...taxonomy, type: 'lifecycle' as const },
+        variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
+        steps: stepsRecord,
+        total_steps: messageStepCount,
+        entry_type: canvas.entry_type as string | undefined,
+        entry_segment_name: canvas.entry_segment_name as string | undefined,
+        trigger_event_name: canvas.trigger_event_name as string | undefined,
+        exception_events: canvas.exception_events as string[] | undefined,
+        filters: canvas.filters,
+        conversion_events: canvas.conversion_events,
+        entry_filters: canvas.entry_filters,
+      };
+    });
+  }, [normalizedCanvases, brazeJsonCache?.canvases]);
 
   // Get unique tags for filter
   const allTags = useMemo(() => {
@@ -378,7 +393,7 @@ export default function Lifecycle() {
       toast({ title: 'Connect Braze first', description: 'Go to Knowledge Base to connect Braze', variant: 'destructive' });
       return;
     }
-    
+
     setSyncing(true);
     try {
       const { error } = await supabase.functions.invoke('sync-braze', {
@@ -387,6 +402,7 @@ export default function Lifecycle() {
       if (error) throw error;
       toast({ title: 'Braze data synced' });
       refetchPlatforms();
+      refetchCanvases();
     } catch (err: any) {
       toast({ title: 'Sync failed', description: err.message, variant: 'destructive' });
     } finally {
