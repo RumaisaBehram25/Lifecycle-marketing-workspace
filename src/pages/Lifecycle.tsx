@@ -136,6 +136,7 @@ const MOCK_JOURNEYS: Array<{
   steps: Record<string, CanvasStep>;
   total_steps: number;
   first_entry?: string;
+  last_entry?: string;
 }> = [
   {
     id: 'welcome',
@@ -144,6 +145,7 @@ const MOCK_JOURNEYS: Array<{
     description: 'Onboard new users and drive first actions',
     status: 'active',
     enabled: true,
+    last_entry: new Date().toISOString(),
     tags: ['onboarding', 'new-users'],
     channels: ['email', 'push'],
     taxonomy: { type: 'lifecycle', channel: 'email', displayName: 'Welcome Series', dateString: '' },
@@ -165,6 +167,7 @@ const MOCK_JOURNEYS: Array<{
     description: 'Win back inactive creators',
     status: 'active',
     enabled: true,
+    last_entry: new Date().toISOString(),
     tags: ['retention', 'winback'],
     channels: ['email', 'push', 'in_app_message'],
     taxonomy: { type: 'lifecycle', channel: 'email', displayName: 'Re-engagement', dateString: '' },
@@ -208,6 +211,7 @@ export default function Lifecycle() {
   const [tagFilter, setTagFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
+  const [activityWindowFilter, setActivityWindowFilter] = useState<'30' | '60'>('60');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
@@ -228,6 +232,8 @@ export default function Lifecycle() {
         .eq('client_id', client.id)
         .eq('archived', false)
         .eq('draft', false)
+        .eq('enabled', true)
+        .order('last_entry', { ascending: false })
         .order('name');
       if (error) throw error;
       return data ?? [];
@@ -262,7 +268,7 @@ export default function Lifecycle() {
     // Build a unified source array (cast to any then narrow where needed)
     const rawSource: unknown[] = normalizedCanvases?.length
       ? normalizedCanvases
-      : (brazeJsonCache?.canvases?.filter((c) => !c.archived && !c.draft) || []);
+      : (brazeJsonCache?.canvases?.filter((c) => !c.archived && !c.draft && c.enabled) || []);
 
     if (rawSource.length === 0) return MOCK_JOURNEYS;
 
@@ -311,6 +317,7 @@ export default function Lifecycle() {
         channels: inferredChannels,
         first_entry: canvas.first_entry as string | undefined,
         last_entry: canvas.last_entry as string | undefined,
+        updated_in_braze: canvas.updated_in_braze as string | undefined,
         schedule_type: canvas.schedule_type as string | undefined,
         taxonomy: { ...taxonomy, type: 'lifecycle' as const },
         variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
@@ -334,30 +341,39 @@ export default function Lifecycle() {
     return ['All', ...Array.from(tags)];
   }, [journeys]);
 
-  // Helper to check if a date is from 2024 or earlier
-  const isOldItem = (dateStr?: string) => {
-    if (!dateStr) return false;
-    const date = new Date(dateStr);
-    return date.getFullYear() <= 2024;
-  };
-
-  // Check visibility with date-based default (hide 2024 and older)
-  const isItemVisible = (canvasId: string, dateStr?: string) => {
+  // Visibility: only honor explicit hide/show (no more year-based default hiding)
+  const isItemVisible = (canvasId: string) => {
     const explicitSetting = visibilityMap.get(canvasId);
     if (explicitSetting !== undefined) return explicitSetting;
-    return !isOldItem(dateStr);
+    return true;
   };
 
-  // Filter journeys (including visibility with date-based defaults)
+  const isRecentActivity = (dateStr: string | undefined, days: number) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return false;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return d.getTime() >= cutoff;
+  };
+
+  // Filter journeys
   const filteredJourneys = useMemo(() => {
+    const activityDays = activityWindowFilter === '30' ? 30 : 60;
+
     return journeys.filter(journey => {
-      // Check visibility with date-based default
-      if (!isItemVisible(journey.id, journey.first_entry)) return false;
-      
+      // Respect explicit hide/show
+      if (!isItemVisible(journey.id)) return false;
+
+      // Must be active in Braze
+      if (journey.enabled !== true) return false;
+
+      // Must have recent sends/entries (use last_entry as the activity marker)
+      if (!isRecentActivity(journey.last_entry, activityDays)) return false;
+
       const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTag = tagFilter === 'All' || journey.tags?.includes(tagFilter);
-      
+
       // Channel filter with normalized matching
       let matchesChannel = true;
       if (channelFilter !== 'All') {
@@ -367,7 +383,7 @@ export default function Lifecycle() {
           return normalizedCh === normalizedFilter || normalizedCh.includes(normalizedFilter) || normalizedFilter.includes(normalizedCh);
         }) || false;
       }
-      
+
       // Filter by launch date (first_entry)
       let matchesLaunchDate = true;
       if (launchDateFilter !== 'All') {
@@ -377,16 +393,24 @@ export default function Lifecycle() {
           const launchDate = new Date(journey.first_entry);
           const now = new Date();
           const daysDiff = Math.floor((now.getTime() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
-          
+
           if (launchDateFilter === '7days') matchesLaunchDate = daysDiff <= 7;
           else if (launchDateFilter === '30days') matchesLaunchDate = daysDiff <= 30;
           else if (launchDateFilter === '90days') matchesLaunchDate = daysDiff <= 90;
         }
       }
-      
+
       return matchesSearch && matchesTag && matchesChannel && matchesLaunchDate;
     });
-  }, [journeys, searchQuery, tagFilter, channelFilter, launchDateFilter, visibilityMap]);
+  }, [
+    journeys,
+    searchQuery,
+    tagFilter,
+    channelFilter,
+    launchDateFilter,
+    activityWindowFilter,
+    visibilityMap,
+  ]);
 
   const handleSyncBraze = async () => {
     if (!client?.id || !brazePlatform?.id) {
@@ -480,6 +504,16 @@ export default function Lifecycle() {
                 <SelectItem value="push">Push</SelectItem>
                 <SelectItem value="sms">SMS</SelectItem>
                 <SelectItem value="inapp">In-App</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={activityWindowFilter} onValueChange={(v) => setActivityWindowFilter(v as '30' | '60')}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue placeholder="Recent sends" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30">Active: last 30d</SelectItem>
+                <SelectItem value="60">Active: last 60d</SelectItem>
               </SelectContent>
             </Select>
 
