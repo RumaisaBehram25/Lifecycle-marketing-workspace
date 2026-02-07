@@ -357,16 +357,16 @@ Deno.serve(async (req) => {
       segments: [],
     };
 
-    // === TEMPLATES (limit to 20 with details, rest basic) ===
+    // === TEMPLATES (limit to 50 with details, rest basic) ===
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
     
     try {
       const templatesData = await brazeFetch('templates/email/list?limit=50', apiKey, brazeRestEndpoint);
       const templateList = templatesData.templates || [];
       
-      // Fetch details for first 20 templates only (in batches of 5)
+      // Fetch details for first 50 templates only (in batches of 5)
       const templatesWithDetails = await processBatches(
-        templateList.slice(0, 20),
+        templateList.slice(0, 50),
         async (t: any) => {
           try {
             const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
@@ -403,7 +403,7 @@ Deno.serve(async (req) => {
         }
       );
       
-      const remainingTemplates = templateList.slice(20).map((t: any) => ({
+      const remainingTemplates = templateList.slice(50).map((t: any) => ({
         email_template_id: t.email_template_id,
         template_name: t.template_name,
         subject: t.subject,
@@ -583,30 +583,79 @@ Deno.serve(async (req) => {
       const canvasNames = allCanvasList.map((c: any) => c.name);
       console.log('Canvas names found:', JSON.stringify(canvasNames.slice(0, 20)));
       
-      // Filter to non-draft canvases for detailed fetching (prioritize active)
-      const activeCanvases = allCanvasList.filter((c: any) => !c.draft);
-      const draftCanvases = allCanvasList.filter((c: any) => c.draft);
-      
-      console.log(`${activeCanvases.length} non-draft canvases, ${draftCanvases.length} drafts. Fetching details for all non-drafts...`);
-      
-      // Process active canvases first (all of them), then basic info for drafts
+      // Filter to non-draft canvases for detailed fetching (prioritize enabled + recent)
+      const isTruthy = (v: any) => v === true || v === 'true' || v === 1 || v === '1';
+
+      const toDateMs = (v: any): number | null => {
+        if (v === undefined || v === null) return null;
+        if (typeof v === 'number') {
+          const ms = v > 1e12 ? v : v * 1000;
+          return Number.isFinite(ms) ? ms : null;
+        }
+        if (typeof v === 'string') {
+          const ms = Date.parse(v);
+          return Number.isNaN(ms) ? null : ms;
+        }
+        return null;
+      };
+
+      const toIso = (v: any): string | undefined => {
+        const ms = toDateMs(v);
+        return ms ? new Date(ms).toISOString() : undefined;
+      };
+
+      const nonDraftCanvases = allCanvasList.filter((c: any) => !c.draft);
+      const enabledInList = nonDraftCanvases.filter((c: any) =>
+        isTruthy(c.enabled ?? c.is_active ?? c.active ?? c.isEnabled ?? (c.status === 'active'))
+      );
+
+      const lastEntryMs = (c: any) =>
+        toDateMs(c.last_entry ?? c.last_entry_at ?? c.last_entry_time ?? c.last_entry_timestamp);
+
+      const canvasesForDetails = (enabledInList.length ? enabledInList : nonDraftCanvases)
+        .sort((a: any, b: any) => (lastEntryMs(b) ?? 0) - (lastEntryMs(a) ?? 0))
+        .slice(0, 200);
+
+      console.log(
+        `${nonDraftCanvases.length} non-draft canvases. Will fetch details for ${canvasesForDetails.length} (prioritizing enabled + recent).`
+      );
+
+      // Process canvases for details
       const canvasesWithDetails = await processBatches(
-        activeCanvases.slice(0, 50), // Up to 50 active canvases with full details
+        canvasesForDetails,
         async (c: any): Promise<BrazeCanvas> => {
           const variants: CanvasVariant[] = [];
           const steps: Record<string, CanvasStep> = {};
-          let enabled = false;
+
+          const enabledFromList = isTruthy(c.enabled ?? c.is_active ?? c.active ?? c.isEnabled ?? (c.status === 'active'));
+          let enabled = enabledFromList;
+
+          // Activity markers (prefer explicit entry timestamps; do NOT fall back to updated_at)
+          let firstEntryIso = toIso(c.first_entry ?? c.first_entry_at ?? c.first_entry_time ?? c.first_entry_timestamp);
+          let lastEntryIso = toIso(c.last_entry ?? c.last_entry_at ?? c.last_entry_time ?? c.last_entry_timestamp);
+
           let entryType: string | undefined;
           let entrySegmentName: string | undefined;
           let triggerEventName: string | undefined;
           let exceptionEvents: string[] = [];
           let conversionEvents: Array<{ name: string; window_seconds?: number; type?: string }> = [];
           let entryFilters: Array<{ type: string; property?: string; value?: string; comparator?: string }> = [];
-          
+
           try {
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
-            enabled = details.enabled === true;
-            
+
+            enabled = isTruthy(
+              details.enabled ??
+                details.canvas?.enabled ??
+                details.is_active ??
+                details.active ??
+                enabledFromList
+            );
+
+            // Try to pick up entry activity markers from details
+            firstEntryIso = firstEntryIso ?? toIso(details.first_entry ?? details.first_entry_at ?? details.first_entry_time ?? details.first_entry_timestamp);
+            lastEntryIso = lastEntryIso ?? toIso(details.last_entry ?? details.last_entry_at ?? details.last_entry_time ?? details.last_entry_timestamp);
+
             // Log key fields for debugging (first canvas only)
             if (allCanvasList.indexOf(c) === 0) {
               console.log('Sample canvas details keys:', Object.keys(details));
@@ -616,19 +665,19 @@ Deno.serve(async (req) => {
               console.log('exception_events:', JSON.stringify(details.exception_events));
               console.log('conversion_behaviors:', JSON.stringify(details.conversion_behaviors));
             }
-            
+
             // Parse entry type from schedule_type
             if (details.schedule_type) entryType = details.schedule_type;
             if (details.entry_schedule?.type) entryType = details.entry_schedule.type;
-            
+
             // Parse trigger event name from multiple possible locations
             if (details.entry_schedule?.trigger_event_name) {
               triggerEventName = details.entry_schedule.trigger_event_name;
             }
             if (!triggerEventName && details.trigger_events?.length > 0) {
-              triggerEventName = details.trigger_events.map((t: any) => 
-                typeof t === 'string' ? t : t.name || t.event_name
-              ).join(', ');
+              triggerEventName = details.trigger_events
+                .map((t: any) => (typeof t === 'string' ? t : t.name || t.event_name))
+                .join(', ');
             }
             if (!triggerEventName && details.entry_rules?.trigger?.custom_event?.custom_event_name) {
               triggerEventName = details.entry_rules.trigger.custom_event.custom_event_name;
@@ -640,7 +689,7 @@ Deno.serve(async (req) => {
                 triggerEventName = firstStep.trigger_properties.event_name;
               }
             }
-            
+
             // Parse segment/audience name from multiple locations
             if (details.entry_audience_name) entrySegmentName = details.entry_audience_name;
             if (!entrySegmentName && details.entry_segment?.name) entrySegmentName = details.entry_segment.name;
@@ -648,14 +697,12 @@ Deno.serve(async (req) => {
             if (!entrySegmentName && details.entry_rules?.segment) {
               entrySegmentName = details.entry_rules.segment.segment_id ? `Segment: ${details.entry_rules.segment.segment_id}` : undefined;
             }
-            
+
             // Parse exception events
             if (details.exception_events?.length > 0) {
-              exceptionEvents = details.exception_events.map((e: any) => 
-                typeof e === 'string' ? e : e.name || e.custom_event_name || 'Exception'
-              );
+              exceptionEvents = details.exception_events.map((e: any) => (typeof e === 'string' ? e : e.name || e.custom_event_name || 'Exception'));
             }
-            
+
             // Parse conversion events
             if (details.conversion_behaviors?.length > 0) {
               conversionEvents = details.conversion_behaviors.map((cv: any) => ({
@@ -671,7 +718,7 @@ Deno.serve(async (req) => {
                 type: cv.type,
               }));
             }
-            
+
             // Parse entry filters/audiences
             if (details.entry_audience_filters?.length > 0) {
               entryFilters = details.entry_audience_filters.map((f: any) => ({
@@ -699,7 +746,7 @@ Deno.serve(async (req) => {
                 }
               }
             }
-            
+
             // Parse variants
             if (details.variants?.length > 0) {
               for (const v of details.variants) {
@@ -710,31 +757,54 @@ Deno.serve(async (req) => {
                 });
               }
             }
-            
-            // Parse steps (limit HTML size)
+
+            // Parse steps (enrich email creative via templates)
             if (details.steps?.length > 0) {
               for (const s of details.steps) {
                 if (!s.id) continue;
-                
+
                 const messages: CanvasStep['messages'] = [];
                 if (s.messages && typeof s.messages === 'object') {
-                  for (const [, msgData] of Object.entries(s.messages)) {
+                  const entries = Array.isArray(s.messages)
+                    ? (s.messages as any[]).map((m, idx) => [`message_${idx}`, m])
+                    : Object.entries(s.messages);
+
+                  for (const [msgKey, msgData] of entries) {
                     const msg = msgData as any;
-                    const channel = msg.channel || s.channels?.[0] || 'email';
-                    
+                    const inferredChannel = typeof msgKey === 'string' ? msgKey : undefined;
+                    const channel = msg.channel || inferredChannel || s.channels?.[0] || 'email';
+
+                    const templateId =
+                      msg.email_template_id ||
+                      msg.template_id ||
+                      msg.templateId ||
+                      msg.email_template ||
+                      msg.template;
+
+                    let subject = msg.subject;
+                    let preheader = msg.preheader;
+                    let html = channel === 'email' ? (msg.body || msg.html_body) : undefined;
+
+                    if (channel === 'email' && (!html || html.length === 0) && templateId && templateHtmlMap.has(templateId)) {
+                      const tpl = templateHtmlMap.get(templateId)!;
+                      html = tpl.html;
+                      subject = subject || tpl.subject;
+                      preheader = preheader || tpl.preheader;
+                    }
+
                     messages.push({
                       channel,
-                      subject: msg.subject,
-                      preheader: msg.preheader,
+                      subject,
+                      preheader,
                       title: msg.title || msg.header,
-                      body: msg.message || msg.alert,
-                      html_content: truncateHtml(channel === 'email' ? (msg.body || msg.html_body) : undefined),
-                      image_url: msg.image_url,
+                      body: msg.message || msg.alert || msg.body || msg.plaintext_body || msg.message_body,
+                      html_content: truncateHtml(channel === 'email' ? html : undefined),
+                      image_url: msg.image_url || msg.big_image,
                       buttons: msg.buttons,
                     });
                   }
                 }
-                
+
                 const nextPaths: Array<{ name: string; next_step_id: string; percentage?: number }> = [];
                 if (s.next_paths?.length > 0) {
                   for (const p of s.next_paths) {
@@ -745,24 +815,29 @@ Deno.serve(async (req) => {
                     });
                   }
                 }
-                
+
+                const nextStepIds =
+                  Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
+                    ? s.next_step_ids
+                    : nextPaths.map((p) => p.next_step_id).filter(Boolean);
+
                 steps[s.id] = {
                   id: s.id,
                   name: s.name || s.type || 'Step',
                   type: s.type || 'message',
-                  channel: s.channels?.[0] || (messages[0]?.channel),
+                  channel: s.channels?.[0] || messages[0]?.channel,
                   delay_seconds: s.delay?.value,
                   delay_formatted: s.delay ? formatDelay(s.delay.value) : undefined,
-                  next_step_ids: s.next_step_ids || [],
+                  next_step_ids: nextStepIds,
                   next_paths: nextPaths.length > 0 ? nextPaths : undefined,
                   messages: messages.length > 0 ? messages : undefined,
                 };
               }
             }
-          } catch (err) {
+          } catch (_err) {
             console.log(`Could not fetch canvas details for ${c.id}`);
           }
-          
+
           return {
             id: c.id,
             name: c.name,
@@ -770,8 +845,8 @@ Deno.serve(async (req) => {
             draft: c.draft,
             enabled,
             schedule_type: entryType,
-            first_entry: c.first_entry,
-            last_entry: c.last_entry,
+            first_entry: firstEntryIso,
+            last_entry: lastEntryIso,
             tags: c.tags,
             created_at: c.created_at,
             updated_at: c.updated_at,
