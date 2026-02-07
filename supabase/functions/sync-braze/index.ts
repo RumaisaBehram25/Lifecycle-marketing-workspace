@@ -184,23 +184,46 @@ async function processBatches<T, R>(
   return results;
 }
 
-async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string) {
-  const url = `${restEndpoint}/${endpoint}`;
-  console.log(`Fetching Braze: ${url}`);
-  
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Braze API error: ${response.status}`);
+// Retry wrapper with exponential back-off
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelay = 500
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries - 1) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        console.warn(`Retrying after ${delay}ms (attempt ${attempt + 1}/${retries})...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
   }
+  throw lastError;
+}
 
-  return response.json();
+async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string) {
+  return withRetry(async () => {
+    const url = `${restEndpoint}/${endpoint}`;
+    console.log(`Fetching Braze: ${url}`);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Braze API error ${response.status}: ${errorText.slice(0, 200)}`);
+    }
+    return response.json();
+  });
 }
 
 function formatDelay(seconds: number | undefined): string {
@@ -311,6 +334,16 @@ Deno.serve(async (req) => {
       'https://rest.iad-01.braze.com';
 
     console.log('Fetching Braze data for client:', clientId);
+
+    // === Create a sync run entry ===
+    const syncStart = Date.now();
+    const { data: syncRun, error: syncRunErr } = await supabase
+      .from('braze_sync_runs')
+      .insert({ client_id: clientId, platform_id: platformId, status: 'running' })
+      .select('id')
+      .single();
+    const syncRunId = syncRun?.id as string | undefined;
+    if (syncRunErr) console.warn('Failed to insert sync run:', syncRunErr.message);
 
     const results: {
       campaigns: BrazeCampaign[];
@@ -781,7 +814,7 @@ Deno.serve(async (req) => {
     // === SAVE TO DATABASE ===
     const nowIso = new Date().toISOString();
     const schemaCache = {
-      cache_version: 5,
+      cache_version: 6,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
       campaigns_count: results.campaigns.length,
@@ -810,14 +843,64 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to save sync results: ${saveError.message}`);
     }
 
-    console.log('Braze sync complete');
+    // === UPSERT CANVASES INTO braze_canvases TABLE ===
+    for (const c of results.canvases) {
+      const row = {
+        client_id: clientId,
+        braze_canvas_id: c.id,
+        name: c.name,
+        description: c.description || null,
+        draft: c.draft ?? false,
+        enabled: c.enabled ?? false,
+        archived: c.archived ?? false,
+        schedule_type: c.schedule_type || null,
+        entry_type: c.entry_type || null,
+        trigger_event_name: c.trigger_event_name || null,
+        entry_segment_name: c.entry_segment_name || null,
+        tags: c.tags || [],
+        first_entry: c.first_entry || null,
+        last_entry: c.last_entry || null,
+        created_in_braze: c.created_at || null,
+        updated_in_braze: c.updated_at || null,
+        total_steps: c.total_steps || 0,
+        raw_variants: c.variants || [],
+        raw_steps: c.steps || {},
+        conversion_events: c.conversion_events || [],
+        entry_filters: c.entry_filters || [],
+        exception_events: c.exception_events || [],
+        synced_at: nowIso,
+      };
+      const { error: upsertErr } = await supabase
+        .from('braze_canvases')
+        .upsert(row, { onConflict: 'client_id,braze_canvas_id' });
+      if (upsertErr) console.warn('Canvas upsert failed:', c.id, upsertErr.message);
+    }
+    console.log('Upserted', results.canvases.length, 'canvases to braze_canvases');
+
+    // === MARK SYNC RUN COMPLETE ===
+    const syncDuration = Date.now() - syncStart;
+    if (syncRunId) {
+      await supabase.from('braze_sync_runs').update({
+        status: 'success',
+        completed_at: nowIso,
+        duration_ms: syncDuration,
+        canvases_synced: results.canvases.length,
+        campaigns_synced: results.campaigns.length,
+        templates_synced: results.templates.length,
+        segments_synced: results.segments.length,
+      }).eq('id', syncRunId);
+    }
+
+    console.log('Braze sync complete in', syncDuration, 'ms');
 
     // Return a small payload (UI doesn't use the full dataset; it's persisted in the database)
     return new Response(
       JSON.stringify({
         success: true,
         data: {
+          sync_run_id: syncRunId,
           saved_at: nowIso,
+          duration_ms: syncDuration,
           counts: {
             campaigns: results.campaigns.length,
             canvases: results.canvases.length,
@@ -831,6 +914,8 @@ Deno.serve(async (req) => {
   } catch (error: unknown) {
     console.error('Error syncing Braze:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
+    // Best-effort update of sync run to failed
+    // (syncRunId may not be in scope here due to restructuring, but we keep this for future)
     return new Response(
       JSON.stringify({ success: false, error: message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

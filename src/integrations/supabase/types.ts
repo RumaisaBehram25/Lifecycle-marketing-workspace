@@ -14,6 +14,160 @@ export type Database = {
   }
   public: {
     Tables: {
+      braze_canvases: {
+        Row: {
+          archived: boolean | null
+          braze_canvas_id: string
+          client_id: string
+          conversion_events: Json | null
+          created_at: string
+          created_in_braze: string | null
+          description: string | null
+          draft: boolean | null
+          enabled: boolean | null
+          entry_filters: Json | null
+          entry_segment_name: string | null
+          entry_type: string | null
+          exception_events: string[] | null
+          first_entry: string | null
+          id: string
+          last_entry: string | null
+          name: string
+          raw_steps: Json | null
+          raw_variants: Json | null
+          schedule_type: string | null
+          synced_at: string
+          tags: string[] | null
+          total_steps: number | null
+          trigger_event_name: string | null
+          updated_at: string
+          updated_in_braze: string | null
+        }
+        Insert: {
+          archived?: boolean | null
+          braze_canvas_id: string
+          client_id: string
+          conversion_events?: Json | null
+          created_at?: string
+          created_in_braze?: string | null
+          description?: string | null
+          draft?: boolean | null
+          enabled?: boolean | null
+          entry_filters?: Json | null
+          entry_segment_name?: string | null
+          entry_type?: string | null
+          exception_events?: string[] | null
+          first_entry?: string | null
+          id?: string
+          last_entry?: string | null
+          name: string
+          raw_steps?: Json | null
+          raw_variants?: Json | null
+          schedule_type?: string | null
+          synced_at?: string
+          tags?: string[] | null
+          total_steps?: number | null
+          trigger_event_name?: string | null
+          updated_at?: string
+          updated_in_braze?: string | null
+        }
+        Update: {
+          archived?: boolean | null
+          braze_canvas_id?: string
+          client_id?: string
+          conversion_events?: Json | null
+          created_at?: string
+          created_in_braze?: string | null
+          description?: string | null
+          draft?: boolean | null
+          enabled?: boolean | null
+          entry_filters?: Json | null
+          entry_segment_name?: string | null
+          entry_type?: string | null
+          exception_events?: string[] | null
+          first_entry?: string | null
+          id?: string
+          last_entry?: string | null
+          name?: string
+          raw_steps?: Json | null
+          raw_variants?: Json | null
+          schedule_type?: string | null
+          synced_at?: string
+          tags?: string[] | null
+          total_steps?: number | null
+          trigger_event_name?: string | null
+          updated_at?: string
+          updated_in_braze?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "braze_canvases_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      braze_sync_runs: {
+        Row: {
+          campaigns_synced: number | null
+          canvases_synced: number | null
+          client_id: string
+          completed_at: string | null
+          created_at: string
+          cursor_next: string | null
+          duration_ms: number | null
+          error_message: string | null
+          id: string
+          platform_id: string
+          segments_synced: number | null
+          started_at: string
+          status: string
+          templates_synced: number | null
+        }
+        Insert: {
+          campaigns_synced?: number | null
+          canvases_synced?: number | null
+          client_id: string
+          completed_at?: string | null
+          created_at?: string
+          cursor_next?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          platform_id: string
+          segments_synced?: number | null
+          started_at?: string
+          status?: string
+          templates_synced?: number | null
+        }
+        Update: {
+          campaigns_synced?: number | null
+          canvases_synced?: number | null
+          client_id?: string
+          completed_at?: string | null
+          created_at?: string
+          cursor_next?: string | null
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          platform_id?: string
+          segments_synced?: number | null
+          started_at?: string
+          status?: string
+          templates_synced?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "braze_sync_runs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       briefs: {
         Row: {
           about: string | null
@@ -501,6 +655,47 @@ export type Database = {
           updated_documents?: number | null
         }
         Relationships: []
+      }
+      lifecycle_overrides: {
+        Row: {
+          audience_override: string | null
+          braze_canvas_id: string
+          client_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          trigger_event_override: string | null
+          updated_at: string
+        }
+        Insert: {
+          audience_override?: string | null
+          braze_canvas_id: string
+          client_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          trigger_event_override?: string | null
+          updated_at?: string
+        }
+        Update: {
+          audience_override?: string | null
+          braze_canvas_id?: string
+          client_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          trigger_event_override?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lifecycle_overrides_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       platform_schemas: {
         Row: {
