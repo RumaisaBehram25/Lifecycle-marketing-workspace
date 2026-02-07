@@ -313,7 +313,7 @@ function formatDelayCompact(seconds?: number): string | null {
   return null;
 }
 
-// Delay/Filter/Split module BELOW step - Enhanced with more detail
+// Delay/Filter/Split module BELOW step - Enhanced with more detail and better clickability
 function StepMetaModule({ 
   step, 
   delaySeconds,
@@ -336,57 +336,115 @@ function StepMetaModule({
     return null;
   }
   
-  // Determine split type label with path count
-  const getSplitLabel = (s: CanvasStep) => {
+  // Determine split type label with path count and icon
+  const getSplitInfo = (s: CanvasStep) => {
     const sType = s.type?.toLowerCase() || '';
-    const pathCount = s.next_paths?.length || 2;
-    if (sType === 'decision_split' || sType === 'branch') return `Decision Split (${pathCount} paths)`;
-    if (sType === 'audience_paths') return `Audience Split (${pathCount} paths)`;
-    if (sType === 'action_paths') return `Action Path (${pathCount} paths)`;
-    if (sType === 'experiment_paths') return `A/B Test (${pathCount} variants)`;
-    if (sType === 'filter') return 'Filter';
-    return `${pathCount} paths`;
+    const pathCount = s.next_paths?.length || s.next_step_ids?.length || 2;
+    if (sType === 'decision_split' || sType === 'branch') {
+      return { label: 'Decision Split', pathCount, icon: 'branch' };
+    }
+    if (sType === 'audience_paths') {
+      return { label: 'Audience Split', pathCount, icon: 'users' };
+    }
+    if (sType === 'action_paths') {
+      return { label: 'Action Path', pathCount, icon: 'action' };
+    }
+    if (sType === 'experiment_paths') {
+      return { label: 'A/B Test', pathCount, icon: 'experiment' };
+    }
+    if (sType === 'filter') {
+      return { label: 'Filter', pathCount: 0, icon: 'filter' };
+    }
+    return { label: 'Split', pathCount, icon: 'branch' };
   };
   
   // Get path names for preview
-  const getPathPreview = (s: CanvasStep) => {
-    if (!s.next_paths?.length) return null;
-    return s.next_paths.slice(0, 3).map(p => p.name).join(' / ');
+  const getPathPreviews = (s: CanvasStep) => {
+    if (!s.next_paths?.length) return [];
+    return s.next_paths.slice(0, 3).map(p => ({
+      name: p.name,
+      percentage: p.percentage ? Math.round(p.percentage) : undefined,
+    }));
   };
   
+  const splitInfo = splitStep ? getSplitInfo(splitStep) : null;
+  const pathPreviews = splitStep ? getPathPreviews(splitStep) : [];
+  
   return (
-    <div className="flex flex-col items-center gap-2 mt-3">
+    <div className="flex flex-col items-center gap-2 mt-3 w-full">
+      {/* Delay Badge */}
       {delayLabel && (
-        <Badge variant="outline" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 text-xs gap-1.5 py-1 font-semibold">
-          <Timer className="h-3.5 w-3.5" />
-          {delayLabel} delay
-        </Badge>
-      )}
-      {splitStep && (
-        <div className="flex flex-col items-center gap-1">
-          <Badge 
-            variant="outline" 
-            className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1.5 px-3 cursor-pointer hover:bg-violet-500/20 transition-colors font-medium"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSplitClick?.(splitStep);
-            }}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            {getSplitLabel(splitStep)}
-            <ArrowRight className="h-3 w-3 ml-1" />
-          </Badge>
-          {getPathPreview(splitStep) && (
-            <p className="text-[10px] text-muted-foreground text-center max-w-[200px] truncate">
-              {getPathPreview(splitStep)}
-            </p>
-          )}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/40">
+          <Timer className="h-3.5 w-3.5 text-amber-600" />
+          <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+            {delayLabel} delay
+          </span>
         </div>
       )}
+      
+      {/* Split/Audience Path Card - Clickable with visual affordance */}
+      {splitStep && splitInfo && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onSplitClick?.(splitStep);
+          }}
+          className="group w-full max-w-[260px] bg-gradient-to-r from-violet-500/10 via-violet-500/5 to-transparent border-2 border-violet-500/30 rounded-lg p-3 hover:border-violet-500/60 hover:bg-violet-500/15 hover:shadow-md transition-all cursor-pointer"
+        >
+          {/* Header with icon and label */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-6 rounded-full bg-violet-500/20 flex items-center justify-center">
+                <GitBranch className="h-3.5 w-3.5 text-violet-600" />
+              </div>
+              <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+                {splitInfo.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 group-hover:translate-x-0.5 transition-transform">
+              <span className="font-medium">{splitInfo.pathCount} paths</span>
+              <ArrowRight className="h-3 w-3" />
+            </div>
+          </div>
+          
+          {/* Path previews */}
+          {pathPreviews.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {pathPreviews.map((preview, i) => (
+                <Badge 
+                  key={i} 
+                  variant="outline" 
+                  className="text-[10px] px-1.5 py-0.5 bg-background/50 border-violet-500/30 text-violet-700 dark:text-violet-300"
+                >
+                  {preview.name}
+                  {preview.percentage !== undefined && (
+                    <span className="ml-1 opacity-70">{preview.percentage}%</span>
+                  )}
+                </Badge>
+              ))}
+              {splitInfo.pathCount > 3 && (
+                <Badge 
+                  variant="outline" 
+                  className="text-[10px] px-1.5 py-0.5 bg-background/50 border-violet-500/30 text-violet-600"
+                >
+                  +{splitInfo.pathCount - 3} more
+                </Badge>
+              )}
+            </div>
+          )}
+          
+          {/* Click hint */}
+          <p className="text-[10px] text-muted-foreground mt-2 group-hover:text-violet-600 transition-colors">
+            Click to view each path's creative →
+          </p>
+        </button>
+      )}
+      
+      {/* Standalone filter badge (not attached to a split) */}
       {isFilter && !splitStep && (
-        <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1">
+        <Badge variant="outline" className="bg-violet-500/10 border-violet-500/50 text-violet-700 dark:text-violet-400 text-xs gap-1.5 py-1.5 px-3">
           <Filter className="h-3.5 w-3.5" />
-          Filter
+          Filter Applied
         </Badge>
       )}
     </div>
@@ -690,19 +748,22 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
       
       {/* Split/Audience Path Details Modal - Enhanced to show full path content */}
       <Dialog open={!!selectedSplit} onOpenChange={(open) => !open && setSelectedSplit(null)}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <GitBranch className="h-5 w-5 text-violet-600" />
-              {selectedSplit?.name || 'Audience Split'}
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-4 border-b bg-gradient-to-r from-violet-500/10 to-transparent">
+            <DialogTitle className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-violet-500/20 flex items-center justify-center">
+                <GitBranch className="h-5 w-5 text-violet-600" />
+              </div>
+              <div>
+                <p className="font-semibold">{selectedSplit?.name || 'Audience Split'}</p>
+                <p className="text-sm text-muted-foreground font-normal">
+                  {selectedSplit?.next_paths?.length || 0} audience paths with unique creative
+                </p>
+              </div>
             </DialogTitle>
           </DialogHeader>
           
-          <div className="flex-1 overflow-auto space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Click on any path to see the emails and messages for that audience segment.
-            </p>
-            
+          <div className="flex-1 overflow-auto p-4">
             <div className="space-y-4">
               {selectedSplit?.next_paths?.map((path, idx) => {
                 // Build the path content for this branch
@@ -712,103 +773,167 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
                   return !BRANCHING_TYPES.includes(type);
                 });
                 
+                // Calculate delays between steps
+                const stepsWithDelays = messageSteps.map((step, stepIdx) => {
+                  let delayBefore = 0;
+                  if (stepIdx > 0) {
+                    // Find delay between previous step and this one
+                    const prevStepIndex = pathSteps.findIndex(s => s.id === messageSteps[stepIdx - 1]?.id);
+                    const currentIndex = pathSteps.findIndex(s => s.id === step.id);
+                    for (let i = prevStepIndex + 1; i < currentIndex; i++) {
+                      const s = pathSteps[i];
+                      if (s?.type?.toLowerCase() === 'delay' || s?.type?.toLowerCase() === 'wait') {
+                        delayBefore += s.delay_seconds || 0;
+                      }
+                    }
+                  }
+                  return { step, delayBefore };
+                });
+                
                 return (
                   <div 
                     key={path.next_step_id || idx}
-                    className="border-2 rounded-lg overflow-hidden hover:border-violet-500/50 transition-colors"
+                    className="border-2 rounded-xl overflow-hidden bg-card"
                   >
-                    <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-violet-500/10 to-transparent">
-                      <div className="h-10 w-10 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0">
-                        <span className="text-lg font-bold text-violet-700 dark:text-violet-300">{idx + 1}</span>
+                    {/* Path Header */}
+                    <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-violet-500/15 via-violet-500/5 to-transparent border-b">
+                      <div className="h-12 w-12 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0 border-2 border-violet-500/30">
+                        <span className="text-xl font-bold text-violet-700 dark:text-violet-300">{idx + 1}</span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-base">{path.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {path.percentage !== undefined && `${Math.round(path.percentage)}% of users • `}
-                          {messageSteps.length} touchpoint{messageSteps.length !== 1 ? 's' : ''}
-                          {messageSteps.length > 0 && ` (${[...new Set(messageSteps.map(s => normalizeChannel(s.channel)))].join(', ')})`}
-                        </p>
+                        <p className="font-semibold text-lg">{path.name}</p>
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground mt-0.5">
+                          {path.percentage !== undefined && (
+                            <span className="font-medium text-violet-600 dark:text-violet-400">
+                              {Math.round(path.percentage)}% of users
+                            </span>
+                          )}
+                          <span>•</span>
+                          <span>
+                            {messageSteps.length} touchpoint{messageSteps.length !== 1 ? 's' : ''}
+                          </span>
+                          {messageSteps.length > 0 && (
+                            <>
+                              <span>•</span>
+                              <span className="flex items-center gap-1">
+                                {[...new Set(messageSteps.map(s => normalizeChannel(s.channel)))].map(ch => (
+                                  <span key={ch} className="inline-flex items-center gap-0.5">
+                                    {getChannelIcon(ch, "h-3.5 w-3.5")}
+                                  </span>
+                                ))}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                     
-                    {messageSteps.length > 0 ? (
-                      <ScrollArea className="w-full bg-muted/10">
-                        <div className="flex items-start gap-4 p-4 min-w-max">
-                          {messageSteps.map((step, stepIdx) => (
-                            <div 
-                              key={step.id} 
-                              className="w-[240px] flex-shrink-0 cursor-pointer group"
-                              onClick={() => {
-                                setSelectedSplit(null);
-                                setPreviewStep(step);
-                              }}
-                            >
-                              <Card className="hover:shadow-lg transition-all border-2 overflow-hidden group-hover:border-primary/50 group-hover:scale-[1.02]">
-                                <CardContent className="p-0">
-                                  {/* Step header with number */}
-                                  <div className="bg-primary/10 p-2 border-b flex items-center gap-2">
-                                    <div className="h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-                                      <span className="text-xs font-bold text-primary">{stepIdx + 1}</span>
-                                    </div>
-                                    {getChannelIcon(step.channel, "h-4 w-4")}
-                                    <span className="text-xs font-medium truncate flex-1">{step.name}</span>
+                    {/* Path Creative Cards */}
+                    {stepsWithDelays.length > 0 ? (
+                      <ScrollArea className="w-full">
+                        <div className="flex items-stretch gap-4 p-5 min-w-max">
+                          {stepsWithDelays.map(({ step, delayBefore }, stepIdx) => (
+                            <div key={step.id} className="flex items-start gap-3">
+                              {/* Delay indicator between steps */}
+                              {stepIdx > 0 && delayBefore > 0 && (
+                                <div className="flex flex-col items-center justify-center h-full min-h-[160px] px-2">
+                                  <div className="h-full w-px bg-amber-500/40" />
+                                  <div className="px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/40 my-2">
+                                    <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                                      {formatDelayCompact(delayBefore)}
+                                    </span>
                                   </div>
-                                  {/* Content preview */}
-                                  <div className="p-3 h-32 overflow-hidden bg-background">
-                                    {(() => {
-                                      const msg = pickBestMessage(step);
-                                      const channel = normalizeChannel(step.channel);
-                                      if (channel === 'email' && msg?.subject) {
-                                        return (
-                                          <div className="text-xs space-y-1">
-                                            <p className="font-semibold line-clamp-2">{msg.subject}</p>
-                                            {msg.preheader && <p className="text-muted-foreground line-clamp-2">{msg.preheader}</p>}
-                                            <p className="text-[10px] text-muted-foreground/70 mt-2">Click to view full email</p>
-                                          </div>
-                                        );
-                                      }
-                                      if ((channel === 'push' || channel.includes('push')) && (msg?.title || msg?.body)) {
-                                        return (
-                                          <div className="text-xs space-y-1">
-                                            <p className="font-semibold line-clamp-2">{msg?.title || step.name}</p>
-                                            {msg?.body && <p className="text-muted-foreground line-clamp-3">{msg.body}</p>}
-                                          </div>
-                                        );
-                                      }
-                                      if (channel === 'in_app_message' && (msg?.title || msg?.body)) {
-                                        return (
-                                          <div className="text-xs space-y-1">
-                                            <p className="font-semibold line-clamp-2">{msg?.title || step.name}</p>
-                                            {msg?.body && <p className="text-muted-foreground line-clamp-3">{msg.body}</p>}
-                                          </div>
-                                        );
-                                      }
-                                      return (
-                                        <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
-                                          {getChannelIcon(step.channel, "h-8 w-8 opacity-30")}
-                                          <p className="text-xs mt-2">Click to view</p>
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                </CardContent>
-                              </Card>
-                              {step.delay_formatted && step.delay_formatted !== '0h' && (
-                                <div className="flex items-center justify-center mt-2">
-                                  <Badge variant="outline" className="text-xs bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400">
-                                    <Timer className="h-3 w-3 mr-1" />
-                                    +{step.delay_formatted}
-                                  </Badge>
+                                  <div className="h-full w-px bg-amber-500/40" />
                                 </div>
                               )}
+                              
+                              {/* Step Card */}
+                              <div 
+                                className="w-[220px] flex-shrink-0 cursor-pointer group"
+                                onClick={() => {
+                                  setSelectedSplit(null);
+                                  setPreviewStep(step);
+                                }}
+                              >
+                                <Card className="hover:shadow-lg transition-all border-2 overflow-hidden group-hover:border-primary/50 group-hover:scale-[1.02]">
+                                  <CardContent className="p-0">
+                                    {/* Step header with number and channel */}
+                                    <div className="bg-primary/10 p-2.5 border-b flex items-center gap-2">
+                                      <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                                        <span className="text-xs font-bold text-primary">{stepIdx + 1}</span>
+                                      </div>
+                                      {getChannelIcon(step.channel, "h-4 w-4 text-muted-foreground")}
+                                      <span className="text-xs font-medium truncate flex-1">{step.name}</span>
+                                    </div>
+                                    
+                                    {/* Content preview */}
+                                    <div className="p-3 h-28 overflow-hidden bg-background">
+                                      {(() => {
+                                        const msg = pickBestMessage(step);
+                                        const channel = normalizeChannel(step.channel);
+                                        
+                                        if (channel === 'email' && msg?.subject) {
+                                          return (
+                                            <div className="text-xs space-y-1.5">
+                                              <p className="font-semibold line-clamp-2">{msg.subject}</p>
+                                              {msg.preheader && (
+                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">{msg.preheader}</p>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+                                        
+                                        if ((channel === 'push' || channel.includes('push')) && (msg?.title || msg?.body)) {
+                                          return (
+                                            <div className="text-xs space-y-1.5">
+                                              <p className="font-semibold line-clamp-2">{msg?.title || step.name}</p>
+                                              {msg?.body && (
+                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">{msg.body}</p>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+                                        
+                                        if (channel === 'in_app_message' && (msg?.title || msg?.body)) {
+                                          return (
+                                            <div className="text-xs space-y-1.5">
+                                              <p className="font-semibold line-clamp-2">{msg?.title || step.name}</p>
+                                              {msg?.body && !msg.body.startsWith('<') && (
+                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">{msg.body}</p>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+                                        
+                                        return (
+                                          <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+                                            {getChannelIcon(step.channel, "h-8 w-8 opacity-30")}
+                                            <p className="text-[10px] mt-1">Click to view</p>
+                                          </div>
+                                        );
+                                      })()}
+                                    </div>
+                                    
+                                    {/* Click action hint */}
+                                    <div className="p-2 bg-muted/30 border-t text-center">
+                                      <p className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors">
+                                        View full creative →
+                                      </p>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
                             </div>
                           ))}
                         </div>
-                        <ScrollBar orientation="horizontal" />
+                        <ScrollBar orientation="horizontal" className="h-2.5" />
                       </ScrollArea>
                     ) : (
-                      <div className="p-6 text-center text-sm text-muted-foreground bg-muted/20">
-                        <p>No message steps in this path</p>
+                      <div className="p-8 text-center text-muted-foreground bg-muted/10">
+                        <div className="h-12 w-12 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-3">
+                          <GitBranch className="h-6 w-6 opacity-50" />
+                        </div>
+                        <p className="text-sm font-medium">No message steps in this path</p>
                         <p className="text-xs mt-1">This may be a control group or logic-only path</p>
                       </div>
                     )}
@@ -817,10 +942,10 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
               })}
               
               {(!selectedSplit?.next_paths || selectedSplit.next_paths.length === 0) && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <GitBranch className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Path details not available</p>
-                  <p className="text-xs mt-1">Try re-syncing Braze data</p>
+                <div className="text-center py-12 text-muted-foreground">
+                  <GitBranch className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                  <p className="text-lg font-medium">Path details not available</p>
+                  <p className="text-sm mt-2">Try re-syncing Braze data to load split configurations</p>
                 </div>
               )}
             </div>
