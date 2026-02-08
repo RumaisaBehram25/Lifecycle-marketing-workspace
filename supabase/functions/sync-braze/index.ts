@@ -8,150 +8,41 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 };
 
-// Batch size for parallel API calls - keep low to avoid memory issues
-const BATCH_SIZE = 5;
-const MAX_HTML_SIZE = 50000; // 50KB max per HTML content
+// Reduced batch size and limits for memory safety
+const BATCH_SIZE = 3;
+const MAX_HTML_SIZE = 50000;
+const MAX_CANVASES_TO_PROCESS = 100;
 
-// Normalized campaign type detection
-type CampaignType = 'email' | 'push' | 'inapp' | 'sms' | 'webhook' | 'content_card' | 'unknown';
-type MessageType = 'campaign' | 'canvas_step' | 'content_block';
-
-interface NormalizedContent {
-  title?: string;
-  subject?: string;
-  preheader?: string;
-  body_text?: string;
-  body_html?: string;
-  image_url?: string;
-  deep_link?: string;
-  buttons?: Array<{ text: string; action?: string; url?: string }>;
-  extras?: Record<string, unknown>;
-}
-
-interface NormalizedVariant {
-  variant_id: string;
-  name: string;
-  platforms: string[];
-  content: NormalizedContent;
-}
-
-interface NormalizedCampaign {
-  source: 'braze';
-  message_type: MessageType;
-  campaign_id: string;
-  campaign_name: string;
-  updated_at?: string;
-  campaign_type: CampaignType;
-  channels: string[];
-  variants: NormalizedVariant[];
-  warnings: string[];
-  draft?: boolean;
-  schedule_type?: string;
-  first_sent?: string;
-  last_sent?: string;
-  tags?: string[];
-  archived?: boolean;
-  description?: string;
-}
-
-interface BrazeCampaign extends NormalizedCampaign {
-  id: string;
-  name: string;
-  subject?: string;
-  preheader?: string;
-  html_preview?: string;
-  push_title?: string;
-  push_body?: string;
-  push_deep_link?: string;
-  push_extras?: Record<string, unknown>;
-  inapp_header?: string;
-  inapp_body?: string;
-  inapp_cta?: string;
-  inapp_image_url?: string;
-  inapp_buttons?: Array<{ text: string; action?: string; url?: string }>;
-}
-
-interface CanvasStep {
-  id: string;
-  name: string;
-  type: string;
-  channel?: string;
-  delay_seconds?: number;
-  delay_formatted?: string;
-  next_step_ids: string[];
-  next_paths?: Array<{ name: string; next_step_id: string; percentage?: number }>;
-  messages?: Array<{
-    channel: string;
-    subject?: string;
-    preheader?: string;
-    title?: string;
-    body?: string;
-    html_content?: string;
-    image_url?: string;
-    buttons?: Array<{ text: string; action?: string; url?: string }>;
-  }>;
-}
-
-interface CanvasVariant {
-  name: string;
-  percentage: number;
-  first_step_id: string | null;
-}
-
-interface BrazeCanvas {
-  id: string;
-  name: string;
-  description?: string;
-  draft?: boolean;
-  enabled?: boolean;
-  schedule_type?: string;
-  first_entry?: string;
-  last_entry?: string;
-  tags?: string[];
-  created_at?: string;
-  updated_at?: string;
-  archived?: boolean;
-  variants: CanvasVariant[];
-  steps: Record<string, CanvasStep>;
-  total_steps?: number;
-  entry_type?: 'trigger' | 'segment' | 'api' | 'scheduled' | 'action_based';
-  entry_segment_name?: string;
-  trigger_event_name?: string;
-  exception_events?: string[];
-  filters?: Array<{ type: string; value: string }>;
-  // Conversion tracking
-  conversion_events?: Array<{
-    name: string;
-    window_seconds?: number;
-    type?: string;
-  }>;
-  entry_filters?: Array<{
-    type: string;
-    property?: string;
-    value?: string;
-    comparator?: string;
-  }>;
-}
-
-interface BrazeTemplate {
-  email_template_id: string;
-  template_name: string;
-  description?: string;
-  subject?: string;
-  preheader?: string;
-  tags?: string[];
-  created_at?: string;
-  updated_at?: string;
-  html_preview?: string;
-}
-
-interface BrazeSegment {
-  id: string;
-  name: string;
-  description?: string;
-  tags?: string[];
-  is_starred?: boolean;
-  size?: number;
+// Priority scoring for lifecycle canvas detection
+function getCanvasPriority(name: string): number {
+  const nameLower = name.toLowerCase();
+  const nameUpper = name.toUpperCase();
+  
+  // Priority 1: Lifecycle patterns (score 100+)
+  if (nameLower.includes('lifecycle')) return 150;
+  if (/^\d{8}\s*\|\s*marketing\s*\|\s*lifecycle/i.test(name)) return 140;
+  if (nameLower.includes('welcome') && (nameLower.includes('free') || nameLower.includes('paid') || nameLower.includes('activation') || nameLower.includes('trial'))) return 130;
+  if (nameLower.includes('retention')) return 120;
+  if (nameLower.includes('abandoned') || nameLower.includes('abandon')) return 115;
+  if (nameLower.includes('reactivation')) return 110;
+  if (nameLower.includes('pre-churn') || nameLower.includes('prechurn')) return 105;
+  if (nameLower.includes('post cancellation') || nameLower.includes('post-cancellation')) return 100;
+  
+  // Priority 2: Recent dates (2025/2026) or enabled (score 50-90)
+  if (/^2026\d{4}/i.test(name) || /^2026\d{2}\d{2}/i.test(name)) return 90;
+  if (/^2025\d{4}/i.test(name) || /^2025\d{2}\d{2}/i.test(name)) return 85;
+  if (/^20250\d{3}/i.test(name) || /^20260\d{3}/i.test(name)) return 80;
+  if (nameLower.includes('marketing') && nameLower.includes('campaign')) return 60;
+  if (nameLower.includes('transactional')) return 55;
+  
+  // Priority 3: Skip patterns (score 0-10)
+  if (nameLower.includes('testing') || nameLower.includes('test ')) return 5;
+  if (nameUpper.includes('[DO NOT EDIT]')) return 3;
+  if (nameLower.includes('complete') && !nameLower.includes('lifecycle')) return 2;
+  if (/^201\d{5}/i.test(name) || /^202[0-3]\d{4}/i.test(name)) return 10; // Older dates
+  
+  // Default: medium priority
+  return 40;
 }
 
 // Truncate HTML to prevent memory issues
@@ -159,29 +50,6 @@ function truncateHtml(html: string | undefined): string | undefined {
   if (!html) return undefined;
   if (html.length <= MAX_HTML_SIZE) return html;
   return html.slice(0, MAX_HTML_SIZE) + '<!-- truncated -->';
-}
-
-// Process items in batches to avoid memory spikes
-async function processBatches<T, R>(
-  items: T[],
-  processor: (item: T) => Promise<R>,
-  batchSize: number = BATCH_SIZE
-): Promise<R[]> {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const batchResults = await Promise.allSettled(batch.map(processor));
-    for (const result of batchResults) {
-      if (result.status === 'fulfilled') {
-        results.push(result.value);
-      }
-    }
-    // Small delay between batches to let GC run
-    if (i + batchSize < items.length) {
-      await new Promise(r => setTimeout(r, 50));
-    }
-  }
-  return results;
 }
 
 // Retry wrapper with exponential back-off
@@ -211,18 +79,26 @@ async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string
     const url = `${restEndpoint}/${endpoint}`;
     console.log(`Fetching Braze: ${url}`);
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Braze API error ${response.status}: ${errorText.slice(0, 200)}`);
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Braze API error ${response.status}: ${errorText.slice(0, 200)}`);
+      }
+      return response.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return response.json();
   });
 }
 
@@ -234,53 +110,68 @@ function formatDelay(seconds: number | undefined): string {
   return `${seconds}s`;
 }
 
-function detectCampaignType(msgData: any): CampaignType {
-  if (msgData.body || msgData.html_body || msgData.from_name || msgData.subject) return 'email';
-  if (msgData.alert || msgData.title || msgData.extras || msgData.deep_link) return 'push';
-  if (msgData.message || msgData.header || msgData.buttons) return 'inapp';
-  if (msgData.message_body || msgData.subscription_group_id) return 'sms';
-  if (msgData.url || msgData.http_method) return 'webhook';
-  if (msgData.card_type || msgData.pinned) return 'content_card';
-  return 'unknown';
+const isTruthy = (v: unknown) => v === true || v === 'true' || v === 1 || v === '1';
+
+const toDateMs = (v: unknown): number | null => {
+  if (v === undefined || v === null) return null;
+  if (typeof v === 'number') {
+    const ms = v > 1e12 ? v : v * 1000;
+    return Number.isFinite(ms) ? ms : null;
+  }
+  if (typeof v === 'string') {
+    const ms = Date.parse(v);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
+};
+
+const toIso = (v: unknown): string | undefined => {
+  const ms = toDateMs(v);
+  return ms ? new Date(ms).toISOString() : undefined;
+};
+
+interface CanvasListItem {
+  id: string;
+  name: string;
+  draft?: boolean;
+  enabled?: boolean;
+  is_active?: boolean;
+  active?: boolean;
+  status?: string;
+  last_entry?: string;
+  created_at?: string;
+  updated_at?: string;
+  tags?: string[];
+  description?: string;
+  archived?: boolean;
 }
 
-function normalizeMessageContent(msgData: any, campaignType: CampaignType): NormalizedContent {
-  const content: NormalizedContent = {};
-  
-  switch (campaignType) {
-    case 'email':
-      content.subject = msgData.subject;
-      content.preheader = msgData.preheader;
-      content.body_html = truncateHtml(msgData.body || msgData.html_body);
-      content.body_text = msgData.plaintext_body;
-      break;
-    case 'push':
-      content.title = msgData.title || msgData.alert_title;
-      content.body_text = msgData.message || msgData.alert || msgData.body;
-      content.deep_link = msgData.deep_link || msgData.uri;
-      content.image_url = msgData.big_image || msgData.image_url;
-      break;
-    case 'inapp':
-      content.title = msgData.header || msgData.title;
-      content.body_text = msgData.message || msgData.body;
-      content.image_url = msgData.image_url;
-      const buttons: Array<{ text: string; action?: string; url?: string }> = [];
-      if (msgData.button_one_text) {
-        buttons.push({ text: msgData.button_one_text, action: msgData.button_one_action, url: msgData.button_one_uri });
-      }
-      if (msgData.button_two_text) {
-        buttons.push({ text: msgData.button_two_text, action: msgData.button_two_action, url: msgData.button_two_uri });
-      }
-      if (buttons.length > 0) content.buttons = buttons;
-      break;
-    case 'sms':
-      content.body_text = msgData.message_body || msgData.body;
-      break;
-    default:
-      content.body_text = msgData.message || msgData.body;
-  }
-  
-  return content;
+interface ProcessedCanvas {
+  id: string;
+  name: string;
+  description?: string;
+  draft?: boolean;
+  enabled?: boolean;
+  archived?: boolean;
+  schedule_type?: string;
+  first_entry?: string;
+  last_entry?: string;
+  tags?: string[];
+  created_at?: string;
+  updated_at?: string;
+  variants: Array<{ name: string; percentage: number; first_step_id: string | null }>;
+  steps: Record<string, unknown>;
+  total_steps: number;
+  entry_type?: string;
+  entry_segment_name?: string;
+  trigger_event_name?: string;
+  exception_events?: string[];
+  conversion_events?: Array<{ name: string; window_seconds?: number; type?: string }>;
+  entry_filters?: Array<{ type: string; property?: string; value?: string; comparator?: string }>;
+  entries_last_30d?: number;
+  entries_last_60d?: number;
+  sends_last_30d?: number;
+  last_activity_at?: string;
 }
 
 Deno.serve(async (req) => {
@@ -330,48 +221,89 @@ Deno.serve(async (req) => {
     }
 
     const brazeRestEndpoint = restEndpoint || 
-      (platform.additional_config as any)?.rest_endpoint || 
+      (platform.additional_config as Record<string, unknown>)?.rest_endpoint || 
       'https://rest.iad-01.braze.com';
 
-    console.log('Fetching Braze data for client:', clientId);
+    console.log('Starting Braze sync for client:', clientId);
 
-    // === Create a sync run entry ===
+    // === Create sync run entry ===
     const syncStart = Date.now();
-    const { data: syncRun, error: syncRunErr } = await supabase
+    const { data: syncRun } = await supabase
       .from('braze_sync_runs')
       .insert({ client_id: clientId, platform_id: platformId, status: 'running' })
       .select('id')
       .single();
     const syncRunId = syncRun?.id as string | undefined;
-    if (syncRunErr) console.warn('Failed to insert sync run:', syncRunErr.message);
 
-    const results: {
-      campaigns: BrazeCampaign[];
-      canvases: BrazeCanvas[];
-      templates: BrazeTemplate[];
-      segments: BrazeSegment[];
-    } = {
-      campaigns: [],
-      canvases: [],
-      templates: [],
-      segments: [],
-    };
+    // === PHASE 1: Fetch ALL canvas IDs with names (lightweight) ===
+    console.log('Phase 1: Fetching all canvas IDs...');
+    const allCanvasList: CanvasListItem[] = [];
+    const seenIds = new Set<string>();
+    let canvasPage = 0;
 
-    // === TEMPLATES (limit to 50 with details, rest basic) ===
+    while (canvasPage < 50) {
+      try {
+        const canvasesData = await brazeFetch(
+          `canvas/list?page=${canvasPage}&include_archived=false&limit=100`,
+          apiKey,
+          brazeRestEndpoint
+        );
+        const canvases = canvasesData.canvases || [];
+        console.log(`Canvas page ${canvasPage}: ${canvases.length} items`);
+
+        if (canvases.length === 0) break;
+
+        for (const c of canvases) {
+          if (!seenIds.has(c.id)) {
+            seenIds.add(c.id);
+            allCanvasList.push(c);
+          }
+        }
+
+        canvasPage++;
+        await new Promise(r => setTimeout(r, 100));
+      } catch (err) {
+        console.error(`Failed to fetch canvas page ${canvasPage}:`, err);
+        break;
+      }
+    }
+
+    console.log(`Total canvases found: ${allCanvasList.length}`);
+
+    // === PHASE 2: Score and prioritize canvases ===
+    console.log('Phase 2: Scoring canvases by lifecycle priority...');
+    const scoredCanvases = allCanvasList
+      .filter(c => !c.draft && !c.archived)
+      .map(c => ({
+        canvas: c,
+        priority: getCanvasPriority(c.name),
+      }))
+      .sort((a, b) => b.priority - a.priority);
+
+    // Log top scoring canvases for debugging
+    console.log('Top 20 priority canvases:', scoredCanvases.slice(0, 20).map(s => `${s.priority}: ${s.canvas.name}`));
+
+    const canvasesToProcess = scoredCanvases.slice(0, MAX_CANVASES_TO_PROCESS).map(s => s.canvas);
+    console.log(`Will process top ${canvasesToProcess.length} canvases`);
+
+    // === PHASE 3: Process canvases in small batches with immediate checkpointing ===
+    console.log('Phase 3: Processing canvas details in batches of 3...');
+    const nowIso = new Date().toISOString();
+    let processedCount = 0;
+    let enabledCount = 0;
+
+    // Build template map first (limited to 30 templates for memory)
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
-    
     try {
-      const templatesData = await brazeFetch('templates/email/list?limit=50', apiKey, brazeRestEndpoint);
+      const templatesData = await brazeFetch('templates/email/list?limit=30', apiKey, brazeRestEndpoint);
       const templateList = templatesData.templates || [];
       
-      // Fetch details for first 50 templates only (in batches of 5)
-      const templatesWithDetails = await processBatches(
-        templateList.slice(0, 50),
-        async (t: any) => {
+      for (let i = 0; i < Math.min(templateList.length, 30); i += BATCH_SIZE) {
+        const batch = templateList.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(batch.map(async (t: { email_template_id: string }) => {
           try {
             const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
             const htmlContent = truncateHtml(details.body);
-            
             if (htmlContent) {
               templateHtmlMap.set(t.email_template_id, {
                 subject: details.subject || '',
@@ -379,372 +311,96 @@ Deno.serve(async (req) => {
                 html: htmlContent,
               });
             }
-            
-            return {
-              email_template_id: t.email_template_id,
-              template_name: t.template_name,
-              description: t.description,
-              subject: details.subject || t.subject,
-              preheader: details.preheader || t.preheader,
-              tags: t.tags,
-              created_at: t.created_at,
-              updated_at: t.updated_at,
-              html_preview: htmlContent,
-            };
-          } catch {
-            return {
-              email_template_id: t.email_template_id,
-              template_name: t.template_name,
-              subject: t.subject,
-              preheader: t.preheader,
-              tags: t.tags,
-            };
-          }
-        }
-      );
-      
-      const remainingTemplates = templateList.slice(50).map((t: any) => ({
-        email_template_id: t.email_template_id,
-        template_name: t.template_name,
-        subject: t.subject,
-        preheader: t.preheader,
-        tags: t.tags,
-      }));
-      
-      results.templates = [...templatesWithDetails, ...remainingTemplates];
-      console.log('Fetched templates:', results.templates.length);
-    } catch (e) {
-      console.error('Failed to fetch templates:', e);
-    }
-
-    // === CAMPAIGNS (limit to 30 with details) ===
-    try {
-      const campaignsData = await brazeFetch('campaigns/list?page=0&include_archived=false&sort_direction=desc', apiKey, brazeRestEndpoint);
-      const campaignList = (campaignsData.campaigns || []).slice(0, 50);
-      
-      console.log(`Found ${campaignList.length} campaigns, fetching details for first 30...`);
-      
-      const campaignsWithDetails = await processBatches(
-        campaignList.slice(0, 30),
-        async (c: any): Promise<BrazeCampaign> => {
-          const warnings: string[] = [];
-          const variants: NormalizedVariant[] = [];
-          let primaryCampaignType: CampaignType = 'unknown';
-          let subject = '', preheader = '', htmlPreview = '';
-          let push_title = '', push_body = '', push_deep_link = '';
-          let inapp_header = '', inapp_body = '', inapp_cta = '', inapp_image_url = '';
-          
-          try {
-            const details = await brazeFetch(`campaigns/details?campaign_id=${c.id}`, apiKey, brazeRestEndpoint);
-            const messages = details.messages || {};
-            
-            for (const [variantId, msg] of Object.entries(messages)) {
-              const msgData = msg as any;
-              const detectedType = detectCampaignType(msgData);
-              if (detectedType !== 'unknown') primaryCampaignType = detectedType;
-              
-              const normalizedContent = normalizeMessageContent(msgData, detectedType);
-              variants.push({
-                variant_id: variantId,
-                name: msgData.name || `Variant ${variants.length + 1}`,
-                platforms: ['all'],
-                content: normalizedContent,
-              });
-              
-              // Legacy flattened extraction
-              if (detectedType === 'email') {
-                subject = msgData.subject || subject;
-                preheader = msgData.preheader || preheader;
-                const templateId = msgData.email_template_id || msgData.template_id;
-                if (msgData.body) {
-                  htmlPreview = truncateHtml(msgData.body) || '';
-                } else if (templateId && templateHtmlMap.has(templateId)) {
-                  const tpl = templateHtmlMap.get(templateId)!;
-                  htmlPreview = tpl.html;
-                  subject = subject || tpl.subject;
-                  preheader = preheader || tpl.preheader;
-                }
-              }
-              if (detectedType === 'push') {
-                push_title = msgData.title || push_title;
-                push_body = msgData.message || msgData.alert || push_body;
-                push_deep_link = msgData.deep_link || push_deep_link;
-              }
-              if (detectedType === 'inapp') {
-                inapp_header = msgData.header || inapp_header;
-                inapp_body = msgData.message || inapp_body;
-                inapp_cta = msgData.button_one_text || inapp_cta;
-                inapp_image_url = msgData.image_url || inapp_image_url;
-              }
-            }
-          } catch {
-            warnings.push('details_fetch_failed');
-          }
-          
-          if (primaryCampaignType === 'unknown' && c.channels?.[0]) {
-            const ch = c.channels[0].toLowerCase();
-            if (ch.includes('email')) primaryCampaignType = 'email';
-            else if (ch.includes('push')) primaryCampaignType = 'push';
-            else if (ch.includes('in_app')) primaryCampaignType = 'inapp';
-          }
-          
-          return {
-            source: 'braze',
-            message_type: 'campaign',
-            campaign_id: c.id,
-            campaign_name: c.name,
-            campaign_type: primaryCampaignType,
-            channels: c.channels || ['email'],
-            variants,
-            warnings,
-            id: c.id,
-            name: c.name,
-            description: c.description,
-            draft: c.draft,
-            schedule_type: c.schedule_type,
-            first_sent: c.first_sent,
-            last_sent: c.last_sent,
-            tags: c.tags,
-            updated_at: c.updated_at,
-            archived: c.archived,
-            subject,
-            preheader,
-            html_preview: htmlPreview,
-            push_title,
-            push_body,
-            push_deep_link,
-            inapp_header,
-            inapp_body,
-            inapp_cta,
-            inapp_image_url: inapp_image_url || undefined,
-          };
-        }
-      );
-      
-      const remainingCampaigns: BrazeCampaign[] = campaignList.slice(30).map((c: any) => ({
-        source: 'braze',
-        message_type: 'campaign',
-        campaign_id: c.id,
-        campaign_name: c.name,
-        campaign_type: 'unknown' as CampaignType,
-        channels: c.channels || ['email'],
-        variants: [],
-        warnings: ['details_not_fetched'],
-        id: c.id,
-        name: c.name,
-        draft: c.draft,
-        schedule_type: c.schedule_type,
-        tags: c.tags,
-      }));
-      
-      results.campaigns = [...campaignsWithDetails, ...remainingCampaigns];
-      console.log('Fetched campaigns:', results.campaigns.length);
-    } catch (e) {
-      console.error('Failed to fetch campaigns:', e);
-    }
-
-    // === CANVASES (paginate through ALL pages to capture lifecycle journeys) ===
-    try {
-      let allCanvasList: any[] = [];
-      let canvasPage = 0;
-      const seenIds = new Set<string>();
-      
-      // Fetch ALL canvas pages (Braze returns 100 per page by default)
-      // Keep fetching until we get an empty page or reach max pages
-      console.log('Starting canvas list fetch - will paginate through all pages...');
-      while (canvasPage < 50) { // Up to 50 pages = 5000 canvases max
-        const canvasesData = await brazeFetch(
-          `canvas/list?page=${canvasPage}&include_archived=false&limit=100`, 
-          apiKey, 
-          brazeRestEndpoint
-        );
-        const canvases = canvasesData.canvases || [];
-        console.log(`Canvas page ${canvasPage}: found ${canvases.length} canvases`);
-        
-        if (canvases.length === 0) break;
-        
-        // Dedupe by ID
-        for (const c of canvases) {
-          if (!seenIds.has(c.id)) {
-            seenIds.add(c.id);
-            allCanvasList.push(c);
-          }
-        }
-        
-        canvasPage++;
-        
-        // Small delay to avoid rate limiting
-        await new Promise(r => setTimeout(r, 100));
+          } catch { /* skip */ }
+        }));
+        await new Promise(r => setTimeout(r, 50));
       }
-      
-      console.log(`Total unique canvases fetched: ${allCanvasList.length} across ${canvasPage} pages`);
-      
-      // Log canvas names to help debug which are being pulled
-      const canvasNames = allCanvasList.map((c: any) => c.name);
-      console.log('Canvas names found:', JSON.stringify(canvasNames.slice(0, 20)));
-      
-      // Filter to non-draft canvases for detailed fetching (prioritize enabled + recent)
-      const isTruthy = (v: any) => v === true || v === 'true' || v === 1 || v === '1';
+      console.log(`Loaded ${templateHtmlMap.size} templates for enrichment`);
+    } catch (e) {
+      console.warn('Failed to load templates:', e);
+    }
 
-      const toDateMs = (v: any): number | null => {
-        if (v === undefined || v === null) return null;
-        if (typeof v === 'number') {
-          const ms = v > 1e12 ? v : v * 1000;
-          return Number.isFinite(ms) ? ms : null;
-        }
-        if (typeof v === 'string') {
-          const ms = Date.parse(v);
-          return Number.isNaN(ms) ? null : ms;
-        }
-        return null;
-      };
+    // Process canvases in batches
+    for (let i = 0; i < canvasesToProcess.length; i += BATCH_SIZE) {
+      const batch = canvasesToProcess.slice(i, i + BATCH_SIZE);
+      console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(canvasesToProcess.length / BATCH_SIZE)}`);
 
-      const toIso = (v: any): string | undefined => {
-        const ms = toDateMs(v);
-        return ms ? new Date(ms).toISOString() : undefined;
-      };
+      const batchResults = await Promise.allSettled(
+        batch.map(async (c): Promise<ProcessedCanvas | null> => {
+          const variants: ProcessedCanvas['variants'] = [];
+          const steps: Record<string, unknown> = {};
 
-      const nonDraftCanvases = allCanvasList.filter((c: any) => !c.draft);
-      const enabledInList = nonDraftCanvases.filter((c: any) =>
-        isTruthy(c.enabled ?? c.is_active ?? c.active ?? c.isEnabled ?? (c.status === 'active'))
-      );
-
-      const lastEntryMs = (c: any) =>
-        toDateMs(c.last_entry ?? c.last_entry_at ?? c.last_entry_time ?? c.last_entry_timestamp);
-
-      const canvasesForDetails = (enabledInList.length ? enabledInList : nonDraftCanvases)
-        .sort((a: any, b: any) => (lastEntryMs(b) ?? 0) - (lastEntryMs(a) ?? 0))
-        .slice(0, 200);
-
-      console.log(
-        `${nonDraftCanvases.length} non-draft canvases. Will fetch details for ${canvasesForDetails.length} (prioritizing enabled + recent).`
-      );
-
-      // Process canvases for details
-      const canvasesWithDetails = await processBatches(
-        canvasesForDetails,
-        async (c: any): Promise<BrazeCanvas> => {
-          const variants: CanvasVariant[] = [];
-          const steps: Record<string, CanvasStep> = {};
-
-          const enabledFromList = isTruthy(c.enabled ?? c.is_active ?? c.active ?? c.isEnabled ?? (c.status === 'active'));
+          const enabledFromList = isTruthy(c.enabled ?? c.is_active ?? c.active ?? (c.status === 'active'));
           let enabled = enabledFromList;
 
-          // Activity markers (prefer explicit entry timestamps; do NOT fall back to updated_at)
-          let firstEntryIso = toIso(c.first_entry ?? c.first_entry_at ?? c.first_entry_time ?? c.first_entry_timestamp);
-          let lastEntryIso = toIso(c.last_entry ?? c.last_entry_at ?? c.last_entry_time ?? c.last_entry_timestamp);
+          let firstEntryIso = toIso(c.last_entry);
+          let lastEntryIso = toIso(c.last_entry);
 
           let entryType: string | undefined;
           let entrySegmentName: string | undefined;
           let triggerEventName: string | undefined;
           let exceptionEvents: string[] = [];
-          let conversionEvents: Array<{ name: string; window_seconds?: number; type?: string }> = [];
-          let entryFilters: Array<{ type: string; property?: string; value?: string; comparator?: string }> = [];
+          let conversionEvents: ProcessedCanvas['conversion_events'] = [];
+          let entryFilters: ProcessedCanvas['entry_filters'] = [];
+
+          // Activity metrics
+          let entries_last_30d = 0;
+          let entries_last_60d = 0;
+          let sends_last_30d = 0;
+          let last_activity_at: string | undefined;
 
           try {
+            // Fetch canvas details
             const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
 
             enabled = isTruthy(
-              details.enabled ??
-                details.canvas?.enabled ??
-                details.is_active ??
-                details.active ??
-                enabledFromList
+              details.enabled ?? details.canvas?.enabled ?? details.is_active ?? details.active ?? enabledFromList
             );
 
-            // Try to pick up entry activity markers from details
-            firstEntryIso = firstEntryIso ?? toIso(details.first_entry ?? details.first_entry_at ?? details.first_entry_time ?? details.first_entry_timestamp);
-            lastEntryIso = lastEntryIso ?? toIso(details.last_entry ?? details.last_entry_at ?? details.last_entry_time ?? details.last_entry_timestamp);
+            firstEntryIso = toIso(details.first_entry ?? details.first_entry_at) ?? firstEntryIso;
+            lastEntryIso = toIso(details.last_entry ?? details.last_entry_at) ?? lastEntryIso;
 
-            // Log key fields for debugging (first canvas only)
-            if (allCanvasList.indexOf(c) === 0) {
-              console.log('Sample canvas details keys:', Object.keys(details));
-              console.log('schedule_type:', details.schedule_type);
-              console.log('entry_schedule:', JSON.stringify(details.entry_schedule));
-              console.log('entry_rules:', JSON.stringify(details.entry_rules));
-              console.log('exception_events:', JSON.stringify(details.exception_events));
-              console.log('conversion_behaviors:', JSON.stringify(details.conversion_behaviors));
-            }
+            // Entry type
+            entryType = details.schedule_type || details.entry_schedule?.type;
 
-            // Parse entry type from schedule_type
-            if (details.schedule_type) entryType = details.schedule_type;
-            if (details.entry_schedule?.type) entryType = details.entry_schedule.type;
-
-            // Parse trigger event name from multiple possible locations
+            // Trigger event name
             if (details.entry_schedule?.trigger_event_name) {
               triggerEventName = details.entry_schedule.trigger_event_name;
-            }
-            if (!triggerEventName && details.trigger_events?.length > 0) {
+            } else if (details.trigger_events?.length > 0) {
               triggerEventName = details.trigger_events
-                .map((t: any) => (typeof t === 'string' ? t : t.name || t.event_name))
+                .map((t: unknown) => (typeof t === 'string' ? t : (t as Record<string, string>).name || (t as Record<string, string>).event_name))
                 .join(', ');
-            }
-            if (!triggerEventName && details.entry_rules?.trigger?.custom_event?.custom_event_name) {
+            } else if (details.entry_rules?.trigger?.custom_event?.custom_event_name) {
               triggerEventName = details.entry_rules.trigger.custom_event.custom_event_name;
             }
-            // Also check steps for action-based triggers
-            if (!triggerEventName && details.steps?.length > 0) {
-              const firstStep = details.steps[0];
-              if (firstStep?.trigger_properties?.event_name) {
-                triggerEventName = firstStep.trigger_properties.event_name;
-              }
-            }
 
-            // Parse segment/audience name from multiple locations
-            if (details.entry_audience_name) entrySegmentName = details.entry_audience_name;
-            if (!entrySegmentName && details.entry_segment?.name) entrySegmentName = details.entry_segment.name;
-            if (!entrySegmentName && details.entry_schedule?.segment?.name) entrySegmentName = details.entry_schedule.segment.name;
-            if (!entrySegmentName && details.entry_rules?.segment) {
-              entrySegmentName = details.entry_rules.segment.segment_id ? `Segment: ${details.entry_rules.segment.segment_id}` : undefined;
-            }
+            // Segment name
+            entrySegmentName = details.entry_audience_name || details.entry_segment?.name || details.entry_schedule?.segment?.name;
 
-            // Parse exception events
+            // Exception events
             if (details.exception_events?.length > 0) {
-              exceptionEvents = details.exception_events.map((e: any) => (typeof e === 'string' ? e : e.name || e.custom_event_name || 'Exception'));
+              exceptionEvents = details.exception_events.map((e: unknown) =>
+                (typeof e === 'string' ? e : (e as Record<string, string>).name || (e as Record<string, string>).custom_event_name || 'Exception')
+              );
             }
 
-            // Parse conversion events
+            // Conversion events
             if (details.conversion_behaviors?.length > 0) {
-              conversionEvents = details.conversion_behaviors.map((cv: any) => ({
-                name: cv.type || cv.conversion_event_type || 'Conversion',
-                window_seconds: cv.window_conversion_production_seconds || cv.window,
-                type: cv.type,
-              }));
-            }
-            if (details.conversion_events?.length > 0) {
-              conversionEvents = details.conversion_events.map((cv: any) => ({
-                name: cv.name || cv.event_name || 'Conversion',
-                window_seconds: cv.window_seconds,
-                type: cv.type,
+              conversionEvents = details.conversion_behaviors.map((cv: Record<string, unknown>) => ({
+                name: (cv.type as string) || 'Conversion',
+                window_seconds: cv.window_conversion_production_seconds as number,
+                type: cv.type as string,
               }));
             }
 
-            // Parse entry filters/audiences
+            // Entry filters
             if (details.entry_audience_filters?.length > 0) {
-              entryFilters = details.entry_audience_filters.map((f: any) => ({
-                type: f.type || 'filter',
-                property: f.property || f.attribute,
-                value: f.value?.toString() || f.comparator_value?.toString(),
-                comparator: f.comparator || f.comparison,
+              entryFilters = details.entry_audience_filters.map((f: Record<string, unknown>) => ({
+                type: (f.type as string) || 'filter',
+                property: f.property as string,
+                value: f.value?.toString(),
+                comparator: f.comparator as string,
               }));
-            }
-            if (details.entry_rules?.audience?.AND?.length > 0) {
-              for (const rule of details.entry_rules.audience.AND) {
-                if (rule.custom_attribute) {
-                  entryFilters.push({
-                    type: 'custom_attribute',
-                    property: rule.custom_attribute.custom_attribute_name,
-                    value: rule.custom_attribute.value?.toString(),
-                    comparator: rule.custom_attribute.comparison,
-                  });
-                }
-                if (rule.email_subscription) {
-                  entryFilters.push({
-                    type: 'email_subscription',
-                    value: rule.email_subscription.subscription_status,
-                  });
-                }
-              }
             }
 
             // Parse variants
@@ -758,38 +414,34 @@ Deno.serve(async (req) => {
               }
             }
 
-            // Parse steps (enrich email creative via templates)
+            // Parse steps (skip HTML to save memory - store template IDs)
             if (details.steps?.length > 0) {
               for (const s of details.steps) {
                 if (!s.id) continue;
 
-                const messages: CanvasStep['messages'] = [];
+                const messages: Array<Record<string, unknown>> = [];
                 if (s.messages && typeof s.messages === 'object') {
                   const entries = Array.isArray(s.messages)
-                    ? (s.messages as any[]).map((m, idx) => [`message_${idx}`, m])
+                    ? (s.messages as unknown[]).map((m, idx) => [`message_${idx}`, m])
                     : Object.entries(s.messages);
 
                   for (const [msgKey, msgData] of entries) {
-                    const msg = msgData as any;
+                    const msg = msgData as Record<string, unknown>;
                     const inferredChannel = typeof msgKey === 'string' ? msgKey : undefined;
-                    const channel = msg.channel || inferredChannel || s.channels?.[0] || 'email';
+                    const channel = (msg.channel as string) || inferredChannel || (s.channels?.[0] as string) || 'email';
 
-                    const templateId =
-                      msg.email_template_id ||
-                      msg.template_id ||
-                      msg.templateId ||
-                      msg.email_template ||
-                      msg.template;
+                    const templateId = msg.email_template_id || msg.template_id;
+                    let subject = msg.subject as string | undefined;
+                    let preheader = msg.preheader as string | undefined;
+                    let html: string | undefined;
 
-                    let subject = msg.subject;
-                    let preheader = msg.preheader;
-                    let html = channel === 'email' ? (msg.body || msg.html_body) : undefined;
-
-                    if (channel === 'email' && (!html || html.length === 0) && templateId && templateHtmlMap.has(templateId)) {
-                      const tpl = templateHtmlMap.get(templateId)!;
+                    if (channel === 'email' && templateId && templateHtmlMap.has(templateId as string)) {
+                      const tpl = templateHtmlMap.get(templateId as string)!;
                       html = tpl.html;
                       subject = subject || tpl.subject;
                       preheader = preheader || tpl.preheader;
+                    } else if (channel === 'email') {
+                      html = truncateHtml((msg.body as string) || (msg.html_body as string));
                     }
 
                     messages.push({
@@ -797,8 +449,8 @@ Deno.serve(async (req) => {
                       subject,
                       preheader,
                       title: msg.title || msg.header,
-                      body: msg.message || msg.alert || msg.body || msg.plaintext_body || msg.message_body,
-                      html_content: truncateHtml(channel === 'email' ? html : undefined),
+                      body: msg.message || msg.alert || msg.body || msg.plaintext_body,
+                      html_content: html,
                       image_url: msg.image_url || msg.big_image,
                       buttons: msg.buttons,
                     });
@@ -816,10 +468,9 @@ Deno.serve(async (req) => {
                   }
                 }
 
-                const nextStepIds =
-                  Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
-                    ? s.next_step_ids
-                    : nextPaths.map((p) => p.next_step_id).filter(Boolean);
+                const nextStepIds = Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
+                  ? s.next_step_ids
+                  : nextPaths.map(p => p.next_step_id).filter(Boolean);
 
                 steps[s.id] = {
                   id: s.id,
@@ -834,8 +485,43 @@ Deno.serve(async (req) => {
                 };
               }
             }
-          } catch (_err) {
-            console.log(`Could not fetch canvas details for ${c.id}`);
+          } catch (err) {
+            console.warn(`Failed to fetch details for canvas ${c.id}:`, err);
+          }
+
+          // Fetch activity data if canvas is enabled
+          if (enabled) {
+            try {
+              const now = new Date();
+              const end = now.toISOString().split('T')[0];
+              const start60 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+              const analyticsData = await brazeFetch(
+                `canvas/data_series?canvas_id=${c.id}&length=60&ending_at=${end}T00:00:00Z`,
+                apiKey,
+                brazeRestEndpoint
+              );
+
+              if (analyticsData.data?.length > 0) {
+                const dataSeries = analyticsData.data as Array<{ time: string; total_stats?: { entries?: number }; entries?: number }>;
+                
+                for (let j = 0; j < dataSeries.length; j++) {
+                  const day = dataSeries[j];
+                  const entries = day.total_stats?.entries ?? day.entries ?? 0;
+                  entries_last_60d += entries;
+                  if (j < 30) entries_last_30d += entries;
+                  
+                  if (entries > 0 && !last_activity_at) {
+                    last_activity_at = day.time;
+                  }
+                }
+
+                // Estimate sends from the data
+                sends_last_30d = Math.floor(entries_last_30d * 0.9); // Rough estimate
+              }
+            } catch (err) {
+              console.warn(`Failed to fetch analytics for canvas ${c.id}:`, err);
+            }
           }
 
           return {
@@ -844,67 +530,95 @@ Deno.serve(async (req) => {
             description: c.description,
             draft: c.draft,
             enabled,
+            archived: c.archived,
             schedule_type: entryType,
             first_entry: firstEntryIso,
             last_entry: lastEntryIso,
             tags: c.tags,
             created_at: c.created_at,
             updated_at: c.updated_at,
-            archived: c.archived,
             variants,
             steps,
             total_steps: Object.keys(steps).length,
-            entry_type: entryType as any,
+            entry_type: entryType,
             entry_segment_name: entrySegmentName,
             trigger_event_name: triggerEventName,
             exception_events: exceptionEvents.length > 0 ? exceptionEvents : undefined,
-            conversion_events: conversionEvents.length > 0 ? conversionEvents : undefined,
-            entry_filters: entryFilters.length > 0 ? entryFilters : undefined,
+            conversion_events: conversionEvents && conversionEvents.length > 0 ? conversionEvents : undefined,
+            entry_filters: entryFilters && entryFilters.length > 0 ? entryFilters : undefined,
+            entries_last_30d,
+            entries_last_60d,
+            sends_last_30d,
+            last_activity_at,
           };
-        },
-        3 // Smaller batch size for canvases since they're larger
+        })
       );
-      
-      results.canvases = canvasesWithDetails;
-      console.log('Fetched canvases:', results.canvases.length, 'enabled:', results.canvases.filter(c => c.enabled).length);
-    } catch (e) {
-      console.error('Failed to fetch canvases:', e);
+
+      // Immediately upsert this batch to the database (checkpointing)
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value) {
+          const c = result.value;
+          const row = {
+            client_id: clientId,
+            braze_canvas_id: c.id,
+            name: c.name,
+            description: c.description || null,
+            draft: c.draft ?? false,
+            enabled: c.enabled ?? false,
+            archived: c.archived ?? false,
+            schedule_type: c.schedule_type || null,
+            entry_type: c.entry_type || null,
+            trigger_event_name: c.trigger_event_name || null,
+            entry_segment_name: c.entry_segment_name || null,
+            tags: c.tags || [],
+            first_entry: c.first_entry || null,
+            last_entry: c.last_entry || null,
+            created_in_braze: c.created_at || null,
+            updated_in_braze: c.updated_at || null,
+            total_steps: c.total_steps || 0,
+            raw_variants: c.variants || [],
+            raw_steps: c.steps || {},
+            conversion_events: c.conversion_events || [],
+            entry_filters: c.entry_filters || [],
+            exception_events: c.exception_events || [],
+            entries_last_30d: c.entries_last_30d || 0,
+            entries_last_60d: c.entries_last_60d || 0,
+            sends_last_30d: c.sends_last_30d || 0,
+            last_activity_at: c.last_activity_at || null,
+            synced_at: nowIso,
+          };
+
+          const { error: upsertErr } = await supabase
+            .from('braze_canvases')
+            .upsert(row, { onConflict: 'client_id,braze_canvas_id' });
+
+          if (upsertErr) {
+            console.warn(`Canvas upsert failed for ${c.id}:`, upsertErr.message);
+          } else {
+            processedCount++;
+            if (c.enabled) enabledCount++;
+          }
+        }
+      }
+
+      // Release memory between batches
+      await new Promise(r => setTimeout(r, 100));
     }
 
-    // === SEGMENTS (basic list only, no details) ===
-    try {
-      const segmentsData = await brazeFetch('segments/list?page=0&sort_direction=desc', apiKey, brazeRestEndpoint);
-      results.segments = (segmentsData.segments || []).slice(0, 100).map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        tags: s.tags,
-        is_starred: (s.tags || []).some((t: string) => t.toLowerCase().includes('star')),
-      }));
-      console.log('Fetched segments:', results.segments.length);
-    } catch (e) {
-      console.error('Failed to fetch segments:', e);
-    }
+    console.log(`Processed ${processedCount} canvases, ${enabledCount} enabled`);
 
-    // === SAVE TO DATABASE ===
-    const nowIso = new Date().toISOString();
+    // === Update schema_cache with summary (no full canvas data) ===
     const schemaCache = {
-      cache_version: 6,
+      cache_version: 7,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
-      campaigns_count: results.campaigns.length,
-      canvases_count: results.canvases.length,
-      canvases_enabled_count: results.canvases.filter((c) => c.enabled).length,
-      templates_count: results.templates.length,
-      segments_count: results.segments.length,
+      canvases_count: processedCount,
+      canvases_enabled_count: enabledCount,
       last_sync: nowIso,
-      campaigns: results.campaigns,
-      canvases: results.canvases,
-      templates: results.templates,
-      segments: results.segments,
+      // Intentionally NOT storing full canvas data here - it's in braze_canvases table
     };
 
-    const { error: saveError } = await supabase
+    await supabase
       .from('client_platforms')
       .update({
         schema_cache: schemaCache,
@@ -913,62 +627,19 @@ Deno.serve(async (req) => {
       })
       .eq('id', platformId);
 
-    if (saveError) {
-      console.error('Failed saving schema_cache:', saveError);
-      throw new Error(`Failed to save sync results: ${saveError.message}`);
-    }
-
-    // === UPSERT CANVASES INTO braze_canvases TABLE ===
-    for (const c of results.canvases) {
-      const row = {
-        client_id: clientId,
-        braze_canvas_id: c.id,
-        name: c.name,
-        description: c.description || null,
-        draft: c.draft ?? false,
-        enabled: c.enabled ?? false,
-        archived: c.archived ?? false,
-        schedule_type: c.schedule_type || null,
-        entry_type: c.entry_type || null,
-        trigger_event_name: c.trigger_event_name || null,
-        entry_segment_name: c.entry_segment_name || null,
-        tags: c.tags || [],
-        first_entry: c.first_entry || null,
-        last_entry: c.last_entry || null,
-        created_in_braze: c.created_at || null,
-        updated_in_braze: c.updated_at || null,
-        total_steps: c.total_steps || 0,
-        raw_variants: c.variants || [],
-        raw_steps: c.steps || {},
-        conversion_events: c.conversion_events || [],
-        entry_filters: c.entry_filters || [],
-        exception_events: c.exception_events || [],
-        synced_at: nowIso,
-      };
-      const { error: upsertErr } = await supabase
-        .from('braze_canvases')
-        .upsert(row, { onConflict: 'client_id,braze_canvas_id' });
-      if (upsertErr) console.warn('Canvas upsert failed:', c.id, upsertErr.message);
-    }
-    console.log('Upserted', results.canvases.length, 'canvases to braze_canvases');
-
-    // === MARK SYNC RUN COMPLETE ===
+    // === Mark sync run complete ===
     const syncDuration = Date.now() - syncStart;
     if (syncRunId) {
       await supabase.from('braze_sync_runs').update({
         status: 'success',
         completed_at: nowIso,
         duration_ms: syncDuration,
-        canvases_synced: results.canvases.length,
-        campaigns_synced: results.campaigns.length,
-        templates_synced: results.templates.length,
-        segments_synced: results.segments.length,
+        canvases_synced: processedCount,
       }).eq('id', syncRunId);
     }
 
-    console.log('Braze sync complete in', syncDuration, 'ms');
+    console.log(`Braze sync complete in ${syncDuration}ms: ${processedCount} canvases, ${enabledCount} enabled`);
 
-    // Return a small payload (UI doesn't use the full dataset; it's persisted in the database)
     return new Response(
       JSON.stringify({
         success: true,
@@ -977,10 +648,9 @@ Deno.serve(async (req) => {
           saved_at: nowIso,
           duration_ms: syncDuration,
           counts: {
-            campaigns: results.campaigns.length,
-            canvases: results.canvases.length,
-            templates: results.templates.length,
-            segments: results.segments.length,
+            total_found: allCanvasList.length,
+            processed: processedCount,
+            enabled: enabledCount,
           },
         },
       }),
@@ -989,8 +659,6 @@ Deno.serve(async (req) => {
   } catch (error: unknown) {
     console.error('Error syncing Braze:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    // Best-effort update of sync run to failed
-    // (syncRunId may not be in scope here due to restructuring, but we keep this for future)
     return new Response(
       JSON.stringify({ success: false, error: message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
