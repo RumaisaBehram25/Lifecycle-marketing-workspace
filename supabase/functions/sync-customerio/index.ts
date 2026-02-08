@@ -45,11 +45,11 @@ serve(async (req) => {
       throw new Error('clientId and platformId are required');
     }
 
-    const siteId = Deno.env.get('CUSTOMERIO_SITE_ID');
-    const apiKey = Deno.env.get('CUSTOMERIO_API_KEY');
+    // Customer.io App API uses Bearer token auth with App API Key
+    const appApiKey = Deno.env.get('CUSTOMERIO_API_KEY');
 
-    if (!siteId || !apiKey) {
-      throw new Error('Customer.io credentials not configured. Set CUSTOMERIO_SITE_ID and CUSTOMERIO_API_KEY.');
+    if (!appApiKey) {
+      throw new Error('Customer.io credentials not configured. Set CUSTOMERIO_API_KEY (App API Key).');
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -76,10 +76,9 @@ serve(async (req) => {
     const syncRunId = syncRun.id;
     const startTime = Date.now();
 
-    // Customer.io App API uses Basic Auth with Site ID and API Key
-    const credentials = btoa(`${siteId}:${apiKey}`);
+    // Customer.io App API uses Bearer token authentication
     const headers = {
-      'Authorization': `Basic ${credentials}`,
+      'Authorization': `Bearer ${appApiKey}`,
       'Content-Type': 'application/json',
     };
 
