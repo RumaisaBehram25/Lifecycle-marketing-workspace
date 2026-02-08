@@ -141,68 +141,7 @@ interface BrazeSchemaCache {
   last_sync?: string;
 }
 
-const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
-  {
-    id: '1',
-    name: 'Welcome to Double Good! 🍿',
-    displayName: 'Welcome to Double Good! 🍿',
-    channels: ['email'],
-    campaignType: 'email',
-    status: 'active',
-    subject: "Welcome to Double Good – let's start fundraising!",
-    preheader: 'Your Pop-Up Store is ready. Keep 50% of every sale!',
-    tags: ['welcome', 'onboarding', 'marketing'],
-    first_sent: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Welcome to Double Good! 🍿', ['welcome', 'onboarding', 'marketing']),
-  },
-  {
-    id: '2',
-    name: 'Fundraiser Reminder 🚀',
-    displayName: 'Fundraiser Reminder 🚀',
-    channels: ['push'],
-    campaignType: 'push',
-    status: 'active',
-    subject: '',
-    preheader: '',
-    push_title: 'Your Pop-Up Store ends soon!',
-    push_body: 'Share your link one more time to hit your goal!',
-    push_deep_link: 'doublegood://fundraiser',
-    tags: ['reminder', 'engagement', 'marketing'],
-    first_sent: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Fundraiser Reminder 🚀', ['reminder', 'engagement', 'marketing']),
-  },
-  {
-    id: '3',
-    name: 'Order Confirmation',
-    displayName: 'Order Confirmation',
-    channels: ['email'],
-    campaignType: 'email',
-    status: 'active',
-    subject: 'Thanks for supporting our team!',
-    preheader: 'Your gourmet popcorn order is confirmed.',
-    tags: ['transactional', 'order'],
-    first_sent: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Order Confirmation', ['transactional', 'order']),
-  },
-  {
-    id: '4',
-    name: 'Start Another Fundraiser',
-    displayName: 'Start Another Fundraiser',
-    channels: ['in_app_message'],
-    campaignType: 'inapp',
-    status: 'active',
-    subject: '',
-    preheader: '',
-    inapp_title: 'Ready for Round 2?',
-    inapp_body: 'Your last fundraiser was a hit! Start another Pop-Up Store.',
-    inapp_cta: 'Start Fundraiser',
-    inapp_image_url: 'https://example.com/popcorn-banner.png',
-    inapp_buttons: [{ text: 'Start Fundraiser', action: 'deep_link', url: 'doublegood://new-fundraiser' }],
-    tags: ['retention', 'reactivation', 'marketing'],
-    first_sent: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Start Another Fundraiser', ['retention', 'reactivation', 'marketing']),
-  },
-];
+// No mock data - show empty state when no real data is synced
 
 export default function Campaigns() {
   const { data: client } = useDoubleGoodClient();
@@ -247,7 +186,7 @@ export default function Campaigns() {
   // Transform Braze campaigns with taxonomy parsing
   const campaigns = useMemo((): EnrichedCampaign[] => {
     if (!brazeData?.campaigns?.length) {
-      return MOCK_CAMPAIGNS;
+      return [];
     }
     
     const templateMap = new Map(
