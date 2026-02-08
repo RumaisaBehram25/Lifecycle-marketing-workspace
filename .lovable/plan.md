@@ -1,165 +1,153 @@
 
-# Plan: Robust Lifecycle Flow Extraction from Braze
+# Plan: Fix Lifecycle Flow Extraction from Braze
 
 ## Problem Summary
-The Braze sync is failing intermittently due to:
-1. **Timeout/memory issues**: The Edge Function is timing out during bundle generation or hitting memory limits when processing 200+ canvases
-2. **Activity data missing**: `last_entry` and `first_entry` fields from `/canvas/list` and `/canvas/details` are unreliable for determining recent activity
-3. **Filtering logic gaps**: The UI filters on `enabled === true` AND `last_entry` within 30/60 days, but many active canvases lack these fields
 
-## Root Cause Analysis
-Looking at the logs, the sync function:
-- Successfully fetches 200 canvases and shows "enabled: 1" (only 1 marked enabled in list response)
-- The Braze `/canvas/list` endpoint does NOT reliably return `enabled`, `first_entry`, or `last_entry`
-- The `/canvas/details` endpoint returns these fields, but the sync only calls details for the first ~200 canvases
-- The Braze `enabled` field in the details response IS reliable, but entry timestamps may still be missing
+The Lifecycle tab shows no journeys because the Braze sync has two critical failures:
 
-## Solution Architecture
+1. **Active canvases missing entirely**: The 27 active flows you listed are NOT in the database - the sync is fetching the wrong 200 canvases
+2. **Memory exhaustion**: The sync hits "Memory limit exceeded" when processing 200 canvas details simultaneously
+3. **Enabled detection failing**: Only 1 of 200 synced canvases is marked `enabled: true` due to unreliable `/canvas/list` data
 
-### Phase 1: Fix Sync Reliability
-**Goal**: Make the Edge Function deploy and run consistently without timeouts
+## Root Cause
 
-Changes to `supabase/functions/sync-braze/index.ts`:
-- Reduce parallel batch size from 5 to 3 for canvas details
-- Add explicit timeout handling with AbortController
-- Use streaming upserts instead of collecting all results in memory
-- Limit canvas details fetch to 100 most recently updated (not 200)
-- Add checkpointing: save partial results to `braze_canvases` after each batch so progress isn't lost on timeout
+The Braze `/canvas/list` API returns canvases in default order (likely by created date), so the oldest canvases come first. The active lifecycle flows from 2025-2026 are buried beyond the first 200 results. Additionally, the `enabled` field isn't reliably returned from the list endpoint - it only comes from `/canvas/details`.
 
-### Phase 2: Add Analytics-Based Activity Detection
-**Goal**: Use Braze `/canvas/data_summary` to get real 30/60-day activity metrics
+## Solution: Smarter Canvas Discovery
 
-New logic in sync function:
-```text
-For each enabled canvas (up to 100):
-  1. Fetch /canvas/details (structure, steps, messages)
-  2. Fetch /canvas/data_summary?length=60 (entries, conversions, sends)
-  3. Store activity_summary in braze_canvases table
+### Phase 1: Fetch All Canvas IDs First, Then Prioritize
+
+Instead of fetching details for the first 200 canvases by creation order, we will:
+
+1. Fetch ALL canvas IDs from the list endpoint (paginate through all pages)
+2. Fetch `/canvas/details` only for canvases that match known lifecycle naming patterns OR have recent dates in name
+3. Use the `enabled` field from details response (which is reliable) to determine active status
+4. Add analytics-based activity detection using `/canvas/data_summary`
+
+### Phase 2: Memory-Optimized Processing
+
+1. Reduce batch size from 5 to 3 parallel requests
+2. Skip HTML content storage entirely (store template IDs only, fetch on-demand)
+3. Checkpoint after each batch - save partial results immediately
+4. Limit total canvases processed to 100 with strict prioritization
+
+### Phase 3: Activity-Based Filtering Using Analytics
+
+Use Braze `/canvas/data_summary` endpoint to get real 30/60-day activity:
+
+```
+GET /canvas/data_summary?canvas_id={id}&length=60
+
+Returns: total_stats.entries, step_stats.*.sent
 ```
 
-New columns for `braze_canvases` table:
-- `entries_last_30d` (integer)
-- `entries_last_60d` (integer)
-- `sends_last_30d` (integer) - sum across all steps
-- `last_activity_at` (timestamp) - computed from analytics response
+Store in new database columns:
+- `entries_last_30d`
+- `entries_last_60d`  
+- `sends_last_30d`
+- `last_activity_at`
 
-### Phase 3: Update Frontend Filtering Logic
-**Goal**: Show all enabled canvases, sorted by recent activity
+### Phase 4: Updated Frontend Logic
 
-Changes to `src/pages/Lifecycle.tsx`:
-- Remove requirement for `last_entry` timestamp
-- Show all canvases where `enabled === true`
-- Add activity badge: "Active (X entries last 30d)" or "No recent activity"
-- Sort by `entries_last_60d` DESC, then `last_entry` DESC
-- Allow 30/60d filter to highlight rather than hide canvases without analytics
-
-### Phase 4: Add Sync Health Dashboard
-**Goal**: Surface sync status and allow manual fixes
-
-New component `src/components/platforms/BrazeSyncHealth.tsx`:
-- Show last sync time, duration, counts from `braze_sync_runs` table
-- Show success/failure status with error message if failed
-- "Retry Sync" button
-- List of canvases with warnings (missing analytics, no steps, etc.)
+Show all enabled canvases from the database, with activity badges:
+- Sort by entries_last_60d DESC (most active first)
+- Show "Active" badge for canvases with recent activity
+- Show "No recent activity" for enabled but dormant canvases
 
 ---
 
-## Technical Details
+## Files to Modify
 
-### Database Migration
-Add new columns to `braze_canvases`:
+| File | Changes |
+|------|---------|
+| `supabase/functions/sync-braze/index.ts` | Rewrite canvas sync logic with name-pattern prioritization, analytics calls, memory optimization |
+| `src/pages/Lifecycle.tsx` | Remove strict last_entry requirement, show all enabled canvases, add activity badges |
+| Database migration | Add activity tracking columns to `braze_canvases` |
+
+---
+
+## Technical Implementation
+
+### Canvas Prioritization Logic
+
+```
+Priority 1 (Always fetch details):
+  - Name contains "Lifecycle" 
+  - Name matches "YYYYMMDD | Marketing | Lifecycle | ..."
+  - Name contains "Welcome", "Retention", "Abandoned", "Reactivation", "Pre-Churn"
+  
+Priority 2 (Fetch if room):
+  - Name starts with 2025 or 2026 date pattern
+  - Listed as enabled in list response
+  
+Priority 3 (Skip):
+  - Name contains "TESTING", "COMPLETE", "[DO NOT EDIT]"
+  - Name starts with pre-2024 dates
+```
+
+### Memory Optimization
+
+```
+1. Fetch canvas list (all pages) -> collect IDs + names only
+2. Apply priority scoring to get top 100 candidates
+3. For each batch of 3:
+   a. Fetch /canvas/details
+   b. Fetch /canvas/data_summary (if enabled)
+   c. Upsert to braze_canvases immediately
+   d. Release batch from memory
+4. Skip HTML storage - store template_id only
+```
+
+### Database Schema Updates
+
 ```sql
 ALTER TABLE public.braze_canvases
 ADD COLUMN IF NOT EXISTS entries_last_30d INT DEFAULT 0,
 ADD COLUMN IF NOT EXISTS entries_last_60d INT DEFAULT 0,
 ADD COLUMN IF NOT EXISTS sends_last_30d INT DEFAULT 0,
 ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ;
+
+CREATE INDEX idx_braze_canvases_activity 
+ON public.braze_canvases (client_id, enabled, entries_last_60d DESC NULLS LAST);
 ```
 
-### Edge Function Changes
+### Frontend Changes
 
-**Batch processing with checkpointing:**
-```text
-1. Fetch all canvas IDs (paginated, up to 2000)
-2. Filter to non-draft, non-archived
-3. Group into batches of 10
-4. For each batch:
-   a. Fetch details for each canvas (parallel, max 3)
-   b. Fetch analytics summary for each (parallel, max 3)
-   c. Upsert batch to braze_canvases immediately
-   d. Update sync_run progress
-5. On completion/error, finalize sync_run record
+```typescript
+// Remove strict last_entry filter
+const filteredJourneys = journeys.filter(journey => {
+  // Must be enabled in Braze
+  if (journey.enabled !== true) return false;
+  
+  // Don't require last_entry - show all enabled canvases
+  // Use activity columns for sorting/badges instead
+  return true;
+});
+
+// Sort by activity
+filteredJourneys.sort((a, b) => 
+  (b.entries_last_60d ?? 0) - (a.entries_last_60d ?? 0)
+);
+
+// Activity badge component
+const ActivityBadge = ({ journey }) => {
+  if (journey.entries_last_30d > 0) {
+    return <Badge variant="success">Active ({journey.entries_last_30d} entries)</Badge>;
+  }
+  return <Badge variant="outline">Enabled</Badge>;
+};
 ```
-
-**Analytics endpoint call:**
-```text
-GET /canvas/data_summary?canvas_id={id}&length=60&ending_at={now}
-
-Response contains:
-- total_stats.entries (60-day total)
-- step_stats.{step_id}.messages.{channel}.sent (sends per step)
-```
-
-**Activity computation:**
-```text
-entries_last_60d = response.total_stats.entries
-entries_last_30d = (fetch again with length=30) OR estimate as 60d / 2
-sends_last_30d = sum of all step.messages.*.sent across all steps
-last_activity_at = if entries > 0 then now() else null
-```
-
-### Frontend Query Changes
-
-Update `useQuery` in Lifecycle.tsx:
-```text
-From:
-  .eq('enabled', true)
-  .order('last_entry', { ascending: false })
-
-To:
-  .eq('enabled', true)
-  .eq('archived', false)
-  .order('entries_last_60d', { ascending: false, nullsFirst: false })
-  .order('synced_at', { ascending: false })
-```
-
-Update filtering memo:
-```text
-// Remove strict last_entry requirement
-// Instead, show all enabled canvases
-// Add visual indicator for inactive ones
-
-const isActive = journey.entries_last_30d > 0 || 
-                 journey.sends_last_30d > 0 ||
-                 isRecentDate(journey.last_entry, 60);
-```
-
----
-
-## Files to Create/Modify
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `supabase/functions/sync-braze/index.ts` | Modify | Add analytics calls, batch checkpointing, reduce memory |
-| `src/pages/Lifecycle.tsx` | Modify | Update filtering to use analytics columns, show all enabled |
-| New migration SQL | Create | Add analytics columns to braze_canvases |
-| `src/components/platforms/BrazeSyncHealth.tsx` | Create | Sync health dashboard component |
-| `src/components/platforms/BrazeDataViewer.tsx` | Modify | Integrate sync health panel |
-
----
-
-## Risk Mitigation
-
-1. **API Rate Limits**: Braze allows 250k requests/hour; we'll stay well under with batched calls
-2. **Analytics Permission**: User confirmed they can grant `canvas.data_series` / `canvas.data_summary` permissions
-3. **Timeout Prevention**: Checkpoint after each batch means partial syncs are still useful
-4. **Backward Compatibility**: Old `last_entry` logic remains as fallback if analytics columns are null
 
 ---
 
 ## Expected Outcome
-- All ~36 active lifecycle canvases appear on the Lifecycle tab
-- Canvases sorted by recent activity (entries/sends in last 60 days)
-- Sync completes reliably without timeouts
-- Users can see sync health status and retry failed syncs
-- Manual overrides for trigger/audience persist across syncs (existing feature)
+
+After implementation:
+- All 27 active lifecycle flows appear on the Lifecycle tab
+- Journeys sorted by recent activity (entries in last 60 days)
+- Sync completes reliably without memory errors
+- Flow visualization shows full creative content for each path
+
+## Next Step
+
+I will begin implementing Phase 1 (canvas prioritization logic and database migration) once you approve this plan.
