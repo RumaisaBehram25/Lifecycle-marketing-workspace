@@ -11,7 +11,7 @@ import {
 import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
 import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
-import { DoubleGoodIcon } from '@/components/DoubleGoodLogo';
+import { DoubleGoodIcon, DoubleGoodLogo } from '@/components/DoubleGoodLogo';
 
 export default function Dashboard() {
   const quickActions = [
@@ -52,7 +52,7 @@ export default function Dashboard() {
                 <DoubleGoodIcon className="h-10 w-10 text-primary-foreground" />
               </div>
               <div className="flex-1">
-                <h1 className="text-2xl font-bold">Double Good</h1>
+                <DoubleGoodLogo className="h-8 w-auto text-foreground" />
                 <p className="text-sm text-muted-foreground mt-1">
                   CRM Copilot — Lifecycle marketing command center
                 </p>
