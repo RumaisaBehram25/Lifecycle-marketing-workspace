@@ -121,13 +121,11 @@ export default function Brand() {
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
-                <img 
-                  src="/logos/linktree-logo.png" 
-                  alt="Linktree" 
-                  className="h-12 w-12 rounded-xl"
-                />
+                <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center">
+                  <span className="text-2xl">🍿</span>
+                </div>
                 <div>
-                  <h1 className="text-2xl font-bold tracking-tight">Linktree</h1>
+                  <h1 className="text-2xl font-bold tracking-tight">Double Good</h1>
                   <p className="text-sm text-muted-foreground">CRM Brand Guidelines</p>
                 </div>
               </div>
