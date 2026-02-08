@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,7 @@ interface BrazeCampaign {
 }
 
 export function PastCampaigns() {
-  const { data: platforms, isLoading: platformsLoading } = useLinktreePlatforms();
+  const { data: platforms, isLoading: platformsLoading } = useDoubleGoodPlatforms();
   const [selectedCampaign, setSelectedCampaign] = useState<BrazeCampaign | null>(null);
 
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);

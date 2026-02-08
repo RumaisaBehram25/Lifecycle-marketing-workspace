@@ -7,11 +7,11 @@ import {
   Code,
   Palette,
   Database,
-  ArrowRight,
 } from 'lucide-react';
 import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
 import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
+import { DoubleGoodIcon } from '@/components/DoubleGoodLogo';
 
 export default function Dashboard() {
   const quickActions = [
@@ -48,13 +48,11 @@ export default function Dashboard() {
         <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
           <CardContent className="p-6">
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <img 
-                src="/logos/linktree-logo.png" 
-                alt="Linktree" 
-                className="h-16 w-16 rounded-2xl object-contain"
-              />
+              <div className="h-16 w-16 rounded-2xl bg-primary flex items-center justify-center">
+                <DoubleGoodIcon className="h-10 w-10 text-primary-foreground" />
+              </div>
               <div className="flex-1">
-                <h1 className="text-2xl font-bold">Linktree</h1>
+                <h1 className="text-2xl font-bold">Double Good</h1>
                 <p className="text-sm text-muted-foreground mt-1">
                   CRM Copilot — Lifecycle marketing command center
                 </p>

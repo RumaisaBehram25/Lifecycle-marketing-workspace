@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -60,7 +60,7 @@ const CHANNELS: { id: Channel; label: string; icon: React.ReactNode; description
 ];
 
 export function CreateBriefModal({ open, onOpenChange }: CreateBriefModalProps) {
-  const { data: client } = useLinktreeClient();
+  const { data: client } = useDoubleGoodClient();
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();

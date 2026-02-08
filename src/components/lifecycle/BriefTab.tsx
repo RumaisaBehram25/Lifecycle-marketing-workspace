@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -109,8 +109,8 @@ const PROGRESS_STEPS = [
 ];
 
 export function BriefTab() {
-  const { data: client } = useLinktreeClient();
-  const { data: platforms } = useLinktreePlatforms();
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms } = useDoubleGoodPlatforms();
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -487,7 +487,7 @@ function CreateBriefDialog({
   segments: Segment[];
   onSuccess: () => void;
 }) {
-  const { data: client } = useLinktreeClient();
+  const { data: client } = useDoubleGoodClient();
   const { user } = useAuth();
   const { toast } = useToast();
 

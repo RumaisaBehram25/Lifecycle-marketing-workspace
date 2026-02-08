@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -82,8 +82,8 @@ function generateAiDescription(name: string): string {
 }
 
 export function AudienceTab() {
-  const { data: client } = useLinktreeClient();
-  const { data: platforms } = useLinktreePlatforms();
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   

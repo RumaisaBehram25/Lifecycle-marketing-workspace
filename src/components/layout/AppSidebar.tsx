@@ -36,8 +36,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar';
-
-// Navigation is now built dynamically in the component to support admin-only items
+import { DoubleGoodIcon } from '@/components/DoubleGoodLogo';
 
 export function AppSidebar() {
   const location = useLocation();
@@ -71,15 +70,13 @@ export function AppSidebar() {
       {/* Logo */}
       <SidebarHeader className={`border-b border-sidebar-border ${isCollapsed ? 'p-1' : ''}`}>
         <Link to="/dashboard" className={`flex items-center gap-3 ${isCollapsed ? 'justify-center p-1' : 'px-2 py-3'}`}>
-          <img 
-            src="/logos/linktree-logo.png" 
-            alt="Linktree" 
-            className={`rounded-xl object-contain flex-shrink-0 transition-all ${isCollapsed ? 'h-9 w-9' : 'h-10 w-10'}`}
-          />
+          <div className={`flex items-center justify-center rounded-xl bg-primary flex-shrink-0 transition-all ${isCollapsed ? 'h-9 w-9' : 'h-10 w-10'}`}>
+            <DoubleGoodIcon className={`text-primary-foreground ${isCollapsed ? 'h-5 w-5' : 'h-6 w-6'}`} />
+          </div>
           {!isCollapsed && (
             <div className="flex flex-col">
               <span className="text-xl font-bold text-sidebar-foreground tracking-tight">
-                Linktree
+                Double Good
               </span>
               <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
                 CRM Copilot

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -87,8 +87,8 @@ const COMMON_BRAZE_EVENTS = [
 ];
 
 export default function CodeGenerator() {
-  const { data: client, isLoading: clientLoading } = useLinktreeClient();
-  const { data: platforms } = useLinktreePlatforms();
+  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
+  const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
 
   const [activeDataTab, setActiveDataTab] = useState('attributes');

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sparkles, Send, ArrowRight, Loader2 } from 'lucide-react';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -23,8 +23,8 @@ export function EmbeddedChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
-  const { data: client } = useLinktreeClient();
-  const { data: platforms } = useLinktreePlatforms();
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms } = useDoubleGoodPlatforms();
 
   // Fetch briefs for context
   const { data: briefs } = useQuery({

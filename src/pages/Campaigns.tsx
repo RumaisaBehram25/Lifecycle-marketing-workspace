@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -144,69 +144,69 @@ interface BrazeSchemaCache {
 const MOCK_CAMPAIGNS: EnrichedCampaign[] = [
   {
     id: '1',
-    name: 'Welcome to Linktree! 🌳',
-    displayName: 'Welcome to Linktree! 🌳',
+    name: 'Welcome to Double Good! 🍿',
+    displayName: 'Welcome to Double Good! 🍿',
     channels: ['email'],
     campaignType: 'email',
     status: 'active',
-    subject: "Welcome to Linktree – let's get you set up!",
-    preheader: 'Your link in bio is ready. Here\'s how to make it yours.',
+    subject: "Welcome to Double Good – let's start fundraising!",
+    preheader: 'Your Pop-Up Store is ready. Keep 50% of every sale!',
     tags: ['welcome', 'onboarding', 'marketing'],
     first_sent: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Welcome to Linktree! 🌳', ['welcome', 'onboarding', 'marketing']),
+    taxonomy: parseCampaignTaxonomy('Welcome to Double Good! 🍿', ['welcome', 'onboarding', 'marketing']),
   },
   {
     id: '2',
-    name: 'New Feature Alert 🚀',
-    displayName: 'New Feature Alert 🚀',
+    name: 'Fundraiser Reminder 🚀',
+    displayName: 'Fundraiser Reminder 🚀',
     channels: ['push'],
     campaignType: 'push',
     status: 'active',
     subject: '',
     preheader: '',
-    push_title: 'New: QR Codes are here!',
-    push_body: 'Generate custom QR codes for your Linktree. Try it now!',
-    push_deep_link: 'linktree://features/qr',
-    tags: ['feature', 'announcement', 'marketing'],
+    push_title: 'Your Pop-Up Store ends soon!',
+    push_body: 'Share your link one more time to hit your goal!',
+    push_deep_link: 'doublegood://fundraiser',
+    tags: ['reminder', 'engagement', 'marketing'],
     first_sent: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('New Feature Alert 🚀', ['feature', 'announcement', 'marketing']),
+    taxonomy: parseCampaignTaxonomy('Fundraiser Reminder 🚀', ['reminder', 'engagement', 'marketing']),
   },
   {
     id: '3',
-    name: 'Password Reset Confirmation',
-    displayName: 'Password Reset Confirmation',
+    name: 'Order Confirmation',
+    displayName: 'Order Confirmation',
     channels: ['email'],
     campaignType: 'email',
     status: 'active',
-    subject: 'Your password has been reset',
-    preheader: 'Your Linktree account password was successfully changed.',
-    tags: ['transactional', 'security'],
+    subject: 'Thanks for supporting our team!',
+    preheader: 'Your gourmet popcorn order is confirmed.',
+    tags: ['transactional', 'order'],
     first_sent: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Password Reset Confirmation', ['transactional', 'security']),
+    taxonomy: parseCampaignTaxonomy('Order Confirmation', ['transactional', 'order']),
   },
   {
     id: '4',
-    name: 'Pro Upgrade Prompt',
-    displayName: 'Pro Upgrade Prompt',
+    name: 'Start Another Fundraiser',
+    displayName: 'Start Another Fundraiser',
     channels: ['in_app_message'],
     campaignType: 'inapp',
     status: 'active',
     subject: '',
     preheader: '',
-    inapp_title: 'Unlock Pro Features',
-    inapp_body: 'Get advanced analytics, custom themes, and priority support.',
-    inapp_cta: 'Upgrade to Pro',
-    inapp_image_url: 'https://example.com/pro-banner.png',
-    inapp_buttons: [{ text: 'Upgrade to Pro', action: 'deep_link', url: 'linktree://upgrade' }],
-    tags: ['upsell', 'monetization', 'marketing'],
+    inapp_title: 'Ready for Round 2?',
+    inapp_body: 'Your last fundraiser was a hit! Start another Pop-Up Store.',
+    inapp_cta: 'Start Fundraiser',
+    inapp_image_url: 'https://example.com/popcorn-banner.png',
+    inapp_buttons: [{ text: 'Start Fundraiser', action: 'deep_link', url: 'doublegood://new-fundraiser' }],
+    tags: ['retention', 'reactivation', 'marketing'],
     first_sent: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    taxonomy: parseCampaignTaxonomy('Pro Upgrade Prompt', ['upsell', 'monetization', 'marketing']),
+    taxonomy: parseCampaignTaxonomy('Start Another Fundraiser', ['retention', 'reactivation', 'marketing']),
   },
 ];
 
 export default function Campaigns() {
-  const { data: client } = useLinktreeClient();
-  const { data: platforms, refetch: refetchPlatforms } = useLinktreePlatforms();
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   
   const [searchQuery, setSearchQuery] = useState('');

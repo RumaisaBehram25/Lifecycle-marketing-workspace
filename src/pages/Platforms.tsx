@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useLinktreeClient, useLinktreePlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useDoubleGoodClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -17,20 +17,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Link as LinkIcon, Unlink, RefreshCw } from 'lucide-react';
+import { Link as LinkIcon, Unlink } from 'lucide-react';
 import { KlaviyoDataViewer } from '@/components/platforms/KlaviyoDataViewer';
 import { IterableDataViewer } from '@/components/platforms/IterableDataViewer';
 import { BrazeDataViewer } from '@/components/platforms/BrazeDataViewer';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 import type { PlatformType } from '@/lib/types';
 import { PLATFORM_INFO } from '@/lib/types';
 
-const ALL_PLATFORMS: PlatformType[] = ['braze', 'klaviyo', 'iterable', 'customerio', 'hubspot'];
+const ALL_PLATFORMS: PlatformType[] = ['customerio', 'braze', 'klaviyo', 'iterable', 'hubspot'];
 
 export default function Platforms() {
-  const { data: client, isLoading: clientLoading } = useLinktreeClient();
-  const { data: platforms, isLoading: platformsLoading, refetch: refetchPlatforms } = useLinktreePlatforms();
+  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
+  const { data: platforms, isLoading: platformsLoading, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
   const connectPlatform = useConnectPlatform();
   const disconnectPlatform = useDisconnectPlatform();
   const queryClient = useQueryClient();
