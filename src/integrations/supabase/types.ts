@@ -25,17 +25,21 @@ export type Database = {
           description: string | null
           draft: boolean | null
           enabled: boolean | null
+          entries_last_30d: number | null
+          entries_last_60d: number | null
           entry_filters: Json | null
           entry_segment_name: string | null
           entry_type: string | null
           exception_events: string[] | null
           first_entry: string | null
           id: string
+          last_activity_at: string | null
           last_entry: string | null
           name: string
           raw_steps: Json | null
           raw_variants: Json | null
           schedule_type: string | null
+          sends_last_30d: number | null
           synced_at: string
           tags: string[] | null
           total_steps: number | null
@@ -53,17 +57,21 @@ export type Database = {
           description?: string | null
           draft?: boolean | null
           enabled?: boolean | null
+          entries_last_30d?: number | null
+          entries_last_60d?: number | null
           entry_filters?: Json | null
           entry_segment_name?: string | null
           entry_type?: string | null
           exception_events?: string[] | null
           first_entry?: string | null
           id?: string
+          last_activity_at?: string | null
           last_entry?: string | null
           name: string
           raw_steps?: Json | null
           raw_variants?: Json | null
           schedule_type?: string | null
+          sends_last_30d?: number | null
           synced_at?: string
           tags?: string[] | null
           total_steps?: number | null
@@ -81,17 +89,21 @@ export type Database = {
           description?: string | null
           draft?: boolean | null
           enabled?: boolean | null
+          entries_last_30d?: number | null
+          entries_last_60d?: number | null
           entry_filters?: Json | null
           entry_segment_name?: string | null
           entry_type?: string | null
           exception_events?: string[] | null
           first_entry?: string | null
           id?: string
+          last_activity_at?: string | null
           last_entry?: string | null
           name?: string
           raw_steps?: Json | null
           raw_variants?: Json | null
           schedule_type?: string | null
+          sends_last_30d?: number | null
           synced_at?: string
           tags?: string[] | null
           total_steps?: number | null

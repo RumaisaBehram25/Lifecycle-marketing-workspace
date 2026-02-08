@@ -221,7 +221,7 @@ export default function Lifecycle() {
   const brazeJsonCache = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
   const hasBrazeData = !!brazeJsonCache?.last_sync;
 
-  // Fetch canvases from normalized braze_canvases table
+  // Fetch canvases from normalized braze_canvases table - all enabled, sorted by activity
   const { data: normalizedCanvases, refetch: refetchCanvases } = useQuery({
     queryKey: ['braze_canvases', client?.id],
     queryFn: async () => {
@@ -233,7 +233,8 @@ export default function Lifecycle() {
         .eq('archived', false)
         .eq('draft', false)
         .eq('enabled', true)
-        .order('last_entry', { ascending: false })
+        .order('entries_last_60d', { ascending: false, nullsFirst: false })
+        .order('last_entry', { ascending: false, nullsFirst: true })
         .order('name');
       if (error) throw error;
       return data ?? [];
@@ -330,6 +331,11 @@ export default function Lifecycle() {
         filters: canvas.filters,
         conversion_events: canvas.conversion_events,
         entry_filters: canvas.entry_filters,
+        // Activity metrics
+        entries_last_30d: canvas.entries_last_30d as number | undefined,
+        entries_last_60d: canvas.entries_last_60d as number | undefined,
+        sends_last_30d: canvas.sends_last_30d as number | undefined,
+        last_activity_at: canvas.last_activity_at as string | undefined,
       };
     });
   }, [normalizedCanvases, brazeJsonCache?.canvases]);
@@ -356,19 +362,19 @@ export default function Lifecycle() {
     return d.getTime() >= cutoff;
   };
 
-  // Filter journeys
+  // Filter journeys - show all enabled canvases, sorted by activity
   const filteredJourneys = useMemo(() => {
     const activityDays = activityWindowFilter === '30' ? 30 : 60;
 
-    return journeys.filter(journey => {
+    const filtered = journeys.filter(journey => {
       // Respect explicit hide/show
       if (!isItemVisible(journey.id)) return false;
 
-      // Must be active in Braze
+      // Must be enabled in Braze (already filtered at query level, but double-check)
       if (journey.enabled !== true) return false;
 
-      // Must have recent sends/entries (use last_entry as the activity marker)
-      if (!isRecentActivity(journey.last_entry, activityDays)) return false;
+      // NO strict last_entry requirement anymore - show all enabled canvases
+      // Activity filtering is now optional based on user preference
 
       const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -401,6 +407,13 @@ export default function Lifecycle() {
       }
 
       return matchesSearch && matchesTag && matchesChannel && matchesLaunchDate;
+    });
+
+    // Sort by activity (entries in last 60 days DESC)
+    return filtered.sort((a, b) => {
+      const aEntries = (a as { entries_last_60d?: number }).entries_last_60d ?? 0;
+      const bEntries = (b as { entries_last_60d?: number }).entries_last_60d ?? 0;
+      return bEntries - aEntries;
     });
   }, [
     journeys,
@@ -795,6 +808,33 @@ function JourneyCard({
   const Icon = getIcon();
   const color = getColor();
   
+  // Activity badge helper
+  const getActivityBadge = () => {
+    const entries30 = journey.entries_last_30d || 0;
+    const entries60 = journey.entries_last_60d || 0;
+    
+    if (entries30 > 0) {
+      return (
+        <Badge variant="default" className="bg-green-500/20 text-green-700 dark:text-green-400 text-xs gap-1">
+          <TrendingUp className="h-3 w-3" />
+          Active ({entries30.toLocaleString()} entries)
+        </Badge>
+      );
+    }
+    if (entries60 > 0) {
+      return (
+        <Badge variant="outline" className="text-xs gap-1 text-amber-600 dark:text-amber-400 border-amber-300">
+          Recent activity
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className="text-xs text-muted-foreground">
+        Enabled
+      </Badge>
+    );
+  };
+  
   if (viewMode === 'list') {
     return (
       <Card className="hover:border-primary/50 transition-colors cursor-pointer" onClick={onClick}>
@@ -804,10 +844,13 @@ function JourneyCard({
               <Icon className="h-5 w-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-medium line-clamp-1" title={journey.displayName || journey.name}>
-                {journey.displayName || journey.name}
-              </h3>
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-sm font-medium line-clamp-1" title={journey.displayName || journey.name}>
+                  {journey.displayName || journey.name}
+                </h3>
+                {getActivityBadge()}
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {[...new Set(journey.channels?.map((ch: string) => {
                   const normalized = ch.toLowerCase().replace(/[-_]/g, '');
                   if (normalized.includes('email')) return 'Email';
@@ -837,7 +880,7 @@ function JourneyCard({
   return (
     <Card className="group hover:border-primary/50 hover:shadow-md transition-all cursor-pointer overflow-hidden" onClick={onClick}>
       <CardContent className="p-5">
-        <div className="flex items-start gap-3 mb-4">
+        <div className="flex items-start gap-3 mb-3">
           <div className={`h-10 w-10 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
             <Icon className="h-5 w-5 text-white" />
           </div>
@@ -845,6 +888,9 @@ function JourneyCard({
             <h3 className="text-sm font-medium group-hover:text-primary transition-colors line-clamp-2 leading-tight" title={journey.displayName || journey.name}>
               {journey.displayName || journey.name}
             </h3>
+            <div className="mt-1.5">
+              {getActivityBadge()}
+            </div>
           </div>
         </div>
 
