@@ -20,10 +20,10 @@ export default {
         mono: ["'JetBrains Mono'", "monospace"],
       },
       colors: {
-        linktree: {
-          green: "hsl(var(--linktree-green))",
-          "green-light": "hsl(var(--linktree-green-light))",
-          "green-dark": "hsl(var(--linktree-green-dark))",
+        doublegood: {
+          gold: "hsl(var(--doublegood-gold))",
+          "gold-light": "hsl(var(--doublegood-gold-light))",
+          "gold-dark": "hsl(var(--doublegood-gold-dark))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -103,8 +103,8 @@ export default {
           to: { opacity: "1", transform: "translateY(0)" },
         },
         "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 0 0 hsl(var(--linktree-green) / 0.4)" },
-          "50%": { boxShadow: "0 0 20px 4px hsl(var(--linktree-green) / 0.2)" },
+          "0%, 100%": { boxShadow: "0 0 0 0 hsl(var(--doublegood-gold) / 0.4)" },
+          "50%": { boxShadow: "0 0 20px 4px hsl(var(--doublegood-gold) / 0.2)" },
         },
       },
       animation: {

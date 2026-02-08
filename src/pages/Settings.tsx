@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -58,8 +58,8 @@ interface DataVisibility {
 
 export default function Settings() {
   const { profile, role, isAdmin } = useAuth();
-  const { data: client } = useLinktreeClient();
-  const { data: platforms, refetch: refetchPlatforms } = useLinktreePlatforms();
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   

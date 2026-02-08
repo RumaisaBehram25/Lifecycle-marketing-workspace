@@ -2,14 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Linktree Lifecycle Copilot Design System */
+/* DoubleGood CRM Copilot Design System */
 
 @layer base {
   :root {
-    /* Linktree Brand Green: #43E660 -> hsl(132, 76%, 58%) */
-    --linktree-green: 132 76% 58%;
-    --linktree-green-light: 132 76% 68%;
-    --linktree-green-dark: 132 76% 42%;
+    /* DoubleGood Brand Golden Yellow: #FFB800 -> hsl(43, 100%, 50%) */
+    --doublegood-gold: 43 100% 50%;
+    --doublegood-gold-light: 43 100% 60%;
+    --doublegood-gold-dark: 43 100% 40%;
 
     --background: 0 0% 98%;
     --foreground: 0 0% 9%;
@@ -20,8 +20,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 9%;
 
-    --primary: 132 76% 48%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 43 100% 50%;
+    --primary-foreground: 0 0% 9%;
 
     --secondary: 0 0% 94%;
     --secondary-foreground: 0 0% 9%;
@@ -29,32 +29,32 @@
     --muted: 0 0% 94%;
     --muted-foreground: 0 0% 45%;
 
-    --accent: 132 76% 95%;
-    --accent-foreground: 132 76% 35%;
+    --accent: 43 100% 95%;
+    --accent-foreground: 43 100% 30%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 0 0% 88%;
     --input: 0 0% 88%;
-    --ring: 132 76% 48%;
+    --ring: 43 100% 50%;
 
     --radius: 0.75rem;
 
-    --success: 132 76% 48%;
+    --success: 142 76% 45%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
+    --warning: 43 100% 50%;
+    --warning-foreground: 0 0% 9%;
 
     --sidebar-background: 0 0% 6%;
     --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 132 76% 58%;
+    --sidebar-primary: 43 100% 50%;
     --sidebar-primary-foreground: 0 0% 6%;
     --sidebar-accent: 0 0% 12%;
     --sidebar-accent-foreground: 0 0% 96%;
     --sidebar-border: 0 0% 16%;
-    --sidebar-ring: 132 76% 58%;
+    --sidebar-ring: 43 100% 50%;
 
     /* Platform colors */
     --braze: 14 100% 57%;
@@ -74,7 +74,7 @@
     --popover: 0 0% 7%;
     --popover-foreground: 0 0% 96%;
 
-    --primary: 132 76% 58%;
+    --primary: 43 100% 50%;
     --primary-foreground: 0 0% 6%;
 
     --secondary: 0 0% 14%;
@@ -84,29 +84,29 @@
     --muted-foreground: 0 0% 60%;
 
     --accent: 0 0% 18%;
-    --accent-foreground: 132 76% 70%;
+    --accent-foreground: 43 100% 60%;
 
     --destructive: 0 62% 40%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 0 0% 16%;
     --input: 0 0% 16%;
-    --ring: 132 76% 58%;
+    --ring: 43 100% 50%;
 
-    --success: 132 76% 58%;
+    --success: 142 76% 45%;
     --success-foreground: 0 0% 6%;
 
-    --warning: 38 92% 50%;
+    --warning: 43 100% 50%;
     --warning-foreground: 0 0% 9%;
 
     --sidebar-background: 0 0% 3%;
     --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 132 76% 58%;
+    --sidebar-primary: 43 100% 50%;
     --sidebar-primary-foreground: 0 0% 6%;
     --sidebar-accent: 0 0% 10%;
     --sidebar-accent-foreground: 0 0% 96%;
     --sidebar-border: 0 0% 12%;
-    --sidebar-ring: 132 76% 58%;
+    --sidebar-ring: 43 100% 50%;
   }
 }
 
@@ -161,24 +161,24 @@
 }
 
 @layer utilities {
-  .text-linktree {
-    color: hsl(var(--linktree-green));
+  .text-doublegood {
+    color: hsl(var(--doublegood-gold));
   }
 
-  .bg-linktree {
-    background-color: hsl(var(--linktree-green));
+  .bg-doublegood {
+    background-color: hsl(var(--doublegood-gold));
   }
 
-  .border-linktree {
-    border-color: hsl(var(--linktree-green));
+  .border-doublegood {
+    border-color: hsl(var(--doublegood-gold));
   }
 
   .glass {
     @apply bg-card/90 backdrop-blur-sm border border-border;
   }
 
-  .gradient-linktree {
-    background: linear-gradient(135deg, hsl(var(--linktree-green)) 0%, hsl(var(--linktree-green-dark)) 100%);
+  .gradient-doublegood {
+    background: linear-gradient(135deg, hsl(var(--doublegood-gold)) 0%, hsl(var(--doublegood-gold-dark)) 100%);
   }
 }
 

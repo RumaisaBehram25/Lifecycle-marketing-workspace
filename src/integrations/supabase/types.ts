@@ -441,6 +441,262 @@ export type Database = {
         }
         Relationships: []
       }
+      customerio_broadcasts: {
+        Row: {
+          actions: Json | null
+          cio_broadcast_id: string
+          client_id: string
+          created_at: string
+          id: string
+          metrics: Json | null
+          name: string
+          scheduled_for: string | null
+          send_to: string | null
+          sent_at: string | null
+          state: string | null
+          synced_at: string
+          tags: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          actions?: Json | null
+          cio_broadcast_id: string
+          client_id: string
+          created_at?: string
+          id?: string
+          metrics?: Json | null
+          name: string
+          scheduled_for?: string | null
+          send_to?: string | null
+          sent_at?: string | null
+          state?: string | null
+          synced_at?: string
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          actions?: Json | null
+          cio_broadcast_id?: string
+          client_id?: string
+          created_at?: string
+          id?: string
+          metrics?: Json | null
+          name?: string
+          scheduled_for?: string | null
+          send_to?: string | null
+          sent_at?: string | null
+          state?: string | null
+          synced_at?: string
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customerio_broadcasts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customerio_campaigns: {
+        Row: {
+          actions: Json | null
+          cio_campaign_id: string
+          client_id: string
+          created_at: string
+          created_at_cio: string | null
+          filter_segment: string | null
+          id: string
+          metrics: Json | null
+          name: string
+          state: string | null
+          synced_at: string
+          tags: string[] | null
+          trigger_event: string | null
+          type: string | null
+          updated_at: string
+          updated_at_cio: string | null
+        }
+        Insert: {
+          actions?: Json | null
+          cio_campaign_id: string
+          client_id: string
+          created_at?: string
+          created_at_cio?: string | null
+          filter_segment?: string | null
+          id?: string
+          metrics?: Json | null
+          name: string
+          state?: string | null
+          synced_at?: string
+          tags?: string[] | null
+          trigger_event?: string | null
+          type?: string | null
+          updated_at?: string
+          updated_at_cio?: string | null
+        }
+        Update: {
+          actions?: Json | null
+          cio_campaign_id?: string
+          client_id?: string
+          created_at?: string
+          created_at_cio?: string | null
+          filter_segment?: string | null
+          id?: string
+          metrics?: Json | null
+          name?: string
+          state?: string | null
+          synced_at?: string
+          tags?: string[] | null
+          trigger_event?: string | null
+          type?: string | null
+          updated_at?: string
+          updated_at_cio?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customerio_campaigns_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customerio_messages: {
+        Row: {
+          body_html: string | null
+          body_text: string | null
+          broadcast_id: string | null
+          campaign_id: string | null
+          cio_message_id: string
+          client_id: string
+          created_at: string
+          from_address: string | null
+          id: string
+          name: string
+          preheader: string | null
+          reply_to: string | null
+          subject: string | null
+          synced_at: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          body_html?: string | null
+          body_text?: string | null
+          broadcast_id?: string | null
+          campaign_id?: string | null
+          cio_message_id: string
+          client_id: string
+          created_at?: string
+          from_address?: string | null
+          id?: string
+          name: string
+          preheader?: string | null
+          reply_to?: string | null
+          subject?: string | null
+          synced_at?: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          body_html?: string | null
+          body_text?: string | null
+          broadcast_id?: string | null
+          campaign_id?: string | null
+          cio_message_id?: string
+          client_id?: string
+          created_at?: string
+          from_address?: string | null
+          id?: string
+          name?: string
+          preheader?: string | null
+          reply_to?: string | null
+          subject?: string | null
+          synced_at?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customerio_messages_broadcast_id_fkey"
+            columns: ["broadcast_id"]
+            isOneToOne: false
+            referencedRelation: "customerio_broadcasts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customerio_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "customerio_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customerio_messages_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customerio_sync_runs: {
+        Row: {
+          broadcasts_synced: number | null
+          campaigns_synced: number | null
+          client_id: string
+          completed_at: string | null
+          created_at: string
+          duration_ms: number | null
+          error_message: string | null
+          id: string
+          messages_synced: number | null
+          platform_id: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          broadcasts_synced?: number | null
+          campaigns_synced?: number | null
+          client_id: string
+          completed_at?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          messages_synced?: number | null
+          platform_id: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          broadcasts_synced?: number | null
+          campaigns_synced?: number | null
+          client_id?: string
+          completed_at?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          messages_synced?: number | null
+          platform_id?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customerio_sync_runs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       data_visibility: {
         Row: {
           client_id: string

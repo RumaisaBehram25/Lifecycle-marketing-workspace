@@ -1,15 +1,16 @@
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClientChat } from '@/components/chat/ClientChat';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { Sparkles } from 'lucide-react';
+import { DoubleGoodIcon } from '@/components/DoubleGoodLogo';
 
 export default function Chat() {
   const [searchParams] = useSearchParams();
   const initialConversationId = searchParams.get('conversation') || undefined;
-  const { data: client, isLoading: clientLoading } = useLinktreeClient();
-  const { data: platforms } = useLinktreePlatforms();
+  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
+  const { data: platforms } = useDoubleGoodPlatforms();
 
   // Build platform context from ALL connected platforms
   const connectedPlatforms = platforms?.filter(p => p.is_connected) || [];
@@ -66,7 +67,7 @@ export default function Chat() {
                   <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
                     <Sparkles className="h-4 w-4 text-primary-foreground" />
                   </div>
-                  <span className="font-bold text-base sm:text-lg truncate">Linktree Copilot</span>
+                  <span className="font-bold text-base sm:text-lg truncate">Double Good Copilot</span>
                 </div>
               </div>
 
@@ -76,9 +77,7 @@ export default function Chat() {
                   {/* Logo */}
                   <div className="flex justify-center">
                     <div className="h-20 w-20 rounded-2xl bg-primary flex items-center justify-center shadow-2xl shadow-primary/30">
-                      <svg viewBox="0 0 24 24" className="h-12 w-12 text-primary-foreground" fill="currentColor">
-                        <path d="M7.5 21.5v-6h9v6h-9zm0-7.5v-6h9v6h-9zm0-7.5V3h9v3.5h-9z"/>
-                      </svg>
+                      <DoubleGoodIcon className="h-12 w-12 text-primary-foreground" />
                     </div>
                   </div>
                   
@@ -103,8 +102,8 @@ export default function Chat() {
                       description="Welcome, re-engagement flows"
                     />
                     <QuickActionCard
-                      title="Upgrade messaging"
-                      description="Convert free to paid"
+                      title="Fundraiser messaging"
+                      description="Pop-Up Store promotions"
                     />
                     <QuickActionCard
                       title="Platform templates"

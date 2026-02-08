@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useLinktreeClient, useLinktreePlatforms } from '@/hooks/useLinktreeClient';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -153,10 +153,10 @@ const MOCK_JOURNEYS: Array<{
       { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
     steps: {
-      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'Welcome to Linktree! 🌳', preheader: 'Your journey starts here', body: 'Get started with your new Linktree account' }] },
-      'step2': { id: 'step2', name: 'Push Reminder', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['step3'], messages: [{ channel: 'push', title: 'Complete your profile', body: 'Add your first links to get discovered' }] },
-      'step3': { id: 'step3', name: 'Feature Intro', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'Unlock powerful features', preheader: 'Tips to grow your audience', body: 'Learn about analytics, custom themes, and more' }] },
-      'step4': { id: 'step4', name: 'Pro Upgrade Nudge', type: 'message', channel: 'push', delay_formatted: '72h', next_step_ids: [], messages: [{ channel: 'push', title: 'Ready for Pro?', body: 'Get unlimited links and advanced analytics' }] },
+      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'Welcome to Double Good! 🍿', preheader: 'Your fundraising journey starts here', body: 'Get started with your first Pop-Up Store' }] },
+      'step2': { id: 'step2', name: 'Push Reminder', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['step3'], messages: [{ channel: 'push', title: 'Share your Pop-Up Store', body: 'Get the word out to hit your fundraising goal' }] },
+      'step3': { id: 'step3', name: 'Tips Email', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'Tips to boost your sales', preheader: 'Fundraising best practices', body: 'Learn how top teams maximize their Pop-Up Store results' }] },
+      'step4': { id: 'step4', name: 'Final Push', type: 'message', channel: 'push', delay_formatted: '72h', next_step_ids: [], messages: [{ channel: 'push', title: 'Last day to share!', body: 'Your Pop-Up Store ends tomorrow - one more push!' }] },
     },
     total_steps: 4,
   },
@@ -164,7 +164,7 @@ const MOCK_JOURNEYS: Array<{
     id: 're-engagement',
     name: 'Re-engagement',
     displayName: 'Re-engagement',
-    description: 'Win back inactive creators',
+    description: 'Win back inactive organizers',
     status: 'active',
     enabled: true,
     last_entry: new Date().toISOString(),
@@ -175,9 +175,9 @@ const MOCK_JOURNEYS: Array<{
       { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
     steps: {
-      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'We miss you! 💚', preheader: 'Come back and see what\'s new', body: 'Your Linktree is waiting for you' }] },
-      'step2': { id: 'step2', name: 'In-App Banner', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['step3'], messages: [{ channel: 'in_app_message', title: 'Welcome back!', body: 'Check out the new features we\'ve added', buttons: [{ text: 'Explore Now' }] }] },
-      'step3': { id: 'step3', name: "What's New Email", type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'New features just for you', preheader: 'See what\'s changed', body: 'Discover powerful new tools to grow your audience' }] },
+      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'Time for another fundraiser? 🍿', preheader: 'Your team could raise more', body: 'Start a new Pop-Up Store and keep 50%' }] },
+      'step2': { id: 'step2', name: 'In-App Banner', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['step3'], messages: [{ channel: 'in_app_message', title: 'Welcome back!', body: 'Ready to start another fundraiser?', buttons: [{ text: 'Start Now' }] }] },
+      'step3': { id: 'step3', name: "Success Story Email", type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'See how teams like yours raised $10K+', preheader: 'Real success stories', body: 'Get inspired by other organizers' }] },
       'step4': { id: 'step4', name: 'Last Chance Push', type: 'message', channel: 'push', delay_formatted: '14d', next_step_ids: [], messages: [{ channel: 'push', title: 'Last chance!', body: 'Don\'t miss out on connecting with your audience' }] },
     },
     total_steps: 4,
@@ -203,8 +203,8 @@ function countMessageSteps(steps?: Record<string, CanvasStep>): number {
 }
 
 export default function Lifecycle() {
-  const { data: client } = useLinktreeClient();
-  const { data: platforms, refetch: refetchPlatforms } = useLinktreePlatforms();
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   
   const [searchQuery, setSearchQuery] = useState('');
