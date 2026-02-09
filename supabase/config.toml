@@ -1,1 +1,4 @@
 project_id = "qypwftqzbikkdcbzkzqn"
+
+[functions.customerio-proxy]
+verify_jwt = false

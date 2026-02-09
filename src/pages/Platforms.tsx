@@ -21,6 +21,7 @@ import { Link as LinkIcon, Unlink } from 'lucide-react';
 import { KlaviyoDataViewer } from '@/components/platforms/KlaviyoDataViewer';
 import { IterableDataViewer } from '@/components/platforms/IterableDataViewer';
 import { BrazeDataViewer } from '@/components/platforms/BrazeDataViewer';
+import { CustomerIODataViewer } from '@/components/platforms/CustomerIODataViewer';
 import { useToast } from '@/hooks/use-toast';
 import type { PlatformType } from '@/lib/types';
 import { PLATFORM_INFO } from '@/lib/types';
@@ -122,9 +123,17 @@ export default function Platforms() {
               />
             );
           }
+          if (cp.platform === 'customerio' && client) {
+            return (
+              <CustomerIODataViewer
+                key={cp.id}
+                clientId={client.id}
+                platformId={cp.id}
+              />
+            );
+          }
           return null;
         })}
-
         {/* Connected Platforms */}
         <Card>
           <CardHeader>
