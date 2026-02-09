@@ -48,8 +48,23 @@ async function cioFetch(path: string) {
 // ── Route handlers ──────────────────────────────────────────────────────
 
 async function handleHealth() {
-  await cioFetch('/v1/campaigns?page=1&page_size=1');
+  await cioFetch('/v1/api/campaigns?page=1&page_size=1');
   return okResponse({ ok: true });
+}
+
+async function handleDebug() {
+  const key = Deno.env.get('CUSTOMERIO_API_KEY') || '';
+  const masked = key ? key.slice(0, 4) + '••••' : '(not set)';
+  const base = CIO_BASE();
+  let testResult: any = { attempted: false };
+  try {
+    const url = `${base}/v1/api/campaigns?page=1&page_size=1`;
+    const res = await fetch(url, { headers: cioHeaders() });
+    testResult = { url, status: res.status, ok: res.ok, body: (await res.text()).slice(0, 500) };
+  } catch (e: any) {
+    testResult = { error: e.message };
+  }
+  return okResponse({ ok: true, key_masked: masked, base_url: base, test: testResult });
 }
 
 async function handleCampaignsList() {
@@ -59,7 +74,7 @@ async function handleCampaignsList() {
   let hasMore = true;
 
   while (hasMore && page <= 20) {
-    const data = await cioFetch(`/v1/campaigns?page=${page}&page_size=${pageSize}`);
+    const data = await cioFetch(`/v1/api/campaigns?page=${page}&page_size=${pageSize}`);
     const campaigns = data.campaigns || [];
     for (const c of campaigns) {
       const messageIds: string[] = [];
@@ -90,7 +105,7 @@ async function handleNewslettersList() {
   let hasMore = true;
 
   while (hasMore && page <= 20) {
-    const data = await cioFetch(`/v1/newsletters?page=${page}&page_size=${pageSize}`);
+    const data = await cioFetch(`/v1/api/newsletters?page=${page}&page_size=${pageSize}`);
     const newsletters = data.newsletters || [];
     for (const n of newsletters) {
       const variantIds: string[] = [];
@@ -122,13 +137,13 @@ async function handleNewslettersList() {
 }
 
 async function handleCampaignCreative(campaignId: string, actionId: string) {
-  const action = await cioFetch(`/v1/campaigns/${campaignId}/actions/${actionId}`);
+  const action = await cioFetch(`/v1/api/campaigns/${campaignId}/actions/${actionId}`);
   let subject = action.subject || '';
   let htmlBody = action.body || '';
   let textBody = '';
 
   try {
-    const msgData = await cioFetch(`/v1/campaigns/${campaignId}/actions/${actionId}/language/en`);
+    const msgData = await cioFetch(`/v1/api/campaigns/${campaignId}/actions/${actionId}/language/en`);
     if (msgData.body) htmlBody = msgData.body;
     if (msgData.subject) subject = msgData.subject;
     if (msgData.body_plain || msgData.body_text) textBody = msgData.body_plain || msgData.body_text;
@@ -143,13 +158,13 @@ async function handleCampaignCreative(campaignId: string, actionId: string) {
 }
 
 async function handleNewsletterCreative(newsletterId: string, variantId: string) {
-  const variant = await cioFetch(`/v1/newsletters/${newsletterId}/actions/${variantId}`);
+  const variant = await cioFetch(`/v1/api/newsletters/${newsletterId}/actions/${variantId}`);
   let subject = variant.subject || '';
   let htmlBody = variant.body || '';
   let textBody = variant.body_plain || variant.body_text || '';
 
   try {
-    const langData = await cioFetch(`/v1/newsletters/${newsletterId}/actions/${variantId}/language/en`);
+    const langData = await cioFetch(`/v1/api/newsletters/${newsletterId}/actions/${variantId}/language/en`);
     if (langData.body) htmlBody = langData.body;
     if (langData.subject) subject = langData.subject;
     if (langData.body_plain || langData.body_text) textBody = langData.body_plain || langData.body_text;
@@ -179,6 +194,9 @@ serve(async (req) => {
 
     if (subPath === '/health' || subPath === '') {
       return await handleHealth();
+    }
+    if (subPath === '/debug') {
+      return await handleDebug();
     }
     if (subPath === '/campaigns') {
       return await handleCampaignsList();

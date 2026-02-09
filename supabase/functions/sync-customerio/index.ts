@@ -89,7 +89,7 @@ serve(async (req) => {
     try {
       // Fetch campaigns (automated workflows)
       console.log('Fetching Customer.io campaigns...');
-      const campaignsResponse = await fetch('https://api.customer.io/v1/campaigns', { headers });
+      const campaignsResponse = await fetch('https://api.customer.io/v1/api/campaigns', { headers });
       
       if (!campaignsResponse.ok) {
         const errorText = await campaignsResponse.text();
@@ -129,7 +129,7 @@ serve(async (req) => {
 
       // Fetch broadcasts (one-time sends)
       console.log('Fetching Customer.io broadcasts...');
-      const broadcastsResponse = await fetch('https://api.customer.io/v1/broadcasts', { headers });
+      const broadcastsResponse = await fetch('https://api.customer.io/v1/api/broadcasts', { headers });
       
       if (!broadcastsResponse.ok) {
         const errorText = await broadcastsResponse.text();
