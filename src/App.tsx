@@ -13,12 +13,10 @@ import Briefs from "./pages/Briefs";
 import Audience from "./pages/Audience";
 import Campaigns from "./pages/Campaigns";
 import Lifecycle from "./pages/Lifecycle";
-import Analytics from "./pages/Analytics";
 import CodeGenerator from "./pages/CodeGenerator";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
-import UserManagement from "./pages/UserManagement";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,12 +49,12 @@ function AppRoutes() {
       <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
       <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
       <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
-      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+      <Route path="/analytics" element={<Navigate to="/dashboard" replace />} />
       <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />
       <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-      <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
+      <Route path="/users" element={<Navigate to="/settings" replace />} />
       {/* Redirect old routes */}
       <Route path="/clients" element={<Navigate to="/brand" replace />} />
       <Route path="/clients/:id" element={<Navigate to="/brand" replace />} />

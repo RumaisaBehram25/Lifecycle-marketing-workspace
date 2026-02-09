@@ -264,73 +264,9 @@ export default function KnowledgeBase() {
     <AppLayout>
       <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8">
         <PageHeader
-          title="Knowledge Base"
-          description="AI-powered documentation that grounds every response"
+          title="Integrations"
+          description="Connect your marketing platforms and generate platform-specific code"
         />
-
-        {/* Stats Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-heading font-bold text-xs uppercase tracking-wide text-muted-foreground">
-                    Total Documents
-                  </p>
-                  <p className="font-heading font-black text-2xl mt-1">{documents?.length || 0}</p>
-                </div>
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Database className="h-5 w-5 text-primary" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-heading font-bold text-xs uppercase tracking-wide text-muted-foreground">
-                    Platform Docs
-                  </p>
-                  <p className="font-heading font-black text-2xl mt-1">{vendorDocs.length}</p>
-                </div>
-                <div className="h-10 w-10 rounded-lg bg-accent flex items-center justify-center">
-                  <BookOpen className="h-5 w-5 text-accent-foreground" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-heading font-bold text-xs uppercase tracking-wide text-muted-foreground">
-                    Custom Docs
-                  </p>
-                  <p className="font-heading font-black text-2xl mt-1">{customDocs.length}</p>
-                </div>
-                <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
-                  <FolderOpen className="h-5 w-5 text-success" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-heading font-bold text-xs uppercase tracking-wide text-muted-foreground">
-                    Total Words
-                  </p>
-                  <p className="font-heading font-black text-2xl mt-1">{totalWords.toLocaleString()}</p>
-                </div>
-                <div className="h-10 w-10 rounded-lg bg-warning/10 flex items-center justify-center">
-                  <Sparkles className="h-5 w-5 text-warning" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
         <Tabs defaultValue="integrations" className="space-y-6">
           <TabsList className="bg-muted/50 p-1">
@@ -341,14 +277,6 @@ export default function KnowledgeBase() {
             <TabsTrigger value="code" className="gap-2">
               <Database className="h-4 w-4" />
               Code Generator
-            </TabsTrigger>
-            <TabsTrigger value="platforms" className="gap-2">
-              <BookOpen className="h-4 w-4" />
-              Platform Docs
-            </TabsTrigger>
-            <TabsTrigger value="ingest" className="gap-2">
-              <Plus className="h-4 w-4" />
-              Add New
             </TabsTrigger>
           </TabsList>
 
@@ -362,14 +290,28 @@ export default function KnowledgeBase() {
           <TabsContent value="integrations" className="space-y-6">
             {/* Connected Platforms */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <LinkIcon className="h-5 w-5" />
-                  Connected Platforms
-                </CardTitle>
-                <CardDescription>
-                  Connect your marketing platforms to sync data and generate platform-specific code.
-                </CardDescription>
+              <CardHeader className="flex flex-row items-start justify-between space-y-0">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <LinkIcon className="h-5 w-5" />
+                    Connected Platforms
+                  </CardTitle>
+                  <CardDescription className="mt-1.5">
+                    Connect your marketing platforms to sync data and generate platform-specific code.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refreshMutation.mutate()}
+                  disabled={refreshMutation.isPending}
+                >
+                  {refreshMutation.isPending ? (
+                    <><LoadingSpinner size="sm" className="mr-2" />Syncing...</>
+                  ) : (
+                    <><RefreshCw className="mr-2 h-4 w-4" />Sync Docs</>
+                  )}
+                </Button>
               </CardHeader>
               <CardContent>
                 {connectedPlatforms.length === 0 ? (
@@ -380,36 +322,45 @@ export default function KnowledgeBase() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {connectedPlatforms.map((cp) => (
-                      <div key={cp.id} className="flex items-center justify-between p-4 rounded-lg border bg-card">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-xl">
-                            {PLATFORM_INFO[cp.platform].icon}
-                          </div>
-                          <div>
-                            <p className="font-medium">{PLATFORM_INFO[cp.platform].name}</p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>Connected {new Date(cp.created_at).toLocaleDateString()}</span>
-                              {cp.last_sync_at && (
-                                <>
-                                  <span>•</span>
-                                  <span className="text-primary">Synced {new Date(cp.last_sync_at).toLocaleString()}</span>
-                                </>
-                              )}
+                    {connectedPlatforms.map((cp) => {
+                      const platformDocs = vendorDocs.filter((d) => d.platform === cp.platform);
+                      return (
+                        <div key={cp.id} className="flex items-center justify-between p-4 rounded-lg border bg-card">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-xl">
+                              {PLATFORM_INFO[cp.platform].icon}
+                            </div>
+                            <div>
+                              <p className="font-medium">{PLATFORM_INFO[cp.platform].name}</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>Connected {new Date(cp.created_at).toLocaleDateString()}</span>
+                                {cp.last_sync_at && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-primary">Synced {new Date(cp.last_sync_at).toLocaleString()}</span>
+                                  </>
+                                )}
+                                {platformDocs.length > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-success">{platformDocs.length} docs</span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive"
+                            onClick={() => handleDisconnectPlatform(cp.platform)}
+                          >
+                            <Unlink className="mr-2 h-4 w-4" />
+                            Disconnect
+                          </Button>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                          onClick={() => handleDisconnectPlatform(cp.platform)}
-                        >
-                          <Unlink className="mr-2 h-4 w-4" />
-                          Disconnect
-                        </Button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -442,101 +393,21 @@ export default function KnowledgeBase() {
                 </CardContent>
               </Card>
             )}
-          </TabsContent>
 
-          {/* Platform Docs Tab */}
-          <TabsContent value="platforms" className="space-y-6">
-            <SyncStatus />
-            
+            {/* Ingest URL */}
             <Card>
-              <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <BookOpen className="h-5 w-5" />
-                    Platform Documentation
-                  </CardTitle>
-                  <CardDescription className="mt-1.5">
-                    Comprehensive docs from all marketing platforms. Auto-crawls up to 150 pages per platform.
-                  </CardDescription>
-                </div>
-                <Button
-                  onClick={() => refreshMutation.mutate()}
-                  disabled={refreshMutation.isPending}
-                >
-                  {refreshMutation.isPending ? (
-                    <>
-                      <LoadingSpinner size="sm" className="mr-2" />
-                      Starting...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      Sync All Platforms
-                    </>
-                  )}
-                </Button>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5" />
+                  Add Custom Document
+                </CardTitle>
+                <CardDescription>
+                  Ingest content from any URL into your knowledge base.
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {VENDOR_DOCS.map((vendor) => {
-                    const platformDocs = vendorDocs.filter((d) => d.platform === vendor.platform);
-                    const platformInfo = PLATFORM_INFO[vendor.platform as PlatformType];
-                    const isSynced = platformDocs.length > 0;
-                    
-                    return (
-                      <Card
-                        key={vendor.platform}
-                        className={`transition-all ${isSynced ? 'border-success/30 bg-success/5' : ''}`}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-3">
-                            <div className={`h-12 w-12 rounded-lg flex items-center justify-center text-2xl ${
-                              isSynced ? 'bg-success/10' : 'bg-muted'
-                            }`}>
-                              {platformInfo.icon}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium">{vendor.name}</h3>
-                              <p className="text-sm text-muted-foreground mt-0.5">
-                                {isSynced ? (
-                                  <span className="text-success font-medium">
-                                    ✓ {platformDocs.length} pages synced
-                                  </span>
-                                ) : (
-                                  'Not synced yet'
-                                )}
-                              </p>
-                              {isSynced && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {platformDocs.reduce((acc, d) => acc + d.content.split(/\s+/).length, 0).toLocaleString()} words
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Ingest Tab */}
-          <TabsContent value="ingest" className="space-y-6">
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Globe className="h-5 w-5" />
-                    Ingest from URL
-                  </CardTitle>
-                  <CardDescription>
-                    Use Firecrawl to scrape and ingest content from any webpage into your knowledge base.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2 sm:col-span-2">
                     <Label>URL</Label>
                     <Input
                       value={url}
@@ -544,93 +415,38 @@ export default function KnowledgeBase() {
                       placeholder="https://example.com/documentation"
                     />
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Category (optional)</Label>
-                      <Input
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        placeholder="e.g., API Docs, Brand Guide"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Platform (optional)</Label>
-                      <Select value={platform || 'none'} onValueChange={(v) => setPlatform(v === 'none' ? '' : v as PlatformType)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select platform" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {Object.entries(PLATFORM_INFO).map(([key, info]) => (
-                            <SelectItem key={key} value={key}>
-                              {info.icon} {info.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Platform (optional)</Label>
+                    <Select value={platform || 'none'} onValueChange={(v) => setPlatform(v === 'none' ? '' : v as PlatformType)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select platform" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {Object.entries(PLATFORM_INFO).map(([key, info]) => (
+                          <SelectItem key={key} value={key}>
+                            {info.icon} {info.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Button 
-                    onClick={handleIngest} 
-                    disabled={ingestMutation.isPending}
-                    className="w-full"
-                  >
-                    {ingestMutation.isPending ? (
-                      <>
-                        <LoadingSpinner size="sm" className="mr-2" />
-                        Ingesting...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Ingest Content
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-primary/5 border-primary/20">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5" />
-                    How It Works
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className="h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        1
-                      </div>
-                      <div>
-                        <p className="font-medium">Ingest Documents</p>
-                        <p className="text-sm text-muted-foreground">Add URLs or sync platform docs to build your knowledge base.</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        2
-                      </div>
-                      <div>
-                        <p className="font-medium">AI Searches & Retrieves</p>
-                        <p className="text-sm text-muted-foreground">When you ask questions, AI searches relevant docs first.</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <div className="h-6 w-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        3
-                      </div>
-                      <div>
-                        <p className="font-medium">Grounded Responses</p>
-                        <p className="text-sm text-muted-foreground">Responses cite sources and flag assumptions for transparency.</p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+                <Button 
+                  onClick={handleIngest} 
+                  disabled={ingestMutation.isPending}
+                  size="sm"
+                >
+                  {ingestMutation.isPending ? (
+                    <><LoadingSpinner size="sm" className="mr-2" />Ingesting...</>
+                  ) : (
+                    <><Plus className="mr-2 h-4 w-4" />Ingest Content</>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
           </TabsContent>
+
         </Tabs>
 
         <DocumentPreview 
