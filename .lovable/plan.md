@@ -1,278 +1,82 @@
 
-# Plan: Rebrand to DoubleGood with Customer.io Integration
 
-## Overview
+# Structural Changes Plan
 
-This plan transforms the CRM Copilot from Linktree/Braze to DoubleGood/Customer.io. DoubleGood is a fundraising platform that sells popcorn through Pop-Up Stores, keeping 50% for the fundraising group. Their brand is warm, encouraging, and focused on community success.
+## 1. Hide Analytics Tab
 
----
+Remove the Analytics nav item from the sidebar and its route. The page file stays but becomes inaccessible.
 
-## DoubleGood Brand Profile
+**Changes:**
+- `src/components/layout/AppSidebar.tsx` -- Remove the Analytics entry from `navItems`
+- `src/App.tsx` -- Remove the Analytics route (or keep it but redirect; simplest to just remove)
 
-Based on website research:
+## 2. Move Settings into User Profile Dropdown
 
-| Attribute | Value |
-|-----------|-------|
-| **Name** | Double Good |
-| **Website** | https://www.doublegood.com |
-| **Industry** | Fundraising / Food & Beverage / EdTech |
-| **Primary Color** | #FFB800 (golden yellow) |
-| **Secondary Color** | #1A1A1A (black) |
-| **Tagline** | "Fundraising has never been easier" |
-| **Brand Voice** | Warm, encouraging, community-focused. Celebrates team success and makes fundraising feel simple and fun. |
+Instead of a separate sidebar nav item, Settings becomes accessible only via the user avatar dropdown in the sidebar footer (which already has a "Settings" link). We just remove it from the main nav list.
 
-**Target Audience:**
-- Youth sports teams (softball, baseball, soccer)
-- Schools and PTAs
-- Nonprofit organizations
-- Community groups and clubs
+**Changes:**
+- `src/components/layout/AppSidebar.tsx` -- Remove the Settings entry from `navItems` (the dropdown menu in the footer already links to `/settings`)
 
----
+## 3. Move User Management into Settings
 
-## Phase 1: Branding Overhaul
+Embed the User Management content as a tab within the Settings page, visible only to admins. Remove it from the sidebar.
 
-### Files to Modify
+**Changes:**
+- `src/components/layout/AppSidebar.tsx` -- Remove the User Management entry from `navItems`
+- `src/pages/Settings.tsx` -- Add a new "Users" tab (admin-only) that renders the user management table/logic currently in `UserManagement.tsx`. Extract the core content from `UserManagement.tsx` into a reusable component (e.g., `src/components/settings/UserManagementPanel.tsx`) and import it in Settings.
+- `src/pages/UserManagement.tsx` -- Refactor to export its inner content as a component, or keep the page as a redirect to `/settings?tab=users`
+- `src/App.tsx` -- Redirect `/users` to `/settings` (or keep route but it can stay for backwards compat)
 
-| File | Changes |
-|------|---------|
-| `index.html` | Update title, meta tags, description from "Linktree" to "DoubleGood" |
-| `src/hooks/useLinktreeClient.tsx` → `src/hooks/useDoubleGoodClient.tsx` | Rename file and all exports; update brand defaults |
-| `src/components/LinktreeLogo.tsx` → `src/components/DoubleGoodLogo.tsx` | Replace with DoubleGood logo SVG |
-| `src/components/layout/AppSidebar.tsx` | Update logo path, company name, subtitle |
-| `src/components/layout/AppLayout.tsx` | Update logo references |
-| `src/pages/Dashboard.tsx` | Update logo, company name, welcome text |
-| `src/pages/Chat.tsx` | Update "Linktree Copilot" to "DoubleGood Copilot" |
-| `public/logos/` | Add DoubleGood logo assets |
+## 4. Restructure Knowledge Base
 
-### Search and Replace Pattern
+Remove the stats cards at the top (Total Documents, Platform Docs, Custom Docs, Total Words). Reorganize tabs:
 
-All 30+ files with "Linktree" or "linktree" references will be updated:
-- `useLinktreeClient` → `useDoubleGoodClient`
-- `useLinktreePlatforms` → `useDoubleGoodPlatforms`
-- `LINKTREE_SLUG` → `DOUBLEGOOD_SLUG`
-- Text labels: "Linktree" → "Double Good"
+- **Integrations** (default) -- Shows connected platforms, ability to connect more, and links to platform docs for each connected integration
+- **Code Generator** -- Stays as-is
+- Move "Platform Docs" content into the Integrations tab (shown per-integration)
+- Move "Add New" button into the Integrations tab header area
 
----
+**Changes:**
+- `src/pages/KnowledgeBase.tsx`:
+  - Remove the 4 stats cards section
+  - Remove the separate "Platform Docs" and "Add New" tabs
+  - Keep only 2 tabs: "Integrations" and "Code Generator"
+  - On the Integrations tab, add an "Add New" button in the card header
+  - Show platform docs inline under each connected platform (expandable/collapsible)
+  - Rename page title to "Integrations" or keep "Knowledge Base" with updated description
 
-## Phase 2: Customer.io Integration
+## 5. Lifecycle -- Add Splits and Time Delay Visualization
 
-### New Edge Function: `sync-customerio`
+Enhance the `HorizontalFlowChart` component to better visualize:
 
-Customer.io uses the **App API** for retrieving campaigns, broadcasts, and workflows:
-- Base URL: `https://api.customer.io/v1/`
-- Authentication: Basic Auth with Site ID and API Key
+- **Time delays**: Render as a slim vertical bar between touchpoints with the delay duration (e.g., "24h", "3d") displayed in the center
+- **Audience splits**: Add a placeholder/module showing split paths with percentage labels branching from a decision node
 
-```text
-API Endpoints to Call:
-┌─────────────────────────────────────────────────────────────┐
-│ GET /campaigns         → List all campaigns (workflows)    │
-│ GET /campaigns/{id}    → Campaign details + metrics        │
-│ GET /broadcasts        → List all broadcasts (one-time)    │
-│ GET /broadcasts/{id}   → Broadcast details                 │
-│ GET /segments          → List segments (audience)          │
-│ GET /messages          → List messages/templates           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Database Schema Updates
-
-Create Customer.io specific tables mirroring the Braze structure:
-
-```sql
--- Campaigns (automated workflows)
-CREATE TABLE public.customerio_campaigns (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID REFERENCES clients(id),
-  cio_campaign_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  type TEXT, -- 'triggered', 'segment', 'date'
-  state TEXT, -- 'draft', 'active', 'paused', 'stopped'
-  created_at_cio TIMESTAMPTZ,
-  updated_at_cio TIMESTAMPTZ,
-  actions JSONB DEFAULT '[]', -- workflow steps/messages
-  metrics JSONB DEFAULT '{}', -- sent, opened, clicked, etc.
-  synced_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(client_id, cio_campaign_id)
-);
-
--- Broadcasts (one-time sends)
-CREATE TABLE public.customerio_broadcasts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID REFERENCES clients(id),
-  cio_broadcast_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  state TEXT, -- 'draft', 'scheduled', 'sent', 'cancelled'
-  send_to TEXT, -- segment ID or filter
-  sent_at TIMESTAMPTZ,
-  metrics JSONB DEFAULT '{}',
-  actions JSONB DEFAULT '[]',
-  synced_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(client_id, cio_broadcast_id)
-);
-
--- Messages/Templates
-CREATE TABLE public.customerio_messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID REFERENCES clients(id),
-  cio_message_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  type TEXT, -- 'email', 'push', 'sms', 'in_app', 'webhook'
-  subject TEXT,
-  body_html TEXT,
-  body_text TEXT,
-  synced_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(client_id, cio_message_id)
-);
-```
-
-### Edge Function Implementation
-
-```text
-supabase/functions/sync-customerio/index.ts
-
-Flow:
-1. Authenticate with Site ID + API Key (Basic Auth)
-2. Fetch /campaigns with pagination
-3. For each campaign, fetch /campaigns/{id} for full details
-4. Fetch /broadcasts for one-time sends
-5. Extract message content (email HTML, push body, etc.)
-6. Upsert to customerio_campaigns, customerio_broadcasts tables
-7. Update schema_cache on client_platforms
-```
+**Changes:**
+- `src/components/creative/HorizontalFlowChart.tsx`:
+  - For delay/wait steps: render a thin vertical bar (narrow width, taller height) with the delay text centered, instead of a full card
+  - For split/branch steps (decision_split, audience_paths, etc.): render a branching visual showing path names and percentages
+  - These are currently likely skipped or rendered as regular cards; update to use distinct visual treatments
 
 ---
 
-## Phase 3: Update UI Components
+## Technical Details
 
-### Lifecycle Page Adaptation
+### Sidebar changes (items 1-3)
+The `navItems` array in `AppSidebar.tsx` currently has 11 items. After changes it will have 8:
+- Dashboard, Briefs, Campaigns, Lifecycle, Audience, Brand, AI Chat, Knowledge Base
 
-The Lifecycle page currently expects `braze_canvases`. We need to:
+### Settings page (item 3)
+Add a `TabsTrigger` for "Users" with `ShieldCheck` icon, only shown when `isAdmin`. The `TabsContent` renders `UserManagementPanel` -- a new component extracted from the existing `UserManagement.tsx` page logic (the table, approval flow, role management).
 
-1. Create a platform-agnostic data layer that works with both Braze and Customer.io
-2. Map Customer.io campaigns → same UI structure as Braze canvases
-3. Display workflow steps/actions as the "flow visualization"
+### Knowledge Base restructure (item 4)
+Reduce from 4 tabs to 2. The "Add New" URL ingestion form moves into a dialog triggered by a button on the Integrations tab. Platform docs are shown as an expandable section under each connected platform card.
 
-```text
-Customer.io Structure → UI Mapping:
-┌─────────────────────────────────────────────────────────────┐
-│ Customer.io         │ UI Component                         │
-├─────────────────────┼───────────────────────────────────────┤
-│ Campaign            │ Journey card                         │
-│ Campaign actions    │ Flow steps (like canvas steps)       │
-│ Broadcast           │ One-time campaign card               │
-│ Message content     │ Creative preview                     │
-└─────────────────────┴───────────────────────────────────────┘
-```
+### Lifecycle flow visualization (item 5)
+In `HorizontalFlowChart.tsx`, delay steps will render as:
+- A narrow vertical bar (w-8, h-20 or similar) with a `Timer` icon and text like "24h" or "3 days"
+- Positioned inline in the horizontal flow between message cards
 
-### Campaigns Page Adaptation
-
-Update to read from `customerio_broadcasts` for one-time campaigns, sorted by `sent_at` (most recent first).
-
-### Platform Type Updates
-
-```typescript
-// src/lib/types.ts
-// customerio is already in PlatformType, just need to prioritize it
-
-export const PLATFORM_INFO: Record<PlatformType, { ... }> = {
-  customerio: { name: 'Customer.io', color: 'customerio', icon: '👤' },
-  // ... other platforms demoted
-};
-```
-
----
-
-## Phase 4: Secrets & Configuration
-
-### Required Secrets
-
-| Secret Name | Value | Purpose |
-|-------------|-------|---------|
-| `CUSTOMERIO_SITE_ID` | `1c44cf43ce7418fa5a41` | Identify the Customer.io workspace |
-| `CUSTOMERIO_API_KEY` | `dd7c505e2ec6ad81252d` | Authenticate App API calls |
-
-### Platform Connection
-
-The Settings → Platforms page will need updates to:
-1. Show Customer.io as the primary/connected platform
-2. Remove or hide Braze-specific configuration
-3. Add Customer.io REST endpoint configuration
-
----
-
-## Phase 5: Cleanup
-
-### Files to Remove or Deprecate
-
-| File | Action |
-|------|--------|
-| `supabase/functions/sync-braze/` | Keep but disable (may need for other clients) |
-| `src/components/LinktreeLogo.tsx` | Delete |
-| `public/logos/linktree-logo.png` | Delete |
-| All Braze-specific database tables | Keep structure, just unused for DoubleGood |
-
-### Database Client Record
-
-Create new `doublegood` client record with appropriate brand defaults:
-
-```typescript
-const DOUBLEGOOD_BRAND_DEFAULTS = {
-  name: 'Double Good',
-  slug: 'doublegood',
-  website_url: 'https://www.doublegood.com',
-  industry: 'Fundraising / Food & Beverage',
-  tagline: 'Fundraising has never been easier',
-  primary_color: '#FFB800',
-  secondary_color: '#1A1A1A',
-  brand_voice: 'Warm, encouraging, and community-focused...',
-  // ... full brand guidelines
-};
-```
-
----
-
-## Implementation Order
-
-1. **Database Migration** - Add Customer.io tables
-2. **Secrets Setup** - Store Customer.io API credentials  
-3. **Branding Files** - Rename hooks, update logos, change text
-4. **Edge Function** - Create `sync-customerio`
-5. **Frontend Updates** - Lifecycle and Campaigns pages to use Customer.io data
-6. **Testing** - Verify sync works, campaigns display correctly
-
----
-
-## Technical Notes
-
-### Customer.io API Authentication
-
-```typescript
-// Basic Auth with Site ID:API Key
-const credentials = btoa(`${siteId}:${apiKey}`);
-fetch('https://api.customer.io/v1/campaigns', {
-  headers: {
-    'Authorization': `Basic ${credentials}`,
-    'Content-Type': 'application/json'
-  }
-});
-```
-
-### Workflow Visualization
-
-Customer.io campaigns have "actions" (workflow steps) that can be mapped to the existing flow visualization:
-- Email action → Email step
-- Wait action → Delay step  
-- Split action → A/B test or branch
-- Webhook action → API step
-
----
-
-## Expected Outcome
-
-After implementation:
-- App branded as "DoubleGood CRM Copilot"
-- Golden yellow (#FFB800) accent color throughout
-- Customer.io platform connected and syncing
-- Campaigns and Lifecycle pages showing DoubleGood's actual workflows
-- Brand voice and guidelines pre-populated for DoubleGood
-- All Linktree references removed
+Split/branch steps will render as:
+- A card showing the split type (e.g., "Audience Split") with path names and percentages listed
+- Visual connectors branching to show multiple paths
