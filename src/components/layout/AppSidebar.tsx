@@ -19,10 +19,8 @@ import {
   Workflow,
   FileText,
   Users,
-  BarChart3,
   Palette,
   User,
-  ShieldCheck,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -51,13 +49,10 @@ export function AppSidebar() {
     { name: 'Briefs', href: '/briefs', icon: FileText },
     { name: 'Campaigns', href: '/campaigns', icon: Send },
     { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
-    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
     { name: 'Audience', href: '/audience', icon: Users },
     { name: 'Brand', href: '/brand', icon: Palette },
     { name: 'AI Chat', href: '/chat', icon: MessageSquare },
-    { name: 'Knowledge Base', href: '/knowledge', icon: Database },
-    ...(isAdmin ? [{ name: 'User Management', href: '/users', icon: ShieldCheck }] : []),
-    { name: 'Settings', href: '/settings', icon: Settings },
+    { name: 'Integrations', href: '/knowledge', icon: Database },
   ];
 
   const handleSignOut = async () => {

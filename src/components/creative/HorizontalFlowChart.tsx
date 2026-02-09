@@ -591,16 +591,36 @@ function VariantRow({
         <div className="border-t bg-background">
           {variant.first_step_id && stepsWithMetadata.length > 0 ? (
             <ScrollArea className="w-full">
-              <div className="flex items-start gap-6 p-6 min-w-max">
-                {stepsWithMetadata.map(({ step, delaySeconds, splitStep }) => (
-                  <StepCard 
-                    key={step.id}
-                    step={step} 
-                    delaySeconds={delaySeconds}
-                    splitStep={splitStep}
-                    onClick={() => onViewStep?.(step)}
-                    onSplitClick={onSplitClick}
-                  />
+              <div className="flex items-start gap-0 p-6 min-w-max">
+                {stepsWithMetadata.map(({ step, delaySeconds, splitStep }, idx) => (
+                  <div key={step.id} className="flex items-start">
+                    {/* Delay bar between steps */}
+                    {idx > 0 && delaySeconds && delaySeconds > 0 && (
+                      <div className="flex flex-col items-center justify-center self-stretch mx-3 min-h-[200px]">
+                        <div className="flex-1 w-px bg-amber-500/40" />
+                        <div className="flex flex-col items-center gap-1 px-2 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 my-1">
+                          <Timer className="h-3.5 w-3.5 text-amber-600" />
+                          <span className="text-xs font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                            {formatDelayCompact(delaySeconds)}
+                          </span>
+                        </div>
+                        <div className="flex-1 w-px bg-amber-500/40" />
+                      </div>
+                    )}
+                    {/* Connector arrow (no delay) */}
+                    {idx > 0 && (!delaySeconds || delaySeconds <= 0) && (
+                      <div className="flex items-center self-stretch mx-2">
+                        <ArrowRight className="h-4 w-4 text-muted-foreground/50" />
+                      </div>
+                    )}
+                    <StepCard 
+                      step={step} 
+                      delaySeconds={undefined}
+                      splitStep={splitStep}
+                      onClick={() => onViewStep?.(step)}
+                      onSplitClick={onSplitClick}
+                    />
+                  </div>
                 ))}
               </div>
               <ScrollBar orientation="horizontal" className="h-3" />

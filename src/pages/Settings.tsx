@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { UserManagementPanel } from '@/components/settings/UserManagementPanel';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -230,6 +231,12 @@ export default function Settings() {
               Profile
             </TabsTrigger>
             {isAdmin && (
+              <TabsTrigger value="users" className="gap-2">
+                <Users className="h-4 w-4" />
+                Users
+              </TabsTrigger>
+            )}
+            {isAdmin && (
               <TabsTrigger value="data-visibility" className="gap-2">
                 <Eye className="h-4 w-4" />
                 Data Visibility
@@ -286,6 +293,13 @@ export default function Settings() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Users Tab - Admin Only */}
+          {isAdmin && (
+            <TabsContent value="users" className="space-y-6">
+              <UserManagementPanel />
+            </TabsContent>
+          )}
 
           {/* Data Visibility Tab - Admin Only */}
           {isAdmin && (
