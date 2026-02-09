@@ -1,82 +1,42 @@
 
 
-# Structural Changes Plan
+# Fix: Customer.io 401 -- Correct API Path Prefix
 
-## 1. Hide Analytics Tab
+## Root Cause
 
-Remove the Analytics nav item from the sidebar and its route. The page file stays but becomes inaccessible.
+The Customer.io credentials documentation states:
 
-**Changes:**
-- `src/components/layout/AppSidebar.tsx` -- Remove the Analytics entry from `navItems`
-- `src/App.tsx` -- Remove the Analytics route (or keep it but redirect; simplest to just remove)
+> "API requests to `https://api.customer.io/v1/api/` use App API Keys."
 
-## 2. Move Settings into User Profile Dropdown
+Our current code calls `https://api.customer.io/v1/campaigns`, but the correct path for App API key authentication is `https://api.customer.io/v1/api/campaigns` (note the extra `/api/` segment in the path).
 
-Instead of a separate sidebar nav item, Settings becomes accessible only via the user avatar dropdown in the sidebar footer (which already has a "Settings" link). We just remove it from the main nav list.
+While Customer.io's beta API release notes suggest both `/v1/` and `/v1/api/` should work, the credentials page explicitly ties App API keys to the `/v1/api/` prefix. This mismatch is the most likely cause of the 401.
 
-**Changes:**
-- `src/components/layout/AppSidebar.tsx` -- Remove the Settings entry from `navItems` (the dropdown menu in the footer already links to `/settings`)
+## Changes
 
-## 3. Move User Management into Settings
+**File: `supabase/functions/customerio-proxy/index.ts`**
 
-Embed the User Management content as a tab within the Settings page, visible only to admins. Remove it from the sidebar.
+1. Update all endpoint paths from `/v1/...` to `/v1/api/...`:
+   - `/v1/campaigns` becomes `/v1/api/campaigns`
+   - `/v1/newsletters` becomes `/v1/api/newsletters`
+   - `/v1/campaigns/:id/actions/:id` becomes `/v1/api/campaigns/:id/actions/:id`
+   - `/v1/campaigns/:id/actions/:id/language/en` becomes `/v1/api/campaigns/:id/actions/:id/language/en`
+   - `/v1/newsletters/:id/actions/:id` becomes `/v1/api/newsletters/:id/actions/:id`
+   - `/v1/newsletters/:id/actions/:id/language/en` becomes `/v1/api/newsletters/:id/actions/:id/language/en`
 
-**Changes:**
-- `src/components/layout/AppSidebar.tsx` -- Remove the User Management entry from `navItems`
-- `src/pages/Settings.tsx` -- Add a new "Users" tab (admin-only) that renders the user management table/logic currently in `UserManagement.tsx`. Extract the core content from `UserManagement.tsx` into a reusable component (e.g., `src/components/settings/UserManagementPanel.tsx`) and import it in Settings.
-- `src/pages/UserManagement.tsx` -- Refactor to export its inner content as a component, or keep the page as a redirect to `/settings?tab=users`
-- `src/App.tsx` -- Redirect `/users` to `/settings` (or keep route but it can stay for backwards compat)
+2. Add a diagnostic `/debug` sub-path that returns:
+   - Whether `CUSTOMERIO_API_KEY` is set (first 4 chars masked)
+   - The resolved base URL being used
+   - A test call result with full error details
 
-## 4. Restructure Knowledge Base
-
-Remove the stats cards at the top (Total Documents, Platform Docs, Custom Docs, Total Words). Reorganize tabs:
-
-- **Integrations** (default) -- Shows connected platforms, ability to connect more, and links to platform docs for each connected integration
-- **Code Generator** -- Stays as-is
-- Move "Platform Docs" content into the Integrations tab (shown per-integration)
-- Move "Add New" button into the Integrations tab header area
-
-**Changes:**
-- `src/pages/KnowledgeBase.tsx`:
-  - Remove the 4 stats cards section
-  - Remove the separate "Platform Docs" and "Add New" tabs
-  - Keep only 2 tabs: "Integrations" and "Code Generator"
-  - On the Integrations tab, add an "Add New" button in the card header
-  - Show platform docs inline under each connected platform (expandable/collapsible)
-  - Rename page title to "Integrations" or keep "Knowledge Base" with updated description
-
-## 5. Lifecycle -- Add Splits and Time Delay Visualization
-
-Enhance the `HorizontalFlowChart` component to better visualize:
-
-- **Time delays**: Render as a slim vertical bar between touchpoints with the delay duration (e.g., "24h", "3d") displayed in the center
-- **Audience splits**: Add a placeholder/module showing split paths with percentage labels branching from a decision node
-
-**Changes:**
-- `src/components/creative/HorizontalFlowChart.tsx`:
-  - For delay/wait steps: render a thin vertical bar (narrow width, taller height) with the delay text centered, instead of a full card
-  - For split/branch steps (decision_split, audience_paths, etc.): render a branching visual showing path names and percentages
-  - These are currently likely skipped or rendered as regular cards; update to use distinct visual treatments
-
----
+This is a focused change -- only the path prefix in 8 fetch calls needs updating. No frontend changes required.
 
 ## Technical Details
 
-### Sidebar changes (items 1-3)
-The `navItems` array in `AppSidebar.tsx` currently has 11 items. After changes it will have 8:
-- Dashboard, Briefs, Campaigns, Lifecycle, Audience, Brand, AI Chat, Knowledge Base
+The `cioFetch` helper constructs URLs as `CIO_BASE() + path`. Currently paths start with `/v1/`. The fix changes them to start with `/v1/api/`. Example:
 
-### Settings page (item 3)
-Add a `TabsTrigger` for "Users" with `ShieldCheck` icon, only shown when `isAdmin`. The `TabsContent` renders `UserManagementPanel` -- a new component extracted from the existing `UserManagement.tsx` page logic (the table, approval flow, role management).
+Before: `https://api.customer.io/v1/campaigns?page=1&page_size=1`
+After:  `https://api.customer.io/v1/api/campaigns?page=1&page_size=1`
 
-### Knowledge Base restructure (item 4)
-Reduce from 4 tabs to 2. The "Add New" URL ingestion form moves into a dialog triggered by a button on the Integrations tab. Platform docs are shown as an expandable section under each connected platform card.
+After deploying, a quick health check call will confirm whether this resolves the 401.
 
-### Lifecycle flow visualization (item 5)
-In `HorizontalFlowChart.tsx`, delay steps will render as:
-- A narrow vertical bar (w-8, h-20 or similar) with a `Timer` icon and text like "24h" or "3 days"
-- Positioned inline in the horizontal flow between message cards
-
-Split/branch steps will render as:
-- A card showing the split type (e.g., "Audience Split") with path names and percentages listed
-- Visual connectors branching to show multiple paths
