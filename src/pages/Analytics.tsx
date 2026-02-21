@@ -1,13 +1,33 @@
+import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
   BarChart,
   Bar,
+  ComposedChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -19,35 +39,76 @@ import {
 } from 'recharts';
 import {
   Send, Workflow, UserPlus, TrendingUp, ArrowUpRight, ArrowDownRight,
-  Mail, Smartphone, Bell, MessageCircle,
+  Mail, Smartphone, Bell, MessageCircle, Sparkles, Search, Monitor,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Placeholder data
-const CAMPAIGN_WEEKLY = [
-  { week: 'W1', sends: 4200, opens: 1180, clicks: 310 },
-  { week: 'W2', sends: 3800, opens: 1090, clicks: 285 },
-  { week: 'W3', sends: 5100, opens: 1530, clicks: 420 },
-  { week: 'W4', sends: 4600, opens: 1340, clicks: 365 },
-  { week: 'W5', sends: 5400, opens: 1620, clicks: 445 },
-  { week: 'W6', sends: 4900, opens: 1470, clicks: 398 },
+// ─── Flow vs Campaign Revenue + CRM % of Total (from audit) ───
+const REVENUE_MONTHLY = [
+  { month: 'May 25', flowRev: 24145, campaignRev: 4721, crmPct: 9.58 },
+  { month: 'Jun', flowRev: 48718, campaignRev: 18752, crmPct: 11.85 },
+  { month: 'Jul', flowRev: 23795, campaignRev: 16824, crmPct: 8.64 },
+  { month: 'Aug', flowRev: 40850, campaignRev: 20073, crmPct: 11.32 },
+  { month: 'Sep', flowRev: 30919, campaignRev: 20954, crmPct: 12.29 },
+  { month: 'Oct', flowRev: 34293, campaignRev: 16232, crmPct: 14.48 },
+  { month: 'Nov', flowRev: 27798, campaignRev: 40142, crmPct: 12.55 },
+  { month: 'Dec', flowRev: 36309, campaignRev: 26631, crmPct: 13.85 },
+  { month: 'Jan 26', flowRev: 30356, campaignRev: 7736, crmPct: 11.62 },
 ];
 
-const FLOW_PERFORMANCE = [
-  { name: 'Welcome Series', entries: 1820, completed: 1240, converted: 410 },
-  { name: 'Re-engagement', entries: 950, completed: 610, converted: 195 },
-  { name: 'Post-Purchase', entries: 680, completed: 490, converted: 165 },
-  { name: 'Win-Back', entries: 380, completed: 220, converted: 68 },
-  { name: 'Milestone', entries: 290, completed: 210, converted: 85 },
+// ─── Monthly Flow Revenue (from audit) ───
+const MONTHLY_FLOW_REVENUE = [
+  { month: 'Feb 25', revenue: 1374 },
+  { month: 'Mar', revenue: 7643 },
+  { month: 'Apr', revenue: 428 },
+  { month: 'May', revenue: 24145 },
+  { month: 'Jun', revenue: 48718 },
+  { month: 'Jul', revenue: 23795 },
+  { month: 'Aug', revenue: 40850 },
+  { month: 'Sep', revenue: 30919 },
+  { month: 'Oct', revenue: 34293 },
+  { month: 'Nov', revenue: 27798 },
+  { month: 'Dec', revenue: 36309 },
+  { month: 'Jan 26', revenue: 30356 },
+  { month: 'Feb 26', revenue: 23937 },
 ];
 
-const SIGNUP_WEEKLY = [
-  { week: 'W1', signups: 320 },
-  { week: 'W2', signups: 345 },
-  { week: 'W3', signups: 382 },
-  { week: 'W4', signups: 368 },
-  { week: 'W5', signups: 405 },
-  { week: 'W6', signups: 430 },
+// ─── All Campaigns Performance (from audit + extended) ───
+const ALL_CAMPAIGNS = [
+  { name: 'Black Friday Email 1', revenue: 19791, orders: 17, ctr: '1.66%', date: 'Nov 24', channel: 'Email', segment: 'All Engaged' },
+  { name: 'HEIGH10 Blowout Sale', revenue: 10762, orders: 12, ctr: '1.26%', date: 'Dec 23', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'Labor Day Sale #4', revenue: 5335, orders: 7, ctr: '1.06%', date: 'Sep 1', channel: 'Email', segment: 'Engaged 90d' },
+  { name: 'Labor Day Sale #2', revenue: 4993, orders: 9, ctr: '1.07%', date: 'Aug 28', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'New Pricing Infotainment', revenue: 4353, orders: 4, ctr: '0.31%', date: 'Jan 6', channel: 'Email', segment: 'All Subscribers' },
+  { name: 'Gift Card Final', revenue: 4220, orders: 8, ctr: '0.84%', date: 'May 31', channel: 'Email', segment: 'Engaged 180d' },
+  { name: '4th of July Sale #4', revenue: 4159, orders: 6, ctr: '0.59%', date: 'Jun 28', channel: 'Email', segment: 'Engaged 90d' },
+  { name: 'Black Friday Email 4', revenue: 3835, orders: 3, ctr: '0.48%', date: 'Nov 29', channel: 'Email', segment: 'All Engaged' },
+  { name: 'Spring Launch', revenue: 3200, orders: 5, ctr: '0.92%', date: 'Mar 15', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'Back To School', revenue: 2800, orders: 4, ctr: '0.71%', date: 'Aug 10', channel: 'Email', segment: 'Engaged 90d' },
+  { name: 'Flash Sale Push', revenue: 1950, orders: 3, ctr: '2.10%', date: 'Oct 5', channel: 'Push', segment: 'App Users' },
+  { name: 'Weekly Digest #42', revenue: 1200, orders: 2, ctr: '0.45%', date: 'Dec 1', channel: 'Email', segment: 'Engaged 180d' },
+];
+
+// ─── Subscriber Growth by Source (from audit) ───
+const SUBSCRIBER_GROWTH = [
+  { month: 'Feb 25', email: 1981, sms: 40, website: 138, vehicle: 0, dealer: 0, event: 0 },
+  { month: 'Mar', email: 821, sms: 11, website: 176, vehicle: 0, dealer: 0, event: 0 },
+  { month: 'May', email: 1308, sms: 27, website: 108, vehicle: 0, dealer: 0, event: 0 },
+  { month: 'Jun', email: 1867, sms: 52, website: 142, vehicle: 0, dealer: 0, event: 0 },
+  { month: 'Jul', email: 1351, sms: 36, website: 113, vehicle: 0, dealer: 4644, event: 0 },
+  { month: 'Aug', email: 1432, sms: 46, website: 115, vehicle: 0, dealer: 3, event: 31 },
+  { month: 'Sep', email: 1276, sms: 43, website: 270, vehicle: 0, dealer: 0, event: 3 },
+  { month: 'Oct', email: 1268, sms: 35, website: 93, vehicle: 9, dealer: 0, event: 2 },
+  { month: 'Nov', email: 1969, sms: 6, website: 0, vehicle: 80, dealer: 0, event: 0 },
+  { month: 'Dec', email: 2103, sms: 95, website: 0, vehicle: 85, dealer: 0, event: 0 },
+  { month: 'Jan 26', email: 1378, sms: 129, website: 0, vehicle: 49, dealer: 0, event: 0 },
+  { month: 'Feb 26', email: 872, sms: 71, website: 0, vehicle: 25, dealer: 0, event: 0 },
+];
+
+// Conversion rate placeholder
+const CONVERSION_DEVICE = [
+  { device: 'Desktop', sessions: 42300, conversions: 1480, rate: '3.5%' },
+  { device: 'Mobile', sessions: 68200, conversions: 1568, rate: '2.3%' },
 ];
 
 const CHANNEL_MIX = [
@@ -88,130 +149,280 @@ function StatCard({ icon: Icon, label, value, change, changeLabel, color }: {
   );
 }
 
+const formatDollar = (v: number) => `$${(v / 1000).toFixed(0)}K`;
+
 export default function Analytics() {
+  const [campaignSearch, setCampaignSearch] = useState('');
+  const [campaignChannelFilter, setCampaignChannelFilter] = useState('All');
+
+  const filteredCampaigns = ALL_CAMPAIGNS.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(campaignSearch.toLowerCase());
+    const matchesChannel = campaignChannelFilter === 'All' || c.channel === campaignChannelFilter;
+    return matchesSearch && matchesChannel;
+  });
+
   return (
     <AppLayout>
       <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
         <PageHeader
           title="Analytics"
-          description="Track messaging performance across campaigns, lifecycle flows, and signups"
+          description="Revenue performance, campaign metrics, and subscriber trends from your lifecycle audit"
         />
 
         {/* KPI Row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Send} label="Total Sends" value="28,000" change={12.4} changeLabel="vs last period" color="bg-primary/10 text-primary" />
-          <StatCard icon={TrendingUp} label="Open Rate" value="29.1%" change={3.2} changeLabel="vs last period" color="bg-blue-500/10 text-blue-600" />
-          <StatCard icon={Workflow} label="Flow Conversions" value="923" change={-2.1} changeLabel="vs last period" color="bg-purple-500/10 text-purple-600" />
-          <StatCard icon={UserPlus} label="New Signups" value="2,250" change={8.6} changeLabel="vs last period" color="bg-green-500/10 text-green-600" />
+          <StatCard icon={TrendingUp} label="CRM % of Revenue" value="~10%" change={2.1} changeLabel="trending up" color="bg-primary/10 text-primary" />
+          <StatCard icon={Workflow} label="Flow Revenue (9mo)" value="$297K" change={12.4} changeLabel="vs prior" color="bg-purple-500/10 text-purple-600" />
+          <StatCard icon={Send} label="Campaign Revenue" value="$172K" change={-2.1} changeLabel="vs prior" color="bg-blue-500/10 text-blue-600" />
+          <StatCard icon={UserPlus} label="New Subscribers" value="24,308" change={8.6} changeLabel="12 months" color="bg-green-500/10 text-green-600" />
         </div>
 
-        {/* Campaign Performance */}
+        {/* Flow vs Campaign Revenue + CRM % */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Send className="h-4 w-4 text-primary" />
-              Campaign Performance
-            </CardTitle>
+            <CardTitle className="text-base font-semibold">Flow vs Campaign Revenue + CRM % of Total</CardTitle>
+            <p className="text-xs text-muted-foreground">Dashed line at 25% = industry benchmark</p>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px]">
+            <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={CAMPAIGN_WEEKLY} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+                <ComposedChart data={REVENUE_MONTHLY} margin={{ top: 8, right: 16, bottom: 0, left: -4 }}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="week" className="text-xs" tickLine={false} axisLine={false} />
-                  <YAxis className="text-xs" tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+                  <XAxis dataKey="month" className="text-xs" tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="rev" className="text-xs" tickLine={false} axisLine={false} tickFormatter={formatDollar} />
+                  <YAxis yAxisId="pct" orientation="right" className="text-xs" tickLine={false} axisLine={false} tickFormatter={(v: number) => `${v}%`} domain={[0, 30]} />
+                  <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number, name: string) => name === 'CRM %' ? `${v}%` : `$${v.toLocaleString()}`} />
                   <Legend />
-                  <Area type="monotone" dataKey="sends" name="Sends" stroke="hsl(var(--muted-foreground))" fill="hsl(var(--muted) / 0.4)" strokeWidth={1.5} />
-                  <Area type="monotone" dataKey="opens" name="Opens" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.15)" strokeWidth={2} />
-                  <Area type="monotone" dataKey="clicks" name="Clicks" stroke="hsl(var(--chart-2))" fill="hsl(var(--chart-2) / 0.1)" strokeWidth={2} />
-                </AreaChart>
+                  <Bar yAxisId="rev" dataKey="flowRev" name="Flow Revenue" fill="hsl(var(--primary) / 0.6)" radius={[2, 2, 0, 0]} />
+                  <Bar yAxisId="rev" dataKey="campaignRev" name="Campaign Revenue" fill="hsl(var(--chart-2) / 0.6)" radius={[2, 2, 0, 0]} />
+                  <Line yAxisId="pct" type="monotone" dataKey="crmPct" name="CRM %" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={{ r: 3 }} />
+                  {/* Benchmark line */}
+                  <Line yAxisId="pct" dataKey={() => 25} name="25% Benchmark" stroke="hsl(var(--muted-foreground))" strokeDasharray="6 4" strokeWidth={1} dot={false} legendType="none" />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
+        {/* Monthly Flow Revenue */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Workflow className="h-4 w-4 text-purple-500" />
+              Monthly Flow Revenue
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={MONTHLY_FLOW_REVENUE} margin={{ top: 8, right: 8, bottom: 0, left: -4 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="month" className="text-[10px]" tickLine={false} axisLine={false} />
+                  <YAxis className="text-xs" tickLine={false} axisLine={false} tickFormatter={formatDollar} />
+                  <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `$${v.toLocaleString()}`} />
+                  <Bar dataKey="revenue" name="Flow Revenue" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Top Performing Campaigns — filterable table */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Send className="h-4 w-4 text-blue-500" />
+                All Campaigns
+              </CardTitle>
+              <div className="flex gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input placeholder="Search..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="pl-8 h-8 w-[180px] text-xs" />
+                </div>
+                <Select value={campaignChannelFilter} onValueChange={setCampaignChannelFilter}>
+                  <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All</SelectItem>
+                    <SelectItem value="Email">Email</SelectItem>
+                    <SelectItem value="Push">Push</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-lg border overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Campaign</TableHead>
+                    <TableHead className="text-xs text-right">Revenue</TableHead>
+                    <TableHead className="text-xs text-right">Orders</TableHead>
+                    <TableHead className="text-xs text-right">CTR</TableHead>
+                    <TableHead className="text-xs">Channel</TableHead>
+                    <TableHead className="text-xs">Segment</TableHead>
+                    <TableHead className="text-xs">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCampaigns.map((c, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="text-sm font-medium">{c.name}</TableCell>
+                      <TableCell className="text-sm text-right font-semibold">${c.revenue.toLocaleString()}</TableCell>
+                      <TableCell className="text-sm text-right">{c.orders}</TableCell>
+                      <TableCell className="text-sm text-right">{c.ctr}</TableCell>
+                      <TableCell><Badge variant="outline" className="text-xs">{c.channel}</Badge></TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{c.segment}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{c.date}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="grid lg:grid-cols-2 gap-6">
-          {/* Flow Performance */}
+          {/* Subscriber Growth by Source */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Workflow className="h-4 w-4 text-purple-500" />
-                Flow Performance
+                <UserPlus className="h-4 w-4 text-green-500" />
+                Subscriber Growth by Source
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-[240px]">
+              <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={FLOW_PERFORMANCE} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+                  <BarChart data={SUBSCRIBER_GROWTH} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
+                    <XAxis dataKey="month" className="text-[10px]" tickLine={false} axisLine={false} />
                     <YAxis className="text-xs" tickLine={false} axisLine={false} />
                     <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-                    <Legend />
-                    <Bar dataKey="entries" name="Entries" fill="hsl(var(--primary) / 0.5)" radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="converted" name="Converted" fill="hsl(var(--chart-3))" radius={[2, 2, 0, 0]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="email" name="Email" stackId="a" fill="hsl(var(--primary))" />
+                    <Bar dataKey="sms" name="SMS" stackId="a" fill="hsl(var(--chart-2))" />
+                    <Bar dataKey="website" name="Website" stackId="a" fill="hsl(var(--chart-3))" />
+                    <Bar dataKey="dealer" name="Dealer" stackId="a" fill="hsl(var(--chart-4))" />
+                    <Bar dataKey="vehicle" name="Vehicle" stackId="a" fill="hsl(var(--chart-5, 220 70% 50%))" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
 
-          {/* Channel Mix */}
+          {/* Conversion Rate by Device */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Mail className="h-4 w-4 text-blue-500" />
-                Channel Mix
+                <Monitor className="h-4 w-4 text-blue-500" />
+                Conversion Rate by Device
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-6">
-                <div className="h-[200px] w-[200px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={CHANNEL_MIX} dataKey="value" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                        {CHANNEL_MIX.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `${v}%`} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-3">
-                  {CHANNEL_MIX.map((ch) => (
-                    <div key={ch.name} className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full" style={{ backgroundColor: ch.color }} />
-                      <span className="text-sm">{ch.name}</span>
-                      <span className="text-sm font-semibold ml-auto">{ch.value}%</span>
+              <div className="space-y-4 mt-2">
+                {CONVERSION_DEVICE.map(d => (
+                  <div key={d.device} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">{d.device}</span>
+                      <span className="text-sm font-bold">{d.rate}</span>
                     </div>
-                  ))}
+                    <div className="h-3 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full", d.device === 'Desktop' ? 'bg-primary' : 'bg-chart-2')}
+                        style={{ width: d.rate }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>{d.sessions.toLocaleString()} sessions</span>
+                      <span>{d.conversions.toLocaleString()} conversions</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Channel Mix */}
+              <div className="mt-6 pt-4 border-t">
+                <p className="text-sm font-semibold mb-3">Channel Mix</p>
+                <div className="flex items-center gap-4">
+                  <div className="h-[140px] w-[140px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={CHANNEL_MIX} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3}>
+                          {CHANNEL_MIX.map((entry, i) => (
+                            <Cell key={i} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `${v}%`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="space-y-2">
+                    {CHANNEL_MIX.map(ch => (
+                      <div key={ch.name} className="flex items-center gap-2 text-sm">
+                        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ch.color }} />
+                        <span>{ch.name}</span>
+                        <span className="font-semibold ml-auto">{ch.value}%</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Signup Trend */}
-        <Card>
+        {/* AI Insights */}
+        <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-green-500" />
-              Signup Trend
+              <Sparkles className="h-4 w-4 text-primary" />
+              AI Insights
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={SIGNUP_WEEKLY} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="week" className="text-xs" tickLine={false} axisLine={false} />
-                  <YAxis className="text-xs" tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-                  <Area type="monotone" dataKey="signups" name="Signups" stroke="hsl(var(--chart-3))" fill="hsl(var(--chart-3) / 0.15)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="space-y-3">
+              {[
+                {
+                  title: 'Revenue Concentration Risk',
+                  body: 'Welcome Series accounts for 52% of all flow revenue ($151.9K). Diversifying cart recovery and browse abandonment flows could reduce single-flow dependency.',
+                  tag: 'High Priority',
+                  tagColor: 'bg-red-500/10 text-red-600',
+                },
+                {
+                  title: 'Campaign Revenue Pattern',
+                  body: '7 of your top 8 campaigns are sale events. Non-sale campaigns rarely break $2K in attributed revenue. Consider nurture sequences that build purchase intent outside promotions.',
+                  tag: 'Strategy',
+                  tagColor: 'bg-amber-500/10 text-amber-600',
+                },
+                {
+                  title: 'Subscriber Capture Gap',
+                  body: '37,477 checkout starts but only 24,308 list adds in the past year. ~13K potential subscribers lost. Audit popup timing, exit intent, and checkout opt-in.',
+                  tag: 'Growth',
+                  tagColor: 'bg-green-500/10 text-green-600',
+                },
+                {
+                  title: 'SMS Growth Opportunity',
+                  body: 'SMS captures grew from 40/mo to 129/mo but remain a fraction of total. SMS converts 5.5x better per recipient than email for browse abandonment.',
+                  tag: 'Opportunity',
+                  tagColor: 'bg-blue-500/10 text-blue-600',
+                },
+                {
+                  title: 'CRM Revenue Below Benchmark',
+                  body: 'CRM contributes ~10% of total site revenue. Industry benchmark is 25–35%. Even the best month (Oct at 14.48%) shows a massive gap. The structural fix is program-wide scaling.',
+                  tag: 'Benchmark',
+                  tagColor: 'bg-purple-500/10 text-purple-600',
+                },
+              ].map((insight, i) => (
+                <div key={i} className="p-3 rounded-lg border bg-card/50">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="secondary" className={cn("text-[10px]", insight.tagColor)}>{insight.tag}</Badge>
+                    <span className="text-sm font-semibold">{insight.title}</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{insight.body}</p>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
