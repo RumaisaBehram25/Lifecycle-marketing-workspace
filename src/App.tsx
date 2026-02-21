@@ -15,6 +15,7 @@ import ResourceCenter from "./pages/ResourceCenter";
 import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,7 +54,7 @@ function AppRoutes() {
       <Route path="/brand" element={<Navigate to="/resources" replace />} />
       <Route path="/audience" element={<Navigate to="/resources" replace />} />
       <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
-      <Route path="/analytics" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
       <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
       <Route path="/users" element={<Navigate to="/settings" replace />} />
       <Route path="/clients" element={<Navigate to="/resources" replace />} />

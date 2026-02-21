@@ -23,13 +23,13 @@ import {
   User,
   BookOpen,
   ClipboardList,
-  ChevronRight,
   Volume2,
   Palette,
   Ruler,
   Users,
   Route,
   Database,
+  BarChart3,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -69,6 +69,7 @@ export function AppSidebar() {
     { name: 'Onboarding', href: '/onboarding', icon: ClipboardList },
     { name: 'Campaigns', href: '/campaigns', icon: Send },
     { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
+    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
     { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   ];
 
@@ -135,9 +136,6 @@ export function AppSidebar() {
                     >
                       <BookOpen className="h-5 w-5" />
                       <span className="flex-1">Resource Center</span>
-                      {!isCollapsed && (
-                        <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                      )}
                     </SidebarMenuButton>
                   </CollapsibleTrigger>
                   {!isCollapsed && (

@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
   ArrowRight, Plus, CheckCircle2, ListTodo, Send, BarChart3,
-  Workflow, TrendingUp, Users, UserPlus
+  Workflow, TrendingUp, Users, UserPlus, Sparkles, ChevronDown
 } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
 import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
@@ -394,8 +395,25 @@ export default function Dashboard() {
         <PastCampaigns />
         <RecentlyClosedBriefs />
 
-        {/* AI Chat Module */}
-        <EmbeddedChat />
+        {/* AI Chat Module - collapsed by default */}
+        <Collapsible>
+          <Card>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="pb-3 cursor-pointer flex flex-row items-center justify-between hover:bg-muted/30 transition-colors rounded-t-lg">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center">
+                    <Sparkles className="h-3 w-3 text-primary-foreground" />
+                  </div>
+                  AI Chat
+                </CardTitle>
+                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <EmbeddedChat />
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
         {/* Create Brief Modal */}
         <CreateBriefModal open={createBriefOpen} onOpenChange={setCreateBriefOpen} />
