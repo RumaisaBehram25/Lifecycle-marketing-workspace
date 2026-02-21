@@ -9,6 +9,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   LayoutDashboard,
   MessageSquare,
   Settings,
@@ -17,6 +22,14 @@ import {
   Workflow,
   User,
   BookOpen,
+  ClipboardList,
+  ChevronRight,
+  Volume2,
+  Palette,
+  Ruler,
+  Users,
+  Route,
+  Database,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -28,9 +41,21 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
   useSidebar,
 } from '@/components/ui/sidebar';
 import { BRCGIcon } from '@/components/BRCGLogo';
+
+const resourceSubItems = [
+  { name: 'Brand Voice', href: '/resources?tab=voice', icon: Volume2 },
+  { name: 'Design', href: '/resources?tab=design', icon: Palette },
+  { name: 'Rules', href: '/resources?tab=rules', icon: Ruler },
+  { name: 'Audience', href: '/resources?tab=audience', icon: Users },
+  { name: 'User Journeys', href: '/resources?tab=journeys', icon: Route },
+  { name: 'Events & Attributes', href: '/resources?tab=events', icon: Database },
+];
 
 export function AppSidebar() {
   const location = useLocation();
@@ -41,11 +66,13 @@ export function AppSidebar() {
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Onboarding', href: '/onboarding', icon: ClipboardList },
     { name: 'Campaigns', href: '/campaigns', icon: Send },
     { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
-    { name: 'Resource Center', href: '/resources', icon: BookOpen },
     { name: 'AI Chat', href: '/chat', icon: MessageSquare },
   ];
+
+  const isResourcesActive = location.pathname === '/resources' || location.pathname.startsWith('/resources');
 
   const handleSignOut = async () => {
     await signOut();
@@ -96,6 +123,49 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+
+              {/* Resource Center with nested sub-items */}
+              <Collapsible defaultOpen={isResourcesActive} className="group/collapsible">
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      isActive={isResourcesActive}
+                      tooltip="Resource Center"
+                      onClick={() => navigate('/resources')}
+                    >
+                      <BookOpen className="h-5 w-5" />
+                      <span className="flex-1">Resource Center</span>
+                      {!isCollapsed && (
+                        <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                      )}
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  {!isCollapsed && (
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {resourceSubItems.map((sub) => {
+                          const tabParam = new URL(sub.href, 'http://x').searchParams.get('tab');
+                          const currentTab = new URLSearchParams(location.search).get('tab');
+                          const isSubActive = location.pathname === '/resources' && currentTab === tabParam;
+                          return (
+                            <SidebarMenuSubItem key={sub.name}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={isSubActive}
+                              >
+                                <Link to={sub.href}>
+                                  <sub.icon className="h-4 w-4" />
+                                  <span>{sub.name}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          );
+                        })}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  )}
+                </SidebarMenuItem>
+              </Collapsible>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

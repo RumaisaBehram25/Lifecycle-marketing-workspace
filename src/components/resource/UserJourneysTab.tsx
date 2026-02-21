@@ -8,8 +8,9 @@ import {
   Smartphone, 
   Diamond,
   GitBranch,
-  Users,
   ArrowRight,
+  Clock,
+  Filter,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,10 @@ interface JourneyPhase {
   name: string;
   subtitle?: string;
   touchpoints: JourneyTouchpoint[];
+  /** Delays between touchpoints (index i = delay after touchpoint i) */
+  delays?: string[];
+  /** Filter/condition applied after this phase */
+  filter?: string;
 }
 
 interface UserJourney {
@@ -47,6 +52,8 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'a2', name: 'Social Engagement', type: 'action', description: 'Social media interaction' },
           { id: 'a3', name: 'Previous Buyer', type: 'action', description: 'Referral or past customer' },
         ],
+        delays: ['Immediate', '1–3 days'],
+        filter: 'Has account?',
       },
       {
         id: 'consideration',
@@ -58,6 +65,8 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'c3', name: 'Onboarding Email', type: 'email', description: 'Welcome + value props' },
           { id: 'c4', name: 'Explore Features', type: 'inapp', description: 'Feature walkthrough' },
         ],
+        delays: ['Immediate', '1 hour', '24 hours'],
+        filter: 'Completed profile?',
       },
       {
         id: 'activation',
@@ -69,6 +78,7 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'act3', name: 'First Action', type: 'action', description: 'Core product action' },
           { id: 'act4', name: 'Confirmation Email', type: 'email', description: 'Success + next steps' },
         ],
+        delays: ['30 min', '2 hours', '24 hours'],
       },
       {
         id: 'engagement',
@@ -78,8 +88,9 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'e1', name: 'Week 1 Check-in', type: 'email', description: 'How\'s it going?' },
           { id: 'e2', name: 'Feature Highlight', type: 'push', description: 'Key feature discovery' },
           { id: 'e3', name: 'Social Proof', type: 'email', description: 'Success stories + CTA' },
-          { id: 'e4', name: 'Complete Schedule?', type: 'decision', description: 'Check completion' },
+          { id: 'e4', name: 'Active User?', type: 'decision', description: 'Check engagement level' },
         ],
+        delays: ['3 days', '5 days', '7 days'],
       },
     ],
   },
@@ -94,6 +105,7 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
         touchpoints: [
           { id: 't1', name: 'Inactive 14 days', type: 'decision', description: 'Activity check' },
         ],
+        filter: 'Opened last email?',
       },
       {
         id: 'winback1',
@@ -103,6 +115,8 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'w1', name: 'We Miss You Email', type: 'email', description: 'Personalized reminder' },
           { id: 'w2', name: 'Push Notification', type: 'push', description: 'What\'s new highlight' },
         ],
+        delays: ['3 days'],
+        filter: 'Engaged?',
       },
       {
         id: 'winback2',
@@ -113,6 +127,7 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'w4', name: 'Exclusive Offer', type: 'email', description: 'Limited-time incentive' },
           { id: 'w5', name: 'In-App Banner', type: 'inapp', description: 'Return welcome' },
         ],
+        delays: ['Immediate', '2 days'],
       },
       {
         id: 'resolution',
@@ -122,6 +137,7 @@ const PLACEHOLDER_JOURNEYS: UserJourney[] = [
           { id: 'r1', name: 'Re-activated?', type: 'decision', description: 'Final check' },
           { id: 'r2', name: 'Welcome Back', type: 'email', description: 'Celebration email' },
         ],
+        delays: ['Immediate'],
       },
     ],
   },
@@ -159,7 +175,7 @@ export function UserJourneysTab() {
         ))}
       </div>
 
-      {/* Journey Map - Horizontal phases */}
+      {/* Journey Map */}
       <Card>
         <CardContent className="p-0">
           <ScrollArea className="w-full">
@@ -177,7 +193,7 @@ export function UserJourneysTab() {
                     </div>
 
                     {/* Touchpoints */}
-                    <div className="p-4 space-y-3 min-h-[300px]">
+                    <div className="p-4 space-y-1 min-h-[300px]">
                       {phase.touchpoints.map((tp, tpIdx) => {
                         const config = touchpointConfig[tp.type];
                         return (
@@ -196,14 +212,34 @@ export function UserJourneysTab() {
                                 </div>
                               </div>
                             </div>
+                            {/* Time delay between touchpoints */}
                             {tpIdx < phase.touchpoints.length - 1 && (
-                              <div className="flex justify-center py-1">
-                                <div className="w-px h-3 bg-border" />
+                              <div className="flex items-center justify-center py-1.5 gap-1.5">
+                                <div className="w-px h-2 bg-border" />
+                                {phase.delays?.[tpIdx] ? (
+                                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                                    <Clock className="h-3 w-3" />
+                                    <span className="text-[10px] font-medium">{phase.delays[tpIdx]}</span>
+                                  </div>
+                                ) : (
+                                  <div className="w-px h-2 bg-border" />
+                                )}
+                                <div className="w-px h-2 bg-border" />
                               </div>
                             )}
                           </div>
                         );
                       })}
+
+                      {/* Phase-level filter */}
+                      {phase.filter && (
+                        <div className="mt-3 pt-3 border-t border-dashed border-border">
+                          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-amber-500/5 border border-amber-200 text-amber-700">
+                            <Filter className="h-3 w-3 flex-shrink-0" />
+                            <span className="text-xs font-medium">{phase.filter}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -231,6 +267,18 @@ export function UserJourneysTab() {
             <span className="capitalize">{type}</span>
           </div>
         ))}
+        <div className="flex items-center gap-1.5">
+          <div className="h-5 w-5 rounded flex items-center justify-center border bg-muted">
+            <Clock className="h-3 w-3 text-muted-foreground" />
+          </div>
+          <span>Time Delay</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-5 w-5 rounded flex items-center justify-center border bg-amber-500/5 border-amber-200">
+            <Filter className="h-3 w-3 text-amber-600" />
+          </div>
+          <span>Filter / Condition</span>
+        </div>
       </div>
     </div>
   );

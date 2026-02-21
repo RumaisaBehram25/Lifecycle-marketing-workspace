@@ -12,6 +12,7 @@ import Briefs from "./pages/Briefs";
 import Campaigns from "./pages/Campaigns";
 import Lifecycle from "./pages/Lifecycle";
 import ResourceCenter from "./pages/ResourceCenter";
+import Onboarding from "./pages/Onboarding";
 import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -45,6 +46,7 @@ function AppRoutes() {
       <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
       <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
       <Route path="/resources" element={<ProtectedRoute><ResourceCenter /></ProtectedRoute>} />
+      <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
       {/* Redirects for old routes */}
