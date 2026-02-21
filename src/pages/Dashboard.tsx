@@ -11,10 +11,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { 
   ArrowRight, Calendar, FileText, Clock, Zap, Workflow, 
-  Send, CheckCircle2, BarChart3, Sparkles, ListTodo
+  Send, CheckCircle2, BarChart3, Sparkles, ListTodo, Plus
 } from 'lucide-react';
 import { format, parseISO, subDays } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
+import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
 import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
 import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
@@ -109,6 +110,7 @@ function RecentlyClosedBriefs() {
 
 export default function Dashboard() {
   const { data: client } = useDoubleGoodClient();
+  const [createBriefOpen, setCreateBriefOpen] = useState(false);
   
   // Get brief counts for metrics
   const { data: briefCounts } = useQuery({
@@ -143,6 +145,10 @@ export default function Dashboard() {
                   CRM Copilot — Lifecycle marketing command center
                 </p>
               </div>
+              <Button onClick={() => setCreateBriefOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Brief
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -187,6 +193,9 @@ export default function Dashboard() {
 
         {/* AI Chat Module */}
         <EmbeddedChat />
+
+        {/* Create Brief Modal */}
+        <CreateBriefModal open={createBriefOpen} onOpenChange={setCreateBriefOpen} />
       </div>
     </AppLayout>
   );
