@@ -7,7 +7,7 @@ export default function Briefs() {
     <AppLayout>
       <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         <PageHeader
-          title="Briefs"
+          title="Action Center"
           description="Manage campaign and lifecycle briefs with progress tracking"
         />
         <BriefTab />

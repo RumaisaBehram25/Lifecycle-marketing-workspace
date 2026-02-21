@@ -11,16 +11,14 @@ import {
 import {
   LayoutDashboard,
   MessageSquare,
-  Database,
   Settings,
   LogOut,
   ChevronRight,
   Send,
   Workflow,
   FileText,
-  Users,
-  Palette,
   User,
+  BookOpen,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -34,7 +32,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { DoubleGoodIcon } from '@/components/DoubleGoodLogo';
+import { BRCGIcon } from '@/components/BRCGLogo';
 
 export function AppSidebar() {
   const location = useLocation();
@@ -43,16 +41,13 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
 
-  // Build navigation items, including admin-only items
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Briefs', href: '/briefs', icon: FileText },
+    { name: 'Action Center', href: '/briefs', icon: FileText },
     { name: 'Campaigns', href: '/campaigns', icon: Send },
     { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
-    { name: 'Audience', href: '/audience', icon: Users },
-    { name: 'Brand', href: '/brand', icon: Palette },
+    { name: 'Resource Center', href: '/resources', icon: BookOpen },
     { name: 'AI Chat', href: '/chat', icon: MessageSquare },
-    { name: 'Integrations', href: '/knowledge', icon: Database },
   ];
 
   const handleSignOut = async () => {
@@ -66,12 +61,12 @@ export function AppSidebar() {
       <SidebarHeader className={`border-b border-sidebar-border ${isCollapsed ? 'p-1' : ''}`}>
         <Link to="/dashboard" className={`flex items-center gap-3 ${isCollapsed ? 'justify-center p-1' : 'px-2 py-3'}`}>
           <div className={`flex items-center justify-center rounded-xl bg-primary flex-shrink-0 transition-all ${isCollapsed ? 'h-9 w-9' : 'h-10 w-10'}`}>
-            <DoubleGoodIcon className={`text-primary-foreground ${isCollapsed ? 'h-5 w-5' : 'h-6 w-6'}`} />
+            <BRCGIcon className={`text-primary-foreground ${isCollapsed ? 'h-5 w-5' : 'h-6 w-6'}`} />
           </div>
           {!isCollapsed && (
             <div className="flex flex-col">
               <span className="text-xl font-bold text-sidebar-foreground tracking-tight">
-                Double Good
+                BRCG
               </span>
               <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
                 CRM Copilot

@@ -4,7 +4,7 @@ import type { Client, ClientPlatform, PlatformType } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 
 const DOUBLEGOOD_SLUG = 'doublegood';
-const DOUBLEGOOD_NAME = 'Double Good';
+const DOUBLEGOOD_NAME = 'BRCG';
 
 // DoubleGood brand defaults based on website research
 const DOUBLEGOOD_BRAND_DEFAULTS = {
