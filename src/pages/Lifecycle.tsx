@@ -42,12 +42,18 @@ import {
   Check,
   X,
   Users,
+  Timer,
+  GitBranch,
+  Filter,
+  ShoppingCart,
+  Star,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import { HorizontalFlowChart } from '@/components/creative/HorizontalFlowChart';
+import { BRCGIcon } from '@/components/BRCGLogo';
 
 // Type definitions
 interface CanvasStep {
@@ -82,7 +88,7 @@ interface BrazeSchemaCache {
   last_sync?: string;
 }
 
-// Mock data – generic copy, no brand-specific references
+// Mock data – generic copy, BRCG branded
 const MOCK_JOURNEYS: Array<{
   id: string;
   name: string;
@@ -112,12 +118,16 @@ const MOCK_JOURNEYS: Array<{
       { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
     steps: {
-      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'Welcome! Here\'s how to get started', preheader: 'Your journey starts here', body: 'Get started with your first experience' }] },
-      'step2': { id: 'step2', name: 'Getting Started Push', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['step3'], messages: [{ channel: 'push', title: 'Complete your profile', body: 'Finish setting up to unlock all features' }] },
-      'step3': { id: 'step3', name: 'Tips & Best Practices', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'Tips to get the most out of your account', preheader: 'Best practices inside', body: 'Learn how successful users maximize their results' }] },
+      'step1': { id: 'step1', name: 'Welcome Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['delay1'], messages: [{ channel: 'email', subject: 'Welcome! Here\'s how to get started', preheader: 'Your journey starts here', body: 'Get started with your first experience' }] },
+      'delay1': { id: 'delay1', name: 'Wait 24 hours', type: 'delay', delay_seconds: 86400, delay_formatted: '24h', next_step_ids: ['step2'], messages: [] },
+      'step2': { id: 'step2', name: 'Getting Started Push', type: 'message', channel: 'push', delay_formatted: '24h', next_step_ids: ['split1'], messages: [{ channel: 'push', title: 'Complete your profile', body: 'Finish setting up to unlock all features' }] },
+      'split1': { id: 'split1', name: 'Completed Profile?', type: 'decision_split', next_step_ids: ['step3', 'step3b'], next_paths: [{ name: 'Yes – Completed', next_step_id: 'step3', percentage: 65 }, { name: 'No – Incomplete', next_step_id: 'step3b', percentage: 35 }], messages: [] },
+      'step3': { id: 'step3', name: 'Tips & Best Practices', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['delay2'], messages: [{ channel: 'email', subject: 'Tips to get the most out of your account', preheader: 'Best practices inside', body: 'Learn how successful users maximize their results' }] },
+      'step3b': { id: 'step3b', name: 'Profile Reminder', type: 'message', channel: 'email', delay_formatted: '48h', next_step_ids: ['delay2'], messages: [{ channel: 'email', subject: 'Complete your profile to unlock all features', preheader: 'It only takes 2 minutes', body: 'You\'re almost there — finish setting up your profile' }] },
+      'delay2': { id: 'delay2', name: 'Wait 3 days', type: 'delay', delay_seconds: 259200, delay_formatted: '3d', next_step_ids: ['step4'], messages: [] },
       'step4': { id: 'step4', name: 'Engagement Nudge', type: 'message', channel: 'push', delay_formatted: '72h', next_step_ids: [], messages: [{ channel: 'push', title: 'Don\'t miss out!', body: 'Check out what\'s new since you joined' }] },
     },
-    total_steps: 4,
+    total_steps: 5,
   },
   {
     id: 're-engagement',
@@ -133,12 +143,63 @@ const MOCK_JOURNEYS: Array<{
       { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
     ],
     steps: {
-      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['step2'], messages: [{ channel: 'email', subject: 'It\'s been a while — come see what\'s new', preheader: 'We\'ve got updates for you', body: 'Check out the latest features and content' }] },
-      'step2': { id: 'step2', name: 'In-App Welcome Back', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['step3'], messages: [{ channel: 'in_app_message', title: 'Welcome back!', body: 'Here\'s what you\'ve missed', buttons: [{ text: 'Explore Now' }] }] },
-      'step3': { id: 'step3', name: 'Social Proof Email', type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['step4'], messages: [{ channel: 'email', subject: 'See how others are succeeding', preheader: 'Real results from real users', body: 'Get inspired by success stories' }] },
+      'step1': { id: 'step1', name: 'We Miss You Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['delay1'], messages: [{ channel: 'email', subject: 'It\'s been a while — come see what\'s new', preheader: 'We\'ve got updates for you', body: 'Check out the latest features and content' }] },
+      'delay1': { id: 'delay1', name: 'Wait 3 days', type: 'delay', delay_seconds: 259200, delay_formatted: '3d', next_step_ids: ['split1'], messages: [] },
+      'split1': { id: 'split1', name: 'Opened Email?', type: 'decision_split', next_step_ids: ['step2', 'step2b'], next_paths: [{ name: 'Opened', next_step_id: 'step2', percentage: 40 }, { name: 'Did Not Open', next_step_id: 'step2b', percentage: 60 }], messages: [] },
+      'step2': { id: 'step2', name: 'In-App Welcome Back', type: 'message', channel: 'in_app_message', delay_formatted: '3d', next_step_ids: ['delay2'], messages: [{ channel: 'in_app_message', title: 'Welcome back!', body: 'Here\'s what you\'ve missed', buttons: [{ text: 'Explore Now' }] }] },
+      'step2b': { id: 'step2b', name: 'Reminder Push', type: 'message', channel: 'push', delay_formatted: '3d', next_step_ids: ['delay2'], messages: [{ channel: 'push', title: 'We have updates for you', body: 'Check out what\'s new' }] },
+      'delay2': { id: 'delay2', name: 'Wait 7 days', type: 'delay', delay_seconds: 604800, delay_formatted: '7d', next_step_ids: ['step3'], messages: [] },
+      'step3': { id: 'step3', name: 'Social Proof Email', type: 'message', channel: 'email', delay_formatted: '7d', next_step_ids: ['delay3'], messages: [{ channel: 'email', subject: 'See how others are succeeding', preheader: 'Real results from real users', body: 'Get inspired by success stories' }] },
+      'delay3': { id: 'delay3', name: 'Wait 7 days', type: 'delay', delay_seconds: 604800, delay_formatted: '7d', next_step_ids: ['step4'], messages: [] },
       'step4': { id: 'step4', name: 'Final Nudge', type: 'message', channel: 'push', delay_formatted: '14d', next_step_ids: [], messages: [{ channel: 'push', title: 'Last chance!', body: 'Don\'t miss out on what\'s waiting for you' }] },
     },
+    total_steps: 5,
+  },
+  {
+    id: 'post-purchase',
+    name: 'Post-Purchase Follow Up',
+    displayName: 'Post-Purchase Follow Up',
+    description: 'Delight customers after their first purchase',
+    status: 'active',
+    last_entry: new Date().toISOString(),
+    tags: [],
+    channels: ['email', 'push'],
+    taxonomy: { type: 'lifecycle', channel: 'email', displayName: 'Post-Purchase Follow Up', dateString: '' },
+    variants: [
+      { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
+    ],
+    steps: {
+      'step1': { id: 'step1', name: 'Order Confirmation', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['delay1'], messages: [{ channel: 'email', subject: 'Your order is confirmed!', preheader: 'Thanks for your purchase', body: 'We\'re getting your order ready.' }] },
+      'delay1': { id: 'delay1', name: 'Wait 3 days', type: 'delay', delay_seconds: 259200, delay_formatted: '3d', next_step_ids: ['step2'], messages: [] },
+      'step2': { id: 'step2', name: 'How\'s Your Order?', type: 'message', channel: 'email', delay_formatted: '3d', next_step_ids: ['delay2'], messages: [{ channel: 'email', subject: 'How are you enjoying your purchase?', preheader: 'We\'d love to hear from you', body: 'Leave a review and let us know how it\'s going.' }] },
+      'delay2': { id: 'delay2', name: 'Wait 7 days', type: 'delay', delay_seconds: 604800, delay_formatted: '7d', next_step_ids: ['split1'], messages: [] },
+      'split1': { id: 'split1', name: 'Left Review?', type: 'audience_paths', next_step_ids: ['step3', 'step3b'], next_paths: [{ name: 'Reviewed', next_step_id: 'step3', percentage: 30 }, { name: 'No Review', next_step_id: 'step3b', percentage: 70 }], messages: [] },
+      'step3': { id: 'step3', name: 'Thank You + Referral', type: 'message', channel: 'email', delay_formatted: '10d', next_step_ids: [], messages: [{ channel: 'email', subject: 'Thanks for your review! Share with friends', preheader: 'Earn rewards by referring', body: 'Share your experience and earn rewards.' }] },
+      'step3b': { id: 'step3b', name: 'Review Reminder Push', type: 'message', channel: 'push', delay_formatted: '10d', next_step_ids: [], messages: [{ channel: 'push', title: 'How\'s your order?', body: 'Share your experience with a quick review' }] },
+    },
     total_steps: 4,
+  },
+  {
+    id: 'milestone',
+    name: 'Milestone Celebration',
+    displayName: 'Milestone Celebration',
+    description: 'Celebrate user milestones and anniversaries',
+    status: 'draft',
+    last_entry: new Date().toISOString(),
+    tags: [],
+    channels: ['email', 'push', 'in_app_message'],
+    taxonomy: { type: 'lifecycle', channel: 'email', displayName: 'Milestone Celebration', dateString: '' },
+    variants: [
+      { name: 'Main Path', percentage: 100, first_step_id: 'step1' }
+    ],
+    steps: {
+      'step1': { id: 'step1', name: 'Milestone Email', type: 'message', channel: 'email', delay_formatted: '0h', next_step_ids: ['delay1'], messages: [{ channel: 'email', subject: '🎉 You\'ve reached a milestone!', preheader: 'Celebrate your achievement', body: 'Congratulations on your milestone! Here\'s a special reward.' }] },
+      'delay1': { id: 'delay1', name: 'Wait 1 day', type: 'delay', delay_seconds: 86400, delay_formatted: '24h', next_step_ids: ['step2'], messages: [] },
+      'step2': { id: 'step2', name: 'In-App Celebration', type: 'message', channel: 'in_app_message', delay_formatted: '24h', next_step_ids: ['delay2'], messages: [{ channel: 'in_app_message', title: 'You\'re amazing!', body: 'Celebrate your milestone and claim your reward', buttons: [{ text: 'Claim Reward' }] }] },
+      'delay2': { id: 'delay2', name: 'Wait 2 days', type: 'delay', delay_seconds: 172800, delay_formatted: '2d', next_step_ids: ['step3'], messages: [] },
+      'step3': { id: 'step3', name: 'Share Push', type: 'message', channel: 'push', delay_formatted: '3d', next_step_ids: [], messages: [{ channel: 'push', title: 'Share your milestone!', body: 'Let your friends know about your achievement' }] },
+    },
+    total_steps: 3,
   },
 ];
 
@@ -489,10 +550,10 @@ export default function Lifecycle() {
                       <div className="bg-card border rounded-2xl p-4 shadow-lg">
                         <div className="flex items-start gap-3">
                           <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-                            <span className="text-sm font-bold text-primary-foreground">B</span>
+                            <BRCGIcon className="h-5 w-5 text-primary-foreground" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-muted-foreground">App • now</p>
+                            <p className="text-xs text-muted-foreground">BRCG • now</p>
                             <p className="font-semibold text-sm mt-0.5">
                               {message?.title || selectedTouchpoint.title || selectedTouchpoint.name}
                             </p>
@@ -566,9 +627,10 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
   const getIcon = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome') || name.includes('onboard')) return Sparkles;
-    if (name.includes('re-engage') || name.includes('winback')) return TrendingUp;
+    if (name.includes('re-engage') || name.includes('winback') || name.includes('win-back')) return TrendingUp;
     if (name.includes('upgrade') || name.includes('upsell')) return Zap;
     if (name.includes('milestone') || name.includes('anniversary')) return Heart;
+    if (name.includes('purchase') || name.includes('order')) return ShoppingCart;
     if (name.includes('feature') || name.includes('announce')) return Gift;
     return Workflow;
   };
@@ -576,9 +638,10 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
   const getColor = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome')) return 'bg-emerald-500';
-    if (name.includes('re-engage')) return 'bg-blue-500';
+    if (name.includes('re-engage') || name.includes('win-back')) return 'bg-blue-500';
     if (name.includes('upgrade')) return 'bg-purple-500';
     if (name.includes('milestone')) return 'bg-pink-500';
+    if (name.includes('purchase')) return 'bg-amber-500';
     return 'bg-primary';
   };
 
@@ -664,8 +727,10 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
 function generateJourneyDescription(name: string): string {
   const lower = name.toLowerCase();
   if (lower.includes('welcome') || lower.includes('onboard')) return 'Guides new users through their first experience and drives initial engagement.';
-  if (lower.includes('re-engage') || lower.includes('winback')) return 'Reactivates inactive users and brings them back to the platform.';
+  if (lower.includes('re-engage') || lower.includes('winback') || lower.includes('win-back')) return 'Reactivates inactive users and brings them back to the platform.';
   if (lower.includes('upgrade') || lower.includes('upsell')) return 'Encourages users to upgrade to premium features or paid plans.';
+  if (lower.includes('purchase') || lower.includes('order')) return 'Follows up after a purchase to build loyalty and drive repeat orders.';
+  if (lower.includes('milestone')) return 'Celebrates user milestones and anniversaries to strengthen engagement.';
   return 'Automated multi-touch journey delivering targeted messages across channels.';
 }
 
@@ -684,16 +749,20 @@ function JourneyDetail({ journey, onBack, onViewTouchpoint }: { journey: any; on
   const getIcon = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome')) return Sparkles;
-    if (name.includes('re-engage')) return TrendingUp;
+    if (name.includes('re-engage') || name.includes('win-back')) return TrendingUp;
     if (name.includes('upgrade')) return Zap;
+    if (name.includes('purchase')) return ShoppingCart;
+    if (name.includes('milestone')) return Heart;
     return Workflow;
   };
   
   const getColor = () => {
     const name = journey.name.toLowerCase();
     if (name.includes('welcome')) return 'bg-emerald-500';
-    if (name.includes('re-engage')) return 'bg-blue-500';
+    if (name.includes('re-engage') || name.includes('win-back')) return 'bg-blue-500';
     if (name.includes('upgrade')) return 'bg-purple-500';
+    if (name.includes('purchase')) return 'bg-amber-500';
+    if (name.includes('milestone')) return 'bg-pink-500';
     return 'bg-primary';
   };
 

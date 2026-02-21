@@ -8,19 +8,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
 import { 
-  ArrowRight, Calendar, FileText, Clock, Zap, Workflow, 
-  Send, CheckCircle2, BarChart3, Sparkles, ListTodo, Plus
+  ArrowRight, Plus, CheckCircle2, ListTodo, Send, BarChart3,
+  Workflow, TrendingUp, Users, UserPlus
 } from 'lucide-react';
-import { format, parseISO, subDays } from 'date-fns';
-import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
+import { format } from 'date-fns';
 import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
 import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
 import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  BarChart,
+  Bar,
+} from 'recharts';
 
 // Metric card for dashboard stats
 function MetricCard({ icon: Icon, label, value, trend, color }: {
@@ -40,6 +49,191 @@ function MetricCard({ icon: Icon, label, value, trend, color }: {
           <p className="text-xs text-muted-foreground">{label}</p>
           <p className="text-2xl font-bold tracking-tight">{value}</p>
           {trend && <p className="text-xs text-muted-foreground">{trend}</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Placeholder performance data
+const CAMPAIGN_PERF_DATA = [
+  { name: 'Mon', sends: 1200, opens: 340, clicks: 89 },
+  { name: 'Tue', sends: 980, opens: 290, clicks: 72 },
+  { name: 'Wed', sends: 1500, opens: 420, clicks: 110 },
+  { name: 'Thu', sends: 1100, opens: 310, clicks: 85 },
+  { name: 'Fri', sends: 1400, opens: 390, clicks: 98 },
+  { name: 'Sat', sends: 600, opens: 180, clicks: 45 },
+  { name: 'Sun', sends: 450, opens: 140, clicks: 35 },
+];
+
+const FLOW_PERF_DATA = [
+  { name: 'Welcome', entries: 820, completed: 640, converted: 210 },
+  { name: 'Re-engage', entries: 450, completed: 310, converted: 95 },
+  { name: 'Upsell', entries: 280, completed: 190, converted: 65 },
+  { name: 'Win-Back', entries: 180, completed: 120, converted: 38 },
+];
+
+const SIGNUP_DATA = [
+  { name: 'W1', signups: 120 },
+  { name: 'W2', signups: 145 },
+  { name: 'W3', signups: 132 },
+  { name: 'W4', signups: 168 },
+  { name: 'W5', signups: 155 },
+  { name: 'W6', signups: 190 },
+  { name: 'W7', signups: 210 },
+];
+
+// Lifecycle Flows Summary
+function LifecycleFlowsSummary() {
+  const flows = [
+    { name: 'Welcome Series', status: 'active', touches: 4, channels: ['email', 'push'], lastUpdated: '2 days ago' },
+    { name: 'Re-engagement', status: 'active', touches: 4, channels: ['email', 'push', 'in-app'], lastUpdated: '5 days ago' },
+    { name: 'Upsell Journey', status: 'active', touches: 3, channels: ['email'], lastUpdated: '1 week ago' },
+    { name: 'Win-Back Flow', status: 'draft', touches: 3, channels: ['email', 'push'], lastUpdated: '3 days ago' },
+  ];
+
+  const channelColors: Record<string, string> = {
+    email: 'bg-blue-500/10 text-blue-600',
+    push: 'bg-orange-500/10 text-orange-600',
+    'in-app': 'bg-purple-500/10 text-purple-600',
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+        <CardTitle className="text-base font-semibold">Lifecycle Flows</CardTitle>
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/lifecycle">
+            View All
+            <ArrowRight className="ml-1 h-3 w-3" />
+          </Link>
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {flows.map((flow) => (
+            <Link
+              key={flow.name}
+              to="/lifecycle"
+              className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors"
+            >
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Workflow className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium truncate">{flow.name}</p>
+                  <Badge variant={flow.status === 'active' ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0">
+                    {flow.status}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-muted-foreground">{flow.touches} touches</span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <div className="flex gap-1">
+                    {flow.channels.map(ch => (
+                      <Badge key={ch} variant="outline" className={cn("text-[10px] px-1 py-0", channelColors[ch])}>
+                        {ch}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs text-muted-foreground flex-shrink-0">{flow.lastUpdated}</span>
+            </Link>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Performance Cards
+function CampaignPerformanceCard() {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Send className="h-4 w-4 text-blue-500" />
+          Campaign Performance
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pb-3">
+        <div className="h-[140px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={CAMPAIGN_PERF_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
+              <YAxis className="text-[10px]" tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+              <Area type="monotone" dataKey="opens" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.15)" strokeWidth={2} />
+              <Area type="monotone" dataKey="clicks" stroke="hsl(var(--chart-2))" fill="hsl(var(--chart-2) / 0.1)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary" />Opens</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-chart-2" />Clicks</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FlowPerformanceCard() {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Workflow className="h-4 w-4 text-purple-500" />
+          Flow Performance
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pb-3">
+        <div className="h-[140px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={FLOW_PERF_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
+              <YAxis className="text-[10px]" tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+              <Bar dataKey="entries" fill="hsl(var(--primary) / 0.6)" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="converted" fill="hsl(var(--chart-3))" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary/60" />Entries</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-chart-3" />Converted</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SignupPerformanceCard() {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <UserPlus className="h-4 w-4 text-green-500" />
+          Sign Up Performance
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pb-3">
+        <div className="h-[140px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={SIGNUP_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
+              <YAxis className="text-[10px]" tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+              <Area type="monotone" dataKey="signups" stroke="hsl(var(--chart-3))" fill="hsl(var(--chart-3) / 0.15)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-chart-3" />Weekly Signups</span>
         </div>
       </CardContent>
     </Card>
@@ -171,25 +365,34 @@ export default function Dashboard() {
             icon={Send}
             label="Campaigns Sent"
             value={10}
-            trend="Placeholder data"
+            trend="Last 30 days"
             color="bg-blue-500/10 text-blue-600"
           />
           <MetricCard
             icon={BarChart3}
             label="Avg. Open Rate"
             value="24.3%"
-            trend="Placeholder data"
+            trend="Last 30 days"
             color="bg-purple-500/10 text-purple-600"
           />
         </div>
 
-        {/* Briefs and Campaigns */}
+        {/* Lifecycle Flows + Briefs */}
         <div className="grid lg:grid-cols-2 gap-6">
+          <LifecycleFlowsSummary />
           <UpcomingBriefs />
-          <RecentlyClosedBriefs />
         </div>
 
+        {/* Performance Cards */}
+        <div className="grid md:grid-cols-3 gap-4">
+          <CampaignPerformanceCard />
+          <FlowPerformanceCard />
+          <SignupPerformanceCard />
+        </div>
+
+        {/* Recent Campaigns + Completed Briefs */}
         <PastCampaigns />
+        <RecentlyClosedBriefs />
 
         {/* AI Chat Module */}
         <EmbeddedChat />
