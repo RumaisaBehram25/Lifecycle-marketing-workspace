@@ -13,10 +13,8 @@ import {
   MessageSquare,
   Settings,
   LogOut,
-  ChevronRight,
   Send,
   Workflow,
-  FileText,
   User,
   BookOpen,
 } from 'lucide-react';
@@ -37,13 +35,12 @@ import { BRCGIcon } from '@/components/BRCGLogo';
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut, isAdmin } = useAuth();
+  const { profile, signOut } = useAuth();
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Action Center', href: '/briefs', icon: FileText },
     { name: 'Campaigns', href: '/campaigns', icon: Send },
     { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
     { name: 'Resource Center', href: '/resources', icon: BookOpen },
@@ -94,7 +91,6 @@ export function AppSidebar() {
                       <Link to={item.href}>
                         <item.icon className="h-5 w-5" />
                         <span>{item.name}</span>
-                        {isActive && !isCollapsed && <ChevronRight className="ml-auto h-4 w-4" />}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

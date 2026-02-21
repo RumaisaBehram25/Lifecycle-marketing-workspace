@@ -1,273 +1,237 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { 
-  Plus, 
-  Route, 
   Mail, 
   Bell, 
   Smartphone, 
-  Clock, 
+  Diamond,
+  GitBranch,
   Users,
-  ChevronRight,
-  Pencil,
-  Trash2,
+  ArrowRight,
 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
-interface JourneyStep {
+interface JourneyTouchpoint {
   id: string;
   name: string;
-  channel: 'email' | 'push' | 'inapp' | 'wait';
-  delay?: string;
+  type: 'email' | 'push' | 'inapp' | 'decision' | 'action';
   description?: string;
+}
+
+interface JourneyPhase {
+  id: string;
+  name: string;
+  subtitle?: string;
+  touchpoints: JourneyTouchpoint[];
 }
 
 interface UserJourney {
   id: string;
   name: string;
-  description: string;
-  status: 'active' | 'draft' | 'paused';
-  trigger: string;
-  audience: string;
-  steps: JourneyStep[];
-  conversionRate?: number;
+  phases: JourneyPhase[];
 }
 
 const PLACEHOLDER_JOURNEYS: UserJourney[] = [
   {
     id: '1',
-    name: 'Welcome Series',
-    description: 'Onboard new users with a 5-touch welcome sequence',
-    status: 'active',
-    trigger: 'User signs up',
-    audience: 'New Users',
-    conversionRate: 34,
-    steps: [
-      { id: '1a', name: 'Welcome Email', channel: 'email', description: 'Introduction + value props' },
-      { id: '1b', name: 'Wait 1 day', channel: 'wait', delay: '1 day' },
-      { id: '1c', name: 'Setup Nudge', channel: 'push', description: 'Complete profile reminder' },
-      { id: '1d', name: 'Wait 2 days', channel: 'wait', delay: '2 days' },
-      { id: '1e', name: 'Feature Highlight', channel: 'email', description: 'Key feature walkthrough' },
-      { id: '1f', name: 'Wait 3 days', channel: 'wait', delay: '3 days' },
-      { id: '1g', name: 'Social Proof', channel: 'email', description: 'Success stories + CTA' },
+    name: 'New User Onboarding',
+    phases: [
+      {
+        id: 'awareness',
+        name: 'Awareness',
+        subtitle: 'First touchpoints',
+        touchpoints: [
+          { id: 'a1', name: 'Visit Website', type: 'action', description: 'Organic / paid traffic' },
+          { id: 'a2', name: 'Social Engagement', type: 'action', description: 'Social media interaction' },
+          { id: 'a3', name: 'Previous Buyer', type: 'action', description: 'Referral or past customer' },
+        ],
+      },
+      {
+        id: 'consideration',
+        name: 'Consideration',
+        subtitle: 'Evaluating the product',
+        touchpoints: [
+          { id: 'c1', name: 'Has Account?', type: 'decision', description: 'Check for existing account' },
+          { id: 'c2', name: 'Download App', type: 'action', description: 'Install mobile app' },
+          { id: 'c3', name: 'Onboarding Email', type: 'email', description: 'Welcome + value props' },
+          { id: 'c4', name: 'Explore Features', type: 'inapp', description: 'Feature walkthrough' },
+        ],
+      },
+      {
+        id: 'activation',
+        name: 'Activation',
+        subtitle: 'First value moment',
+        touchpoints: [
+          { id: 'act1', name: 'Complete Profile', type: 'action', description: 'Fill in preferences' },
+          { id: 'act2', name: 'Get Started Push', type: 'push', description: 'Nudge to complete setup' },
+          { id: 'act3', name: 'First Action', type: 'action', description: 'Core product action' },
+          { id: 'act4', name: 'Confirmation Email', type: 'email', description: 'Success + next steps' },
+        ],
+      },
+      {
+        id: 'engagement',
+        name: 'Engagement',
+        subtitle: 'Building habit',
+        touchpoints: [
+          { id: 'e1', name: 'Week 1 Check-in', type: 'email', description: 'How\'s it going?' },
+          { id: 'e2', name: 'Feature Highlight', type: 'push', description: 'Key feature discovery' },
+          { id: 'e3', name: 'Social Proof', type: 'email', description: 'Success stories + CTA' },
+          { id: 'e4', name: 'Complete Schedule?', type: 'decision', description: 'Check completion' },
+        ],
+      },
     ],
   },
   {
     id: '2',
-    name: 'Re-engagement',
-    description: 'Win back lapsed users who haven\'t been active in 30+ days',
-    status: 'active',
-    trigger: 'Inactive 30 days',
-    audience: 'Lapsed Users',
-    conversionRate: 12,
-    steps: [
-      { id: '2a', name: 'We Miss You', channel: 'email', description: 'Personalized return incentive' },
-      { id: '2b', name: 'Wait 3 days', channel: 'wait', delay: '3 days' },
-      { id: '2c', name: 'What\'s New', channel: 'push', description: 'New feature announcement' },
-      { id: '2d', name: 'Wait 5 days', channel: 'wait', delay: '5 days' },
-      { id: '2e', name: 'Final Offer', channel: 'email', description: 'Limited-time offer' },
-    ],
-  },
-  {
-    id: '3',
-    name: 'Upgrade Flow',
-    description: 'Convert free users to paid with targeted messaging',
-    status: 'draft',
-    trigger: 'Free trial day 7',
-    audience: 'Free Tier Users',
-    conversionRate: 8,
-    steps: [
-      { id: '3a', name: 'Value Recap', channel: 'email', description: 'Usage stats + premium benefits' },
-      { id: '3b', name: 'Wait 2 days', channel: 'wait', delay: '2 days' },
-      { id: '3c', name: 'Upgrade CTA', channel: 'inapp', description: 'In-app upgrade prompt' },
-      { id: '3d', name: 'Wait 1 day', channel: 'wait', delay: '1 day' },
-      { id: '3e', name: 'Last Chance', channel: 'push', description: 'Trial ending reminder' },
-    ],
-  },
-  {
-    id: '4',
-    name: 'Post-Purchase',
-    description: 'Nurture customers after their first purchase',
-    status: 'paused',
-    trigger: 'First purchase',
-    audience: 'New Customers',
-    steps: [
-      { id: '4a', name: 'Order Confirmation', channel: 'email', description: 'Receipt + next steps' },
-      { id: '4b', name: 'Wait 3 days', channel: 'wait', delay: '3 days' },
-      { id: '4c', name: 'How-to Guide', channel: 'email', description: 'Getting started content' },
-      { id: '4d', name: 'Wait 7 days', channel: 'wait', delay: '7 days' },
-      { id: '4e', name: 'Review Request', channel: 'push', description: 'Ask for feedback' },
+    name: 'Re-engagement Flow',
+    phases: [
+      {
+        id: 'trigger',
+        name: 'Trigger',
+        subtitle: 'Inactivity detected',
+        touchpoints: [
+          { id: 't1', name: 'Inactive 14 days', type: 'decision', description: 'Activity check' },
+        ],
+      },
+      {
+        id: 'winback1',
+        name: 'First Outreach',
+        subtitle: 'Gentle nudge',
+        touchpoints: [
+          { id: 'w1', name: 'We Miss You Email', type: 'email', description: 'Personalized reminder' },
+          { id: 'w2', name: 'Push Notification', type: 'push', description: 'What\'s new highlight' },
+        ],
+      },
+      {
+        id: 'winback2',
+        name: 'Escalation',
+        subtitle: 'Incentive offer',
+        touchpoints: [
+          { id: 'w3', name: 'Opened Email?', type: 'decision', description: 'Engagement check' },
+          { id: 'w4', name: 'Exclusive Offer', type: 'email', description: 'Limited-time incentive' },
+          { id: 'w5', name: 'In-App Banner', type: 'inapp', description: 'Return welcome' },
+        ],
+      },
+      {
+        id: 'resolution',
+        name: 'Resolution',
+        subtitle: 'Outcome',
+        touchpoints: [
+          { id: 'r1', name: 'Re-activated?', type: 'decision', description: 'Final check' },
+          { id: 'r2', name: 'Welcome Back', type: 'email', description: 'Celebration email' },
+        ],
+      },
     ],
   },
 ];
 
-const channelIcons: Record<string, React.ReactNode> = {
-  email: <Mail className="h-4 w-4" />,
-  push: <Bell className="h-4 w-4" />,
-  inapp: <Smartphone className="h-4 w-4" />,
-  wait: <Clock className="h-4 w-4" />,
-};
-
-const channelColors: Record<string, string> = {
-  email: 'bg-blue-500/10 text-blue-600 border-blue-200',
-  push: 'bg-orange-500/10 text-orange-600 border-orange-200',
-  inapp: 'bg-purple-500/10 text-purple-600 border-purple-200',
-  wait: 'bg-muted text-muted-foreground border-border',
-};
-
-const statusColors: Record<string, string> = {
-  active: 'bg-green-500/20 text-green-700',
-  draft: 'bg-muted text-muted-foreground',
-  paused: 'bg-amber-500/20 text-amber-700',
+const touchpointConfig: Record<string, { icon: React.ReactNode; color: string }> = {
+  email: { icon: <Mail className="h-4 w-4" />, color: 'bg-blue-500/10 text-blue-600 border-blue-200' },
+  push: { icon: <Bell className="h-4 w-4" />, color: 'bg-orange-500/10 text-orange-600 border-orange-200' },
+  inapp: { icon: <Smartphone className="h-4 w-4" />, color: 'bg-purple-500/10 text-purple-600 border-purple-200' },
+  decision: { icon: <Diamond className="h-4 w-4" />, color: 'bg-amber-500/10 text-amber-600 border-amber-200' },
+  action: { icon: <GitBranch className="h-4 w-4" />, color: 'bg-green-500/10 text-green-600 border-green-200' },
 };
 
 export function UserJourneysTab() {
-  const [journeys] = useState<UserJourney[]>(PLACEHOLDER_JOURNEYS);
-  const [selectedJourney, setSelectedJourney] = useState<UserJourney | null>(null);
+  const [selectedJourney, setSelectedJourney] = useState<string>(PLACEHOLDER_JOURNEYS[0].id);
+  const journey = PLACEHOLDER_JOURNEYS.find(j => j.id === selectedJourney)!;
 
   return (
     <div className="space-y-6">
-      {/* Journey Cards */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {journeys.map(journey => (
-          <Card 
-            key={journey.id} 
-            className="hover:border-primary/50 transition-colors cursor-pointer"
-            onClick={() => setSelectedJourney(journey)}
+      {/* Journey Selector */}
+      <div className="flex gap-2 flex-wrap">
+        {PLACEHOLDER_JOURNEYS.map(j => (
+          <button
+            key={j.id}
+            onClick={() => setSelectedJourney(j.id)}
+            className={cn(
+              "px-4 py-2 rounded-lg text-sm font-medium transition-colors border",
+              selectedJourney === j.id
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card text-muted-foreground hover:text-foreground border-border hover:border-primary/30"
+            )}
           >
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Route className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-sm">{journey.name}</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">{journey.description}</p>
-                  </div>
-                </div>
-                <Badge className={cn("text-xs", statusColors[journey.status])}>
-                  {journey.status}
-                </Badge>
-              </div>
-
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Users className="h-3 w-3" />
-                  {journey.audience}
-                </span>
-                <span>{journey.steps.filter(s => s.channel !== 'wait').length} touchpoints</span>
-              </div>
-
-              {/* Mini step visualization */}
-              <div className="flex items-center gap-1">
-                {journey.steps.filter(s => s.channel !== 'wait').map((step, i) => (
-                  <div 
-                    key={step.id}
-                    className={cn("h-7 w-7 rounded flex items-center justify-center border", channelColors[step.channel])}
-                    title={step.name}
-                  >
-                    {channelIcons[step.channel]}
-                  </div>
-                ))}
-              </div>
-
-              {journey.conversionRate !== undefined && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Conversion</span>
-                    <span className="font-medium">{journey.conversionRate}%</span>
-                  </div>
-                  <Progress value={journey.conversionRate} className="h-1.5" />
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            {j.name}
+          </button>
         ))}
       </div>
 
-      {/* Journey Detail Modal */}
-      <Dialog open={!!selectedJourney} onOpenChange={() => setSelectedJourney(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          {selectedJourney && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Route className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <DialogTitle>{selectedJourney.name}</DialogTitle>
-                    <p className="text-sm text-muted-foreground mt-1">{selectedJourney.description}</p>
-                  </div>
-                </div>
-              </DialogHeader>
-
-              <div className="space-y-4 mt-4">
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">Trigger</p>
-                    <p className="font-medium mt-1">{selectedJourney.trigger}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">Audience</p>
-                    <p className="font-medium mt-1">{selectedJourney.audience}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/50">
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <Badge className={cn("mt-1 text-xs", statusColors[selectedJourney.status])}>
-                      {selectedJourney.status}
-                    </Badge>
-                  </div>
-                </div>
-
-                {/* Journey Steps */}
-                <div className="space-y-0">
-                  <h4 className="text-sm font-semibold mb-3">Journey Steps</h4>
-                  {selectedJourney.steps.map((step, i) => (
-                    <div key={step.id} className="flex items-start gap-3">
-                      {/* Connector line */}
-                      <div className="flex flex-col items-center">
-                        <div className={cn(
-                          "h-8 w-8 rounded-lg flex items-center justify-center border",
-                          channelColors[step.channel]
-                        )}>
-                          {channelIcons[step.channel]}
-                        </div>
-                        {i < selectedJourney.steps.length - 1 && (
-                          <div className="w-px h-6 bg-border" />
-                        )}
-                      </div>
-                      <div className="pb-6">
-                        <p className="text-sm font-medium">{step.name}</p>
-                        {step.description && (
-                          <p className="text-xs text-muted-foreground mt-0.5">{step.description}</p>
-                        )}
-                        {step.delay && (
-                          <p className="text-xs text-muted-foreground mt-0.5">⏱ {step.delay}</p>
-                        )}
-                      </div>
+      {/* Journey Map - Horizontal phases */}
+      <Card>
+        <CardContent className="p-0">
+          <ScrollArea className="w-full">
+            <div className="flex min-w-max">
+              {journey.phases.map((phase, phaseIdx) => (
+                <div key={phase.id} className="flex">
+                  {/* Phase Column */}
+                  <div className="w-72 border-r last:border-r-0 border-border">
+                    {/* Phase Header */}
+                    <div className="p-4 border-b border-border bg-muted/30">
+                      <h3 className="font-semibold text-sm">{phase.name}</h3>
+                      {phase.subtitle && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{phase.subtitle}</p>
+                      )}
                     </div>
-                  ))}
+
+                    {/* Touchpoints */}
+                    <div className="p-4 space-y-3 min-h-[300px]">
+                      {phase.touchpoints.map((tp, tpIdx) => {
+                        const config = touchpointConfig[tp.type];
+                        return (
+                          <div key={tp.id} className="group">
+                            <div className={cn(
+                              "rounded-lg border p-3 transition-colors hover:shadow-sm",
+                              config.color
+                            )}>
+                              <div className="flex items-start gap-2">
+                                <div className="mt-0.5 flex-shrink-0">{config.icon}</div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium leading-tight">{tp.name}</p>
+                                  {tp.description && (
+                                    <p className="text-xs opacity-70 mt-0.5">{tp.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {tpIdx < phase.touchpoints.length - 1 && (
+                              <div className="flex justify-center py-1">
+                                <div className="w-px h-3 bg-border" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Arrow between phases */}
+                  {phaseIdx < journey.phases.length - 1 && (
+                    <div className="flex items-center px-2 bg-muted/10">
+                      <ArrowRight className="h-4 w-4 text-muted-foreground/50" />
+                    </div>
+                  )}
                 </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              ))}
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </CardContent>
+      </Card>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        {Object.entries(touchpointConfig).map(([type, config]) => (
+          <div key={type} className="flex items-center gap-1.5">
+            <div className={cn("h-5 w-5 rounded flex items-center justify-center border", config.color)}>
+              {config.icon}
+            </div>
+            <span className="capitalize">{type}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
