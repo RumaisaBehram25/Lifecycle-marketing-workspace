@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
-  ArrowRight, Plus, CheckCircle2, ListTodo, Send, BarChart3,
+  ArrowRight, Plus, CheckCircle2, ListTodo, Send,
   Workflow, TrendingUp, Users, UserPlus, Sparkles, ChevronDown
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -32,7 +32,6 @@ import {
   Bar,
 } from 'recharts';
 
-// Metric card for dashboard stats
 function MetricCard({ icon: Icon, label, value, trend, color }: {
   icon: React.ElementType;
   label: string;
@@ -56,7 +55,6 @@ function MetricCard({ icon: Icon, label, value, trend, color }: {
   );
 }
 
-// Placeholder performance data
 const CAMPAIGN_PERF_DATA = [
   { name: 'Mon', sends: 1200, opens: 340, clicks: 89 },
   { name: 'Tue', sends: 980, opens: 290, clicks: 72 },
@@ -84,72 +82,6 @@ const SIGNUP_DATA = [
   { name: 'W7', signups: 210 },
 ];
 
-// Lifecycle Flows Summary
-function LifecycleFlowsSummary() {
-  const flows = [
-    { name: 'Welcome Series', status: 'active', touches: 4, channels: ['email', 'push'], lastUpdated: '2 days ago' },
-    { name: 'Re-engagement', status: 'active', touches: 4, channels: ['email', 'push', 'in-app'], lastUpdated: '5 days ago' },
-    { name: 'Upsell Journey', status: 'active', touches: 3, channels: ['email'], lastUpdated: '1 week ago' },
-    { name: 'Win-Back Flow', status: 'draft', touches: 3, channels: ['email', 'push'], lastUpdated: '3 days ago' },
-  ];
-
-  const channelColors: Record<string, string> = {
-    email: 'bg-blue-500/10 text-blue-600',
-    push: 'bg-orange-500/10 text-orange-600',
-    'in-app': 'bg-purple-500/10 text-purple-600',
-  };
-
-  return (
-    <Card>
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-semibold">Lifecycle Flows</CardTitle>
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/lifecycle">
-            View All
-            <ArrowRight className="ml-1 h-3 w-3" />
-          </Link>
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {flows.map((flow) => (
-            <Link
-              key={flow.name}
-              to="/lifecycle"
-              className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted/50 transition-colors"
-            >
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Workflow className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium truncate">{flow.name}</p>
-                  <Badge variant={flow.status === 'active' ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0">
-                    {flow.status}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-muted-foreground">{flow.touches} touches</span>
-                  <span className="text-xs text-muted-foreground">·</span>
-                  <div className="flex gap-1">
-                    {flow.channels.map(ch => (
-                      <Badge key={ch} variant="outline" className={cn("text-[10px] px-1 py-0", channelColors[ch])}>
-                        {ch}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <span className="text-xs text-muted-foreground flex-shrink-0">{flow.lastUpdated}</span>
-            </Link>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Performance Cards
 function CampaignPerformanceCard() {
   return (
     <Card>
@@ -160,7 +92,7 @@ function CampaignPerformanceCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="pb-3">
-        <div className="h-[140px]">
+        <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={CAMPAIGN_PERF_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -191,7 +123,7 @@ function FlowPerformanceCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="pb-3">
-        <div className="h-[140px]">
+        <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={FLOW_PERF_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -222,7 +154,7 @@ function SignupPerformanceCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="pb-3">
-        <div className="h-[140px]">
+        <div className="h-[200px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={SIGNUP_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -241,7 +173,6 @@ function SignupPerformanceCard() {
   );
 }
 
-// Recently closed briefs card
 function RecentlyClosedBriefs() {
   const { data: client } = useDoubleGoodClient();
   
@@ -307,7 +238,6 @@ export default function Dashboard() {
   const { data: client } = useDoubleGoodClient();
   const [createBriefOpen, setCreateBriefOpen] = useState(false);
   
-  // Get brief counts for metrics
   const { data: briefCounts } = useQuery({
     queryKey: ['brief-counts', client?.id],
     queryFn: async () => {
@@ -348,20 +278,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Metrics Row */}
+        {/* Metrics Row — Campaigns Sent + Lifecycle Flows Updated */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard
-            icon={ListTodo}
-            label="Open Briefs"
-            value={briefCounts?.open ?? 0}
-            color="bg-primary/10 text-primary"
-          />
-          <MetricCard
-            icon={CheckCircle2}
-            label="Completed"
-            value={briefCounts?.completed ?? 0}
-            color="bg-green-500/10 text-green-600"
-          />
           <MetricCard
             icon={Send}
             label="Campaigns Sent"
@@ -370,30 +288,42 @@ export default function Dashboard() {
             color="bg-blue-500/10 text-blue-600"
           />
           <MetricCard
-            icon={BarChart3}
-            label="Avg. Open Rate"
-            value="24.3%"
+            icon={Workflow}
+            label="Lifecycle Flows Updated"
+            value={4}
             trend="Last 30 days"
             color="bg-purple-500/10 text-purple-600"
           />
+          <MetricCard
+            icon={ListTodo}
+            label="Open Briefs"
+            value={briefCounts?.open ?? 0}
+            color="bg-primary/10 text-primary"
+          />
+          <MetricCard
+            icon={TrendingUp}
+            label="Avg. Open Rate"
+            value="24.3%"
+            trend="Last 30 days"
+            color="bg-green-500/10 text-green-600"
+          />
         </div>
 
-        {/* Lifecycle Flows + Briefs */}
+        {/* Open Briefs + Upcoming */}
         <div className="grid lg:grid-cols-2 gap-6">
-          <LifecycleFlowsSummary />
           <UpcomingBriefs />
+          <RecentlyClosedBriefs />
         </div>
 
-        {/* Performance Cards */}
-        <div className="grid md:grid-cols-3 gap-4">
+        {/* Recent Campaigns — moved above analytics */}
+        <PastCampaigns />
+
+        {/* Performance Cards — stacked full width */}
+        <div className="space-y-4">
           <CampaignPerformanceCard />
           <FlowPerformanceCard />
           <SignupPerformanceCard />
         </div>
-
-        {/* Recent Campaigns + Completed Briefs */}
-        <PastCampaigns />
-        <RecentlyClosedBriefs />
 
         {/* AI Chat Module - collapsed by default */}
         <Collapsible>
@@ -415,7 +345,6 @@ export default function Dashboard() {
           </Card>
         </Collapsible>
 
-        {/* Create Brief Modal */}
         <CreateBriefModal open={createBriefOpen} onOpenChange={setCreateBriefOpen} />
       </div>
     </AppLayout>
