@@ -8,13 +8,10 @@ import { LoadingPage } from "@/components/ui/loading-spinner";
 import Auth from "./pages/Auth";
 import PendingApproval from "./pages/PendingApproval";
 import Dashboard from "./pages/Dashboard";
-import Brand from "./pages/Brand";
 import Briefs from "./pages/Briefs";
-import Audience from "./pages/Audience";
 import Campaigns from "./pages/Campaigns";
 import Lifecycle from "./pages/Lifecycle";
-import CodeGenerator from "./pages/CodeGenerator";
-import KnowledgeBase from "./pages/KnowledgeBase";
+import ResourceCenter from "./pages/ResourceCenter";
 import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -44,21 +41,22 @@ function AppRoutes() {
       <Route path="/pending-approval" element={<ApprovalRoute><PendingApproval /></ApprovalRoute>} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/brand" element={<ProtectedRoute><Brand /></ProtectedRoute>} />
       <Route path="/briefs" element={<ProtectedRoute><Briefs /></ProtectedRoute>} />
-      <Route path="/audience" element={<ProtectedRoute><Audience /></ProtectedRoute>} />
       <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
       <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
-      <Route path="/analytics" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/generate/code" element={<ProtectedRoute><CodeGenerator /></ProtectedRoute>} />
-      <Route path="/knowledge" element={<ProtectedRoute><KnowledgeBase /></ProtectedRoute>} />
+      <Route path="/resources" element={<ProtectedRoute><ResourceCenter /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+      {/* Redirects for old routes */}
+      <Route path="/brand" element={<Navigate to="/resources" replace />} />
+      <Route path="/audience" element={<Navigate to="/resources" replace />} />
+      <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
+      <Route path="/analytics" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
       <Route path="/users" element={<Navigate to="/settings" replace />} />
-      {/* Redirect old routes */}
-      <Route path="/clients" element={<Navigate to="/brand" replace />} />
-      <Route path="/clients/:id" element={<Navigate to="/brand" replace />} />
-      <Route path="/platforms" element={<Navigate to="/knowledge" replace />} />
+      <Route path="/clients" element={<Navigate to="/resources" replace />} />
+      <Route path="/clients/:id" element={<Navigate to="/resources" replace />} />
+      <Route path="/platforms" element={<Navigate to="/resources" replace />} />
       <Route path="/creative" element={<Navigate to="/lifecycle" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

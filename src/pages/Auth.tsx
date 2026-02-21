@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Mail, Lock, User } from 'lucide-react';
-import { DoubleGoodIcon } from '@/components/DoubleGoodLogo';
+import { BRCGIcon } from '@/components/BRCGLogo';
 
 export default function Auth() {
   const { user, isLoading, signIn, signUp } = useAuth();
@@ -56,14 +56,14 @@ export default function Auth() {
         <div className="max-w-md text-center">
           <div className="mx-auto mb-8 inline-flex items-center justify-center">
             <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary shadow-2xl shadow-primary/30">
-              <DoubleGoodIcon className="h-12 w-12 text-primary-foreground" />
+              <BRCGIcon className="h-12 w-12 text-primary-foreground" />
             </div>
           </div>
           <h1 className="font-bold text-5xl text-white mb-2 tracking-tight">
-            Double Good
+            BRCG
           </h1>
           <p className="font-semibold text-sm uppercase tracking-widest text-white/50 mb-8">
-            Lifecycle Copilot
+            CRM Copilot
           </p>
           <p className="text-lg text-white/70">
             AI-powered lifecycle marketing. Generate on-brand copy and template code for your email platform.
@@ -77,9 +77,9 @@ export default function Auth() {
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 lg:hidden flex items-center justify-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-                <DoubleGoodIcon className="h-6 w-6 text-primary-foreground" />
+                <BRCGIcon className="h-6 w-6 text-primary-foreground" />
               </div>
-              <span className="font-bold text-xl">Double Good</span>
+              <span className="font-bold text-xl">BRCG</span>
             </div>
             <CardTitle className="font-bold text-2xl">Welcome Back</CardTitle>
             <CardDescription>
