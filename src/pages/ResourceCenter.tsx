@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useDoubleGoodClient, useUpdateDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useState } from 'react';
+import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
@@ -10,6 +10,7 @@ import { RulesTab } from '@/components/brand/RulesTab';
 import { AudienceTab } from '@/components/lifecycle/AudienceTab';
 import { UserJourneysTab } from '@/components/resource/UserJourneysTab';
 import { EventsAttributesTab } from '@/components/resource/EventsAttributesTab';
+import { OnboardingTab } from '@/components/resource/OnboardingTab';
 import { PageHeader } from '@/components/ui/page-header';
 import { 
   Volume2,
@@ -19,6 +20,7 @@ import {
   Route,
   Database,
   RefreshCw,
+  ClipboardList,
 } from 'lucide-react';
 
 export default function ResourceCenter() {
@@ -54,8 +56,12 @@ export default function ResourceCenter() {
           description="Brand guidelines, audience segments, user journeys, and data reference"
         />
 
-        <Tabs defaultValue="voice" className="space-y-6">
+        <Tabs defaultValue="onboarding" className="space-y-6">
           <TabsList className="bg-muted/50 p-1 flex-wrap h-auto gap-1">
+            <TabsTrigger value="onboarding" className="gap-2">
+              <ClipboardList className="h-4 w-4" />
+              Onboarding
+            </TabsTrigger>
             <TabsTrigger value="voice" className="gap-2">
               <Volume2 className="h-4 w-4" />
               Brand Voice
@@ -81,6 +87,10 @@ export default function ResourceCenter() {
               Events & Attributes
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="onboarding">
+            <OnboardingTab />
+          </TabsContent>
 
           <TabsContent value="voice">
             <BrandVoiceTab 

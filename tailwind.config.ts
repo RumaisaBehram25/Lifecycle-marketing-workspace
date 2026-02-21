@@ -20,11 +20,6 @@ export default {
         mono: ["'JetBrains Mono'", "monospace"],
       },
       colors: {
-        doublegood: {
-          gold: "hsl(var(--doublegood-gold))",
-          "gold-light": "hsl(var(--doublegood-gold-light))",
-          "gold-dark": "hsl(var(--doublegood-gold-dark))",
-        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -76,13 +71,6 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        platform: {
-          braze: "hsl(var(--braze))",
-          klaviyo: "hsl(var(--klaviyo))",
-          iterable: "hsl(var(--iterable))",
-          customerio: "hsl(var(--customerio))",
-          hubspot: "hsl(var(--hubspot))",
-        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -102,16 +90,11 @@ export default {
           from: { opacity: "0", transform: "translateY(8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
-        "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 0 0 hsl(var(--doublegood-gold) / 0.4)" },
-          "50%": { boxShadow: "0 0 20px 4px hsl(var(--doublegood-gold) / 0.2)" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.2s ease-out",
-        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
       },
     },
   },
