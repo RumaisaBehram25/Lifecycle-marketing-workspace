@@ -16,6 +16,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
+import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
@@ -77,74 +78,88 @@ const PLACEHOLDER_BRIEFS = [
   { id: 'p4', name: 'Q2 Content Calendar', content_type: 'task', status: 'in_progress', deadline: '2026-04-01', channels: [] },
 ];
 
-function OpenBriefsTracker({ briefs }: { briefs: any[] }) {
+function OpenBriefsTracker({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
+  const [selectedBrief, setSelectedBrief] = useState<any>(null);
   const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
   const openBriefs = displayBriefs.filter(b => !['complete', 'live'].includes(b.status));
 
   return (
-    <Card>
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <ListTodo className="h-4 w-4 text-primary" />
-          Open Briefs
-        </CardTitle>
-        <Link to="/briefs">
-          <Button variant="ghost" size="sm" className="text-xs">
-            View All <ArrowRight className="ml-1 h-3 w-3" />
-          </Button>
-        </Link>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {openBriefs.slice(0, 5).map((brief) => {
-          const statusConfig = STATUS_CONFIG[brief.status] || STATUS_CONFIG.to_brief;
-          const currentStepIndex = PROGRESS_STEPS.findIndex(s => s.id === brief.status || (brief.status === 'draft' && s.id === 'to_brief'));
+    <>
+      <Card>
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <ListTodo className="h-4 w-4 text-primary" />
+            Open Briefs
+          </CardTitle>
+          <Link to="/briefs">
+            <Button variant="ghost" size="sm" className="text-xs">
+              View All <ArrowRight className="ml-1 h-3 w-3" />
+            </Button>
+          </Link>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {openBriefs.slice(0, 5).map((brief) => {
+            const statusConfig = STATUS_CONFIG[brief.status] || STATUS_CONFIG.to_brief;
+            const currentStepIndex = PROGRESS_STEPS.findIndex(s => s.id === brief.status || (brief.status === 'draft' && s.id === 'to_brief'));
 
-          return (
-            <div key={brief.id} className="p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  {brief.content_type === 'campaign' ? (
-                    <Zap className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
-                  ) : brief.content_type === 'task' ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                  ) : (
-                    <Workflow className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />
-                  )}
-                  <span className="text-sm font-medium truncate">{brief.name}</span>
-                </div>
-                <Badge className={cn("text-[10px] flex-shrink-0", statusConfig.color)}>
-                  {statusConfig.label}
-                </Badge>
-              </div>
-              {/* Progress bar */}
-              <div className="flex items-center gap-0.5 mb-1.5">
-                {PROGRESS_STEPS.map((step, i) => (
-                  <div
-                    key={step.id}
-                    className={cn(
-                      "flex-1 h-1 rounded-full",
-                      i <= currentStepIndex ? 'bg-primary' : 'bg-muted'
+            return (
+              <div
+                key={brief.id}
+                className="p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors cursor-pointer"
+                onClick={() => setSelectedBrief(brief)}
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {brief.content_type === 'campaign' ? (
+                      <Zap className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                    ) : brief.content_type === 'task' ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <Workflow className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />
                     )}
-                  />
-                ))}
+                    <span className="text-sm font-medium truncate">{brief.name}</span>
+                  </div>
+                  <Badge className={cn("text-[10px] flex-shrink-0", statusConfig.color)}>
+                    {statusConfig.label}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-0.5 mb-1.5">
+                  {PROGRESS_STEPS.map((step, i) => (
+                    <div
+                      key={step.id}
+                      className={cn(
+                        "flex-1 h-1 rounded-full",
+                        i <= currentStepIndex ? 'bg-primary' : 'bg-muted'
+                      )}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="capitalize">{brief.content_type}</span>
+                  {brief.deadline && (
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      Due {format(new Date(brief.deadline), 'MMM d')}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="capitalize">{brief.content_type}</span>
-                {brief.deadline && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    Due {format(new Date(brief.deadline), 'MMM d')}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        {openBriefs.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-4">No open briefs</p>
-        )}
-      </CardContent>
-    </Card>
+            );
+          })}
+          {openBriefs.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">No open briefs</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <BriefDetailModal
+        brief={selectedBrief}
+        open={!!selectedBrief}
+        onOpenChange={(open) => { if (!open) setSelectedBrief(null); }}
+        clientId={clientId}
+        onUpdate={onRefresh}
+      />
+    </>
   );
 }
 
@@ -230,16 +245,20 @@ export default function Dashboard() {
             color="bg-primary/10 text-primary"
           />
           <MetricCard
-            icon={TrendingUp}
-            label="Avg. Open Rate"
-            value="24.3%"
+            icon={CheckCircle2}
+            label="Closed Briefs"
+            value={briefCounts?.completed ?? 0}
             trend="Last 30 days"
             color="bg-green-500/10 text-green-600"
           />
         </div>
 
         {/* Open Briefs Tracker */}
-        <OpenBriefsTracker briefs={briefs || []} />
+        <OpenBriefsTracker
+          briefs={briefs || []}
+          clientId={client?.id || ''}
+          onRefresh={() => {}}
+        />
 
         {/* Recent Campaigns */}
         <PastCampaigns />
