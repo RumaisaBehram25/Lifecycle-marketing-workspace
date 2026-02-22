@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -39,7 +40,8 @@ import {
 } from 'recharts';
 import {
   Send, Workflow, UserPlus, TrendingUp, ArrowUpRight, ArrowDownRight,
-  Mail, Smartphone, Bell, MessageCircle, Sparkles, Search, Monitor,
+  Sparkles, Search, Monitor, DollarSign, Users, ChevronDown, ChevronUp,
+  MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -73,23 +75,23 @@ const MONTHLY_FLOW_REVENUE = [
   { month: 'Feb 26', revenue: 23937 },
 ];
 
-// ─── All Campaigns Performance (from audit + extended) ───
+// ─── All Campaigns Performance ───
 const ALL_CAMPAIGNS = [
-  { name: 'Black Friday Email 1', revenue: 19791, orders: 17, ctr: '1.66%', date: 'Nov 24', channel: 'Email', segment: 'All Engaged' },
-  { name: 'HEIGH10 Blowout Sale', revenue: 10762, orders: 12, ctr: '1.26%', date: 'Dec 23', channel: 'Email', segment: 'Engaged 180d' },
-  { name: 'Labor Day Sale #4', revenue: 5335, orders: 7, ctr: '1.06%', date: 'Sep 1', channel: 'Email', segment: 'Engaged 90d' },
-  { name: 'Labor Day Sale #2', revenue: 4993, orders: 9, ctr: '1.07%', date: 'Aug 28', channel: 'Email', segment: 'Engaged 180d' },
-  { name: 'New Pricing Infotainment', revenue: 4353, orders: 4, ctr: '0.31%', date: 'Jan 6', channel: 'Email', segment: 'All Subscribers' },
-  { name: 'Gift Card Final', revenue: 4220, orders: 8, ctr: '0.84%', date: 'May 31', channel: 'Email', segment: 'Engaged 180d' },
-  { name: '4th of July Sale #4', revenue: 4159, orders: 6, ctr: '0.59%', date: 'Jun 28', channel: 'Email', segment: 'Engaged 90d' },
-  { name: 'Black Friday Email 4', revenue: 3835, orders: 3, ctr: '0.48%', date: 'Nov 29', channel: 'Email', segment: 'All Engaged' },
-  { name: 'Spring Launch', revenue: 3200, orders: 5, ctr: '0.92%', date: 'Mar 15', channel: 'Email', segment: 'Engaged 180d' },
-  { name: 'Back To School', revenue: 2800, orders: 4, ctr: '0.71%', date: 'Aug 10', channel: 'Email', segment: 'Engaged 90d' },
-  { name: 'Flash Sale Push', revenue: 1950, orders: 3, ctr: '2.10%', date: 'Oct 5', channel: 'Push', segment: 'App Users' },
-  { name: 'Weekly Digest #42', revenue: 1200, orders: 2, ctr: '0.45%', date: 'Dec 1', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'Black Friday Email 1', revenue: 19791, orders: 17, ctr: 1.66, date: 'Nov 24', channel: 'Email', segment: 'All Engaged' },
+  { name: 'HEIGH10 Blowout Sale', revenue: 10762, orders: 12, ctr: 1.26, date: 'Dec 23', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'Labor Day Sale #4', revenue: 5335, orders: 7, ctr: 1.06, date: 'Sep 1', channel: 'Email', segment: 'Engaged 90d' },
+  { name: 'Labor Day Sale #2', revenue: 4993, orders: 9, ctr: 1.07, date: 'Aug 28', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'New Pricing Infotainment', revenue: 4353, orders: 4, ctr: 0.31, date: 'Jan 6', channel: 'Email', segment: 'All Subscribers' },
+  { name: 'Gift Card Final', revenue: 4220, orders: 8, ctr: 0.84, date: 'May 31', channel: 'Email', segment: 'Engaged 180d' },
+  { name: '4th of July Sale #4', revenue: 4159, orders: 6, ctr: 0.59, date: 'Jun 28', channel: 'Email', segment: 'Engaged 90d' },
+  { name: 'Black Friday Email 4', revenue: 3835, orders: 3, ctr: 0.48, date: 'Nov 29', channel: 'Email', segment: 'All Engaged' },
+  { name: 'Spring Launch', revenue: 3200, orders: 5, ctr: 0.92, date: 'Mar 15', channel: 'Email', segment: 'Engaged 180d' },
+  { name: 'Back To School', revenue: 2800, orders: 4, ctr: 0.71, date: 'Aug 10', channel: 'Email', segment: 'Engaged 90d' },
+  { name: 'Flash Sale Push', revenue: 1950, orders: 3, ctr: 2.10, date: 'Oct 5', channel: 'Push', segment: 'App Users' },
+  { name: 'Weekly Digest #42', revenue: 1200, orders: 2, ctr: 0.45, date: 'Dec 1', channel: 'Email', segment: 'Engaged 180d' },
 ];
 
-// ─── Subscriber Growth by Source (from audit) ───
+// ─── Subscriber Growth by Source ───
 const SUBSCRIBER_GROWTH = [
   { month: 'Feb 25', email: 1981, sms: 40, website: 138, vehicle: 0, dealer: 0, event: 0 },
   { month: 'Mar', email: 821, sms: 11, website: 176, vehicle: 0, dealer: 0, event: 0 },
@@ -105,10 +107,9 @@ const SUBSCRIBER_GROWTH = [
   { month: 'Feb 26', email: 872, sms: 71, website: 0, vehicle: 25, dealer: 0, event: 0 },
 ];
 
-// Conversion rate placeholder
 const CONVERSION_DEVICE = [
-  { device: 'Desktop', sessions: 42300, conversions: 1480, rate: '3.5%' },
-  { device: 'Mobile', sessions: 68200, conversions: 1568, rate: '2.3%' },
+  { device: 'Desktop', sessions: 42300, conversions: 1480, rate: 3.5 },
+  { device: 'Mobile', sessions: 68200, conversions: 1568, rate: 2.3 },
 ];
 
 const CHANNEL_MIX = [
@@ -118,15 +119,14 @@ const CHANNEL_MIX = [
   { name: 'SMS', value: 8, color: 'hsl(var(--chart-4))' },
 ];
 
-function StatCard({ icon: Icon, label, value, change, changeLabel, color }: {
+type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date';
+
+function StatCard({ icon: Icon, label, value, color }: {
   icon: React.ElementType;
   label: string;
   value: string;
-  change: number;
-  changeLabel: string;
   color: string;
 }) {
-  const isPositive = change >= 0;
   return (
     <Card>
       <CardContent className="p-4">
@@ -137,13 +137,6 @@ function StatCard({ icon: Icon, label, value, change, changeLabel, color }: {
           <span className="text-sm text-muted-foreground">{label}</span>
         </div>
         <p className="text-2xl font-bold tracking-tight">{value}</p>
-        <div className="flex items-center gap-1 mt-1">
-          <Badge variant="secondary" className={cn("text-xs gap-0.5", isPositive ? "text-green-600 bg-green-500/10" : "text-red-600 bg-red-500/10")}>
-            {isPositive ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-            {Math.abs(change)}%
-          </Badge>
-          <span className="text-xs text-muted-foreground">{changeLabel}</span>
-        </div>
       </CardContent>
     </Card>
   );
@@ -151,30 +144,116 @@ function StatCard({ icon: Icon, label, value, change, changeLabel, color }: {
 
 const formatDollar = (v: number) => `$${(v / 1000).toFixed(0)}K`;
 
+const AI_INSIGHTS = [
+  {
+    title: 'Revenue Concentration Risk',
+    body: 'Welcome Series accounts for 52% of all flow revenue ($151.9K). Diversifying cart recovery and browse abandonment flows could reduce single-flow dependency.',
+    tag: 'High Priority',
+    tagColor: 'bg-red-500/10 text-red-600',
+  },
+  {
+    title: 'Campaign Revenue Pattern',
+    body: '7 of your top 8 campaigns are sale events. Non-sale campaigns rarely break $2K in attributed revenue. Consider nurture sequences that build purchase intent outside promotions.',
+    tag: 'Strategy',
+    tagColor: 'bg-amber-500/10 text-amber-600',
+  },
+  {
+    title: 'Subscriber Capture Gap',
+    body: '37,477 checkout starts but only 24,308 list adds in the past year. ~13K potential subscribers lost. Audit popup timing, exit intent, and checkout opt-in.',
+    tag: 'Growth',
+    tagColor: 'bg-green-500/10 text-green-600',
+  },
+  {
+    title: 'SMS Growth Opportunity',
+    body: 'SMS captures grew from 40/mo to 129/mo but remain a fraction of total. SMS converts 5.5x better per recipient than email for browse abandonment.',
+    tag: 'Opportunity',
+    tagColor: 'bg-blue-500/10 text-blue-600',
+  },
+  {
+    title: 'CRM Revenue Below Benchmark',
+    body: 'CRM contributes ~10% of total site revenue. Industry benchmark is 25–35%. Even the best month (Oct at 14.48%) shows a massive gap.',
+    tag: 'Benchmark',
+    tagColor: 'bg-purple-500/10 text-purple-600',
+  },
+];
+
 export default function Analytics() {
   const [campaignSearch, setCampaignSearch] = useState('');
   const [campaignChannelFilter, setCampaignChannelFilter] = useState('All');
+  const [period, setPeriod] = useState('default');
+  const [sortKey, setSortKey] = useState<SortKey>('revenue');
+  const [sortAsc, setSortAsc] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([]);
 
-  const filteredCampaigns = ALL_CAMPAIGNS.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(campaignSearch.toLowerCase());
-    const matchesChannel = campaignChannelFilter === 'All' || c.channel === campaignChannelFilter;
-    return matchesSearch && matchesChannel;
-  });
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      setSortAsc(false);
+    }
+  };
+
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return null;
+    return sortAsc ? <ChevronUp className="inline h-3 w-3 ml-0.5" /> : <ChevronDown className="inline h-3 w-3 ml-0.5" />;
+  };
+
+  const filteredCampaigns = ALL_CAMPAIGNS
+    .filter(c => {
+      const matchesSearch = c.name.toLowerCase().includes(campaignSearch.toLowerCase());
+      const matchesChannel = campaignChannelFilter === 'All' || c.channel === campaignChannelFilter;
+      return matchesSearch && matchesChannel;
+    })
+    .sort((a, b) => {
+      const mul = sortAsc ? 1 : -1;
+      if (sortKey === 'name') return mul * a.name.localeCompare(b.name);
+      if (sortKey === 'revenue') return mul * (a.revenue - b.revenue);
+      if (sortKey === 'orders') return mul * (a.orders - b.orders);
+      if (sortKey === 'ctr') return mul * (a.ctr - b.ctr);
+      return 0;
+    });
+
+  const handleChatSend = () => {
+    if (!chatInput.trim()) return;
+    setChatMessages(prev => [
+      ...prev,
+      { role: 'user', content: chatInput },
+      { role: 'ai', content: `Based on your data, here's my analysis of "${chatInput}": The current metrics suggest focusing on flow diversification and improving SMS capture rates to close the CRM revenue gap.` },
+    ]);
+    setChatInput('');
+  };
 
   return (
     <AppLayout>
       <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
-        <PageHeader
-          title="Analytics"
-          description="Revenue performance, campaign metrics, and subscriber trends from your lifecycle audit"
-        />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <PageHeader
+            title="Analytics"
+            description="Revenue performance, campaign metrics, and subscriber trends"
+          />
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[140px] h-9 text-sm">
+              <SelectValue placeholder="Period" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">All Time</SelectItem>
+              <SelectItem value="7d">7 Days</SelectItem>
+              <SelectItem value="30d">30 Days</SelectItem>
+              <SelectItem value="quarter">Quarter</SelectItem>
+              <SelectItem value="year">Year</SelectItem>
+              <SelectItem value="custom">Custom</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* KPI Row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={TrendingUp} label="CRM % of Revenue" value="~10%" change={2.1} changeLabel="trending up" color="bg-primary/10 text-primary" />
-          <StatCard icon={Workflow} label="Flow Revenue (9mo)" value="$297K" change={12.4} changeLabel="vs prior" color="bg-purple-500/10 text-purple-600" />
-          <StatCard icon={Send} label="Campaign Revenue" value="$172K" change={-2.1} changeLabel="vs prior" color="bg-blue-500/10 text-blue-600" />
-          <StatCard icon={UserPlus} label="New Subscribers" value="24,308" change={8.6} changeLabel="12 months" color="bg-green-500/10 text-green-600" />
+          <StatCard icon={DollarSign} label="CRM Attributed Revenue" value="$469K" color="bg-primary/10 text-primary" />
+          <StatCard icon={Workflow} label="Flow Revenue" value="$297K" color="bg-purple-500/10 text-purple-600" />
+          <StatCard icon={Send} label="Campaign Revenue" value="$172K" color="bg-blue-500/10 text-blue-600" />
+          <StatCard icon={UserPlus} label="List Growth" value="24,308" color="bg-green-500/10 text-green-600" />
         </div>
 
         {/* Flow vs Campaign Revenue + CRM % */}
@@ -196,7 +275,6 @@ export default function Analytics() {
                   <Bar yAxisId="rev" dataKey="flowRev" name="Flow Revenue" fill="hsl(var(--primary) / 0.6)" radius={[2, 2, 0, 0]} />
                   <Bar yAxisId="rev" dataKey="campaignRev" name="Campaign Revenue" fill="hsl(var(--chart-2) / 0.6)" radius={[2, 2, 0, 0]} />
                   <Line yAxisId="pct" type="monotone" dataKey="crmPct" name="CRM %" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={{ r: 3 }} />
-                  {/* Benchmark line */}
                   <Line yAxisId="pct" dataKey={() => 25} name="25% Benchmark" stroke="hsl(var(--muted-foreground))" strokeDasharray="6 4" strokeWidth={1} dot={false} legendType="none" />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -227,7 +305,7 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        {/* Top Performing Campaigns — filterable table */}
+        {/* All Campaigns — sortable table */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -251,15 +329,15 @@ export default function Analytics() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="rounded-lg border overflow-auto">
+          <CardContent className="px-0 pb-0">
+            <div className="overflow-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Campaign</TableHead>
-                    <TableHead className="text-xs text-right">Revenue</TableHead>
-                    <TableHead className="text-xs text-right">Orders</TableHead>
-                    <TableHead className="text-xs text-right">CTR</TableHead>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="text-xs cursor-pointer select-none" onClick={() => handleSort('name')}>Campaign <SortIcon col="name" /></TableHead>
+                    <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => handleSort('revenue')}>Revenue <SortIcon col="revenue" /></TableHead>
+                    <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => handleSort('orders')}>Orders <SortIcon col="orders" /></TableHead>
+                    <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => handleSort('ctr')}>CTR <SortIcon col="ctr" /></TableHead>
                     <TableHead className="text-xs">Channel</TableHead>
                     <TableHead className="text-xs">Segment</TableHead>
                     <TableHead className="text-xs">Date</TableHead>
@@ -267,14 +345,14 @@ export default function Analytics() {
                 </TableHeader>
                 <TableBody>
                   {filteredCampaigns.map((c, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="text-sm font-medium">{c.name}</TableCell>
-                      <TableCell className="text-sm text-right font-semibold">${c.revenue.toLocaleString()}</TableCell>
-                      <TableCell className="text-sm text-right">{c.orders}</TableCell>
-                      <TableCell className="text-sm text-right">{c.ctr}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-xs">{c.channel}</Badge></TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{c.segment}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{c.date}</TableCell>
+                    <TableRow key={i} className="cursor-pointer">
+                      <TableCell className="text-sm font-medium py-2">{c.name}</TableCell>
+                      <TableCell className="text-sm text-right font-semibold py-2">${c.revenue.toLocaleString()}</TableCell>
+                      <TableCell className="text-sm text-right py-2">{c.orders}</TableCell>
+                      <TableCell className="text-sm text-right py-2">{c.ctr}%</TableCell>
+                      <TableCell className="py-2"><Badge variant="outline" className="text-xs">{c.channel}</Badge></TableCell>
+                      <TableCell className="text-xs text-muted-foreground py-2">{c.segment}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground py-2">{c.date}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -283,36 +361,36 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* Subscriber Growth by Source */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <UserPlus className="h-4 w-4 text-green-500" />
-                Subscriber Growth by Source
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={SUBSCRIBER_GROWTH} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis dataKey="month" className="text-[10px]" tickLine={false} axisLine={false} />
-                    <YAxis className="text-xs" tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar dataKey="email" name="Email" stackId="a" fill="hsl(var(--primary))" />
-                    <Bar dataKey="sms" name="SMS" stackId="a" fill="hsl(var(--chart-2))" />
-                    <Bar dataKey="website" name="Website" stackId="a" fill="hsl(var(--chart-3))" />
-                    <Bar dataKey="dealer" name="Dealer" stackId="a" fill="hsl(var(--chart-4))" />
-                    <Bar dataKey="vehicle" name="Vehicle" stackId="a" fill="hsl(var(--chart-5, 220 70% 50%))" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Subscriber Growth — full width */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-green-500" />
+              Subscriber Growth by Source
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={SUBSCRIBER_GROWTH} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="month" className="text-[10px]" tickLine={false} axisLine={false} />
+                  <YAxis className="text-xs" tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="email" name="Email" stackId="a" fill="hsl(var(--primary))" />
+                  <Bar dataKey="sms" name="SMS" stackId="a" fill="hsl(var(--chart-2))" />
+                  <Bar dataKey="website" name="Website" stackId="a" fill="hsl(var(--chart-3))" />
+                  <Bar dataKey="dealer" name="Dealer" stackId="a" fill="hsl(var(--chart-4))" />
+                  <Bar dataKey="vehicle" name="Vehicle" stackId="a" fill="hsl(var(--chart-5, 220 70% 50%))" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
 
-          {/* Conversion Rate by Device */}
+        {/* Conversion by Device + Channel Mix — split */}
+        <div className="grid lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -326,12 +404,12 @@ export default function Analytics() {
                   <div key={d.device} className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{d.device}</span>
-                      <span className="text-sm font-bold">{d.rate}</span>
+                      <span className="text-sm font-bold">{d.rate}%</span>
                     </div>
                     <div className="h-3 bg-muted rounded-full overflow-hidden">
                       <div
                         className={cn("h-full rounded-full", d.device === 'Desktop' ? 'bg-primary' : 'bg-chart-2')}
-                        style={{ width: d.rate }}
+                        style={{ width: `${d.rate * 10}%` }}
                       />
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
@@ -341,39 +419,42 @@ export default function Analytics() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
 
-              {/* Channel Mix */}
-              <div className="mt-6 pt-4 border-t">
-                <p className="text-sm font-semibold mb-3">Channel Mix</p>
-                <div className="flex items-center gap-4">
-                  <div className="h-[140px] w-[140px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={CHANNEL_MIX} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3}>
-                          {CHANNEL_MIX.map((entry, i) => (
-                            <Cell key={i} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `${v}%`} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="space-y-2">
-                    {CHANNEL_MIX.map(ch => (
-                      <div key={ch.name} className="flex items-center gap-2 text-sm">
-                        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ch.color }} />
-                        <span>{ch.name}</span>
-                        <span className="font-semibold ml-auto">{ch.value}%</span>
-                      </div>
-                    ))}
-                  </div>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold">Channel Mix</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-6">
+                <div className="h-[140px] w-[140px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={CHANNEL_MIX} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={3}>
+                        {CHANNEL_MIX.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `${v}%`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-2">
+                  {CHANNEL_MIX.map(ch => (
+                    <div key={ch.name} className="flex items-center gap-2 text-sm">
+                      <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ch.color }} />
+                      <span>{ch.name}</span>
+                      <span className="font-semibold ml-auto">{ch.value}%</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* AI Insights */}
+        {/* AI Insights + Chat */}
         <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
@@ -381,40 +462,9 @@ export default function Analytics() {
               AI Insights
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <div className="space-y-3">
-              {[
-                {
-                  title: 'Revenue Concentration Risk',
-                  body: 'Welcome Series accounts for 52% of all flow revenue ($151.9K). Diversifying cart recovery and browse abandonment flows could reduce single-flow dependency.',
-                  tag: 'High Priority',
-                  tagColor: 'bg-red-500/10 text-red-600',
-                },
-                {
-                  title: 'Campaign Revenue Pattern',
-                  body: '7 of your top 8 campaigns are sale events. Non-sale campaigns rarely break $2K in attributed revenue. Consider nurture sequences that build purchase intent outside promotions.',
-                  tag: 'Strategy',
-                  tagColor: 'bg-amber-500/10 text-amber-600',
-                },
-                {
-                  title: 'Subscriber Capture Gap',
-                  body: '37,477 checkout starts but only 24,308 list adds in the past year. ~13K potential subscribers lost. Audit popup timing, exit intent, and checkout opt-in.',
-                  tag: 'Growth',
-                  tagColor: 'bg-green-500/10 text-green-600',
-                },
-                {
-                  title: 'SMS Growth Opportunity',
-                  body: 'SMS captures grew from 40/mo to 129/mo but remain a fraction of total. SMS converts 5.5x better per recipient than email for browse abandonment.',
-                  tag: 'Opportunity',
-                  tagColor: 'bg-blue-500/10 text-blue-600',
-                },
-                {
-                  title: 'CRM Revenue Below Benchmark',
-                  body: 'CRM contributes ~10% of total site revenue. Industry benchmark is 25–35%. Even the best month (Oct at 14.48%) shows a massive gap. The structural fix is program-wide scaling.',
-                  tag: 'Benchmark',
-                  tagColor: 'bg-purple-500/10 text-purple-600',
-                },
-              ].map((insight, i) => (
+              {AI_INSIGHTS.map((insight, i) => (
                 <div key={i} className="p-3 rounded-lg border bg-card/50">
                   <div className="flex items-center gap-2 mb-1">
                     <Badge variant="secondary" className={cn("text-[10px]", insight.tagColor)}>{insight.tag}</Badge>
@@ -423,6 +473,35 @@ export default function Analytics() {
                   <p className="text-sm text-muted-foreground">{insight.body}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Chat section */}
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-primary" />
+                Ask about your data
+              </p>
+              {chatMessages.length > 0 && (
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {chatMessages.map((msg, i) => (
+                    <div key={i} className={cn("text-sm p-2 rounded-lg", msg.role === 'user' ? 'bg-primary/10 text-foreground ml-8' : 'bg-muted mr-8')}>
+                      {msg.content}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Ask about revenue trends, campaigns, subscriber growth..."
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleChatSend()}
+                  className="text-sm"
+                />
+                <Button size="sm" onClick={handleChatSend} disabled={!chatInput.trim()}>
+                  Send
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

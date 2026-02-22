@@ -10,27 +10,16 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { 
   ArrowRight, Plus, CheckCircle2, ListTodo, Send,
-  Workflow, TrendingUp, Users, UserPlus, Sparkles, ChevronDown
+  Workflow, TrendingUp, Users, UserPlus, Sparkles, ChevronDown,
+  Clock, Zap, FileText,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
-import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
 import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  BarChart,
-  Bar,
-} from 'recharts';
 
 function MetricCard({ icon: Icon, label, value, trend, color }: {
   icon: React.ElementType;
@@ -55,179 +44,104 @@ function MetricCard({ icon: Icon, label, value, trend, color }: {
   );
 }
 
-const CAMPAIGN_PERF_DATA = [
-  { name: 'Mon', sends: 1200, opens: 340, clicks: 89 },
-  { name: 'Tue', sends: 980, opens: 290, clicks: 72 },
-  { name: 'Wed', sends: 1500, opens: 420, clicks: 110 },
-  { name: 'Thu', sends: 1100, opens: 310, clicks: 85 },
-  { name: 'Fri', sends: 1400, opens: 390, clicks: 98 },
-  { name: 'Sat', sends: 600, opens: 180, clicks: 45 },
-  { name: 'Sun', sends: 450, opens: 140, clicks: 35 },
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  to_brief: { label: 'To Brief', color: 'bg-muted text-muted-foreground' },
+  pending_copy: { label: 'Pending Copy', color: 'bg-amber-500/20 text-amber-600' },
+  pending_design: { label: 'Pending Design', color: 'bg-orange-500/20 text-orange-600' },
+  design_review: { label: 'In Design Review', color: 'bg-blue-500/20 text-blue-600' },
+  in_development: { label: 'In Development', color: 'bg-purple-500/20 text-purple-600' },
+  qa_ready: { label: 'QA Ready', color: 'bg-cyan-500/20 text-cyan-600' },
+  live: { label: 'Live', color: 'bg-green-500/20 text-green-600' },
+  draft: { label: 'To Brief', color: 'bg-muted text-muted-foreground' },
+  in_review: { label: 'In Design Review', color: 'bg-blue-500/20 text-blue-600' },
+  approved: { label: 'In Development', color: 'bg-purple-500/20 text-purple-600' },
+  in_progress: { label: 'In Progress', color: 'bg-purple-500/20 text-purple-600' },
+  complete: { label: 'Live', color: 'bg-green-500/20 text-green-600' },
+};
+
+const PROGRESS_STEPS = [
+  { id: 'to_brief', label: 'Brief' },
+  { id: 'pending_copy', label: 'Copy' },
+  { id: 'pending_design', label: 'Design' },
+  { id: 'design_review', label: 'Review' },
+  { id: 'in_development', label: 'Dev' },
+  { id: 'qa_ready', label: 'QA' },
+  { id: 'live', label: 'Live' },
 ];
 
-const FLOW_PERF_DATA = [
-  { name: 'Welcome', entries: 820, completed: 640, converted: 210 },
-  { name: 'Re-engage', entries: 450, completed: 310, converted: 95 },
-  { name: 'Upsell', entries: 280, completed: 190, converted: 65 },
-  { name: 'Win-Back', entries: 180, completed: 120, converted: 38 },
+// Placeholder briefs for when DB is empty
+const PLACEHOLDER_BRIEFS = [
+  { id: 'p1', name: 'Welcome Series Revamp', content_type: 'lifecycle', status: 'pending_copy', deadline: '2026-03-15', channels: ['email', 'push'] },
+  { id: 'p2', name: 'Spring Sale Campaign', content_type: 'campaign', status: 'to_brief', deadline: '2026-03-20', channels: ['email'] },
+  { id: 'p3', name: 'Post-Purchase Flow', content_type: 'lifecycle', status: 'in_development', deadline: '2026-03-10', channels: ['email', 'inapp'] },
+  { id: 'p4', name: 'Q2 Content Calendar', content_type: 'task', status: 'in_progress', deadline: '2026-04-01', channels: [] },
 ];
 
-const SIGNUP_DATA = [
-  { name: 'W1', signups: 120 },
-  { name: 'W2', signups: 145 },
-  { name: 'W3', signups: 132 },
-  { name: 'W4', signups: 168 },
-  { name: 'W5', signups: 155 },
-  { name: 'W6', signups: 190 },
-  { name: 'W7', signups: 210 },
-];
-
-function CampaignPerformanceCard() {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Send className="h-4 w-4 text-blue-500" />
-          Campaign Performance
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pb-3">
-        <div className="h-[200px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={CAMPAIGN_PERF_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
-              <YAxis className="text-[10px]" tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-              <Area type="monotone" dataKey="opens" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.15)" strokeWidth={2} />
-              <Area type="monotone" dataKey="clicks" stroke="hsl(var(--chart-2))" fill="hsl(var(--chart-2) / 0.1)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary" />Opens</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-chart-2" />Clicks</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function FlowPerformanceCard() {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Workflow className="h-4 w-4 text-purple-500" />
-          Flow Performance
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pb-3">
-        <div className="h-[200px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={FLOW_PERF_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
-              <YAxis className="text-[10px]" tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-              <Bar dataKey="entries" fill="hsl(var(--primary) / 0.6)" radius={[2, 2, 0, 0]} />
-              <Bar dataKey="converted" fill="hsl(var(--chart-3))" radius={[2, 2, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-primary/60" />Entries</span>
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-chart-3" />Converted</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SignupPerformanceCard() {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <UserPlus className="h-4 w-4 text-green-500" />
-          Sign Up Performance
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pb-3">
-        <div className="h-[200px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={SIGNUP_DATA} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="name" className="text-[10px]" tickLine={false} axisLine={false} />
-              <YAxis className="text-[10px]" tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
-              <Area type="monotone" dataKey="signups" stroke="hsl(var(--chart-3))" fill="hsl(var(--chart-3) / 0.15)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-chart-3" />Weekly Signups</span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function RecentlyClosedBriefs() {
-  const { data: client } = useDoubleGoodClient();
-  
-  const { data: closedBriefs, isLoading } = useQuery({
-    queryKey: ['closed-briefs', client?.id],
-    queryFn: async () => {
-      if (!client?.id) return [];
-      const { data, error } = await supabase
-        .from('briefs')
-        .select('*')
-        .eq('client_id', client.id)
-        .in('status', ['complete', 'live'])
-        .order('updated_at', { ascending: false })
-        .limit(5);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!client?.id,
-  });
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Recently Completed</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
-        </CardContent>
-      </Card>
-    );
-  }
+function OpenBriefsTracker({ briefs }: { briefs: any[] }) {
+  const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
+  const openBriefs = displayBriefs.filter(b => !['complete', 'live'].includes(b.status));
 
   return (
     <Card>
       <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-semibold">Recently Completed</CardTitle>
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <ListTodo className="h-4 w-4 text-primary" />
+          Open Briefs
+        </CardTitle>
+        <Link to="/briefs">
+          <Button variant="ghost" size="sm" className="text-xs">
+            View All <ArrowRight className="ml-1 h-3 w-3" />
+          </Button>
+        </Link>
       </CardHeader>
-      <CardContent>
-        {closedBriefs && closedBriefs.length > 0 ? (
-          <div className="space-y-2">
-            {closedBriefs.map((brief: any) => (
-              <div key={brief.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{brief.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {brief.content_type === 'campaign' ? 'Campaign' : 'Lifecycle'} · Completed {format(new Date(brief.updated_at), 'MMM d')}
-                  </p>
+      <CardContent className="space-y-3">
+        {openBriefs.slice(0, 5).map((brief) => {
+          const statusConfig = STATUS_CONFIG[brief.status] || STATUS_CONFIG.to_brief;
+          const currentStepIndex = PROGRESS_STEPS.findIndex(s => s.id === brief.status || (brief.status === 'draft' && s.id === 'to_brief'));
+
+          return (
+            <div key={brief.id} className="p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {brief.content_type === 'campaign' ? (
+                    <Zap className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
+                  ) : brief.content_type === 'task' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                  ) : (
+                    <Workflow className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-medium truncate">{brief.name}</span>
                 </div>
+                <Badge className={cn("text-[10px] flex-shrink-0", statusConfig.color)}>
+                  {statusConfig.label}
+                </Badge>
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground text-center py-4">No completed briefs yet</p>
+              {/* Progress bar */}
+              <div className="flex items-center gap-0.5 mb-1.5">
+                {PROGRESS_STEPS.map((step, i) => (
+                  <div
+                    key={step.id}
+                    className={cn(
+                      "flex-1 h-1 rounded-full",
+                      i <= currentStepIndex ? 'bg-primary' : 'bg-muted'
+                    )}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span className="capitalize">{brief.content_type}</span>
+                {brief.deadline && (
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Due {format(new Date(brief.deadline), 'MMM d')}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {openBriefs.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">No open briefs</p>
         )}
       </CardContent>
     </Card>
@@ -238,6 +152,21 @@ export default function Dashboard() {
   const { data: client } = useDoubleGoodClient();
   const [createBriefOpen, setCreateBriefOpen] = useState(false);
   
+  const { data: briefs } = useQuery({
+    queryKey: ['dashboard-briefs', client?.id],
+    queryFn: async () => {
+      if (!client?.id) return [];
+      const { data, error } = await supabase
+        .from('briefs')
+        .select('*')
+        .eq('client_id', client.id)
+        .order('deadline', { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!client?.id,
+  });
+
   const { data: briefCounts } = useQuery({
     queryKey: ['brief-counts', client?.id],
     queryFn: async () => {
@@ -278,7 +207,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Metrics Row — Campaigns Sent + Lifecycle Flows Updated */}
+        {/* Metrics Row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             icon={Send}
@@ -309,21 +238,11 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Open Briefs + Upcoming */}
-        <div className="grid lg:grid-cols-2 gap-6">
-          <UpcomingBriefs />
-          <RecentlyClosedBriefs />
-        </div>
+        {/* Open Briefs Tracker */}
+        <OpenBriefsTracker briefs={briefs || []} />
 
-        {/* Recent Campaigns — moved above analytics */}
+        {/* Recent Campaigns */}
         <PastCampaigns />
-
-        {/* Performance Cards — stacked full width */}
-        <div className="space-y-4">
-          <CampaignPerformanceCard />
-          <FlowPerformanceCard />
-          <SignupPerformanceCard />
-        </div>
 
         {/* AI Chat Module - collapsed by default */}
         <Collapsible>
