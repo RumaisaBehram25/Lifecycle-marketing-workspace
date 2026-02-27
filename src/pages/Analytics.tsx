@@ -23,8 +23,6 @@ import {
 } from '@/components/ui/table';
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   ComposedChart,
@@ -39,9 +37,8 @@ import {
   Cell,
 } from 'recharts';
 import {
-  Send, Workflow, UserPlus, TrendingUp, ArrowUpRight, ArrowDownRight,
-  Sparkles, Search, Monitor, DollarSign, Users, ChevronDown, ChevronUp,
-  MessageCircle,
+  Send, Workflow, UserPlus, Sparkles, Search, Monitor, DollarSign, Users, ChevronDown, ChevronUp,
+  MessageCircle, Eye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -58,22 +55,48 @@ const REVENUE_MONTHLY = [
   { month: 'Jan 26', flowRev: 30356, campaignRev: 7736, crmPct: 11.62 },
 ];
 
-// ─── Monthly Flow Revenue (from audit) ───
-const MONTHLY_FLOW_REVENUE = [
-  { month: 'Feb 25', revenue: 1374 },
-  { month: 'Mar', revenue: 7643 },
-  { month: 'Apr', revenue: 428 },
-  { month: 'May', revenue: 24145 },
-  { month: 'Jun', revenue: 48718 },
-  { month: 'Jul', revenue: 23795 },
-  { month: 'Aug', revenue: 40850 },
-  { month: 'Sep', revenue: 30919 },
-  { month: 'Oct', revenue: 34293 },
-  { month: 'Nov', revenue: 27798 },
-  { month: 'Dec', revenue: 36309 },
-  { month: 'Jan 26', revenue: 30356 },
-  { month: 'Feb 26', revenue: 23937 },
+// ─── Flow Revenue by Flow (replacing monthly total) ───
+const FLOW_REVENUE_BY_FLOW = [
+  { name: 'Welcome Series', revenue: 151900, orders: 342, color: 'hsl(var(--primary))' },
+  { name: 'Browse Abandon', revenue: 52400, orders: 128, color: 'hsl(var(--chart-2))' },
+  { name: 'Cart Abandon', revenue: 41200, orders: 96, color: 'hsl(var(--chart-3))' },
+  { name: 'Post-Purchase', revenue: 28700, orders: 74, color: 'hsl(var(--chart-4))' },
+  { name: 'Win-Back', revenue: 14100, orders: 31, color: 'hsl(var(--chart-5, 220 70% 50%))' },
+  { name: 'Sunset', revenue: 8700, orders: 18, color: 'hsl(var(--muted-foreground))' },
 ];
+
+// ─── Touchpoint drill-down data per flow ───
+const FLOW_TOUCHPOINT_DATA: Record<string, Array<{ touchpoint: string; revenue: number; priorRevenue: number }>> = {
+  'Welcome Series': [
+    { touchpoint: 'Email 1 – Welcome', revenue: 62400, priorRevenue: 48200 },
+    { touchpoint: 'Email 2 – Value Props', revenue: 41200, priorRevenue: 35800 },
+    { touchpoint: 'Email 3 – Social Proof', revenue: 28100, priorRevenue: 22400 },
+    { touchpoint: 'Email 4 – Offer', revenue: 20200, priorRevenue: 18600 },
+  ],
+  'Browse Abandon': [
+    { touchpoint: 'Email 1 – Reminder', revenue: 31200, priorRevenue: 24100 },
+    { touchpoint: 'Email 2 – Incentive', revenue: 14800, priorRevenue: 11200 },
+    { touchpoint: 'Push – Nudge', revenue: 6400, priorRevenue: 5800 },
+  ],
+  'Cart Abandon': [
+    { touchpoint: 'Email 1 – Cart Reminder', revenue: 22100, priorRevenue: 19400 },
+    { touchpoint: 'Email 2 – Urgency', revenue: 12600, priorRevenue: 10200 },
+    { touchpoint: 'SMS – Final Push', revenue: 6500, priorRevenue: 4800 },
+  ],
+  'Post-Purchase': [
+    { touchpoint: 'Thank You', revenue: 12400, priorRevenue: 9800 },
+    { touchpoint: 'Cross-Sell', revenue: 10200, priorRevenue: 8400 },
+    { touchpoint: 'Review Request', revenue: 6100, priorRevenue: 5200 },
+  ],
+  'Win-Back': [
+    { touchpoint: 'Email 1 – We Miss You', revenue: 8200, priorRevenue: 6800 },
+    { touchpoint: 'Email 2 – Offer', revenue: 5900, priorRevenue: 4200 },
+  ],
+  'Sunset': [
+    { touchpoint: 'Final Email', revenue: 5200, priorRevenue: 4100 },
+    { touchpoint: 'Suppression', revenue: 3500, priorRevenue: 2800 },
+  ],
+};
 
 // ─── All Campaigns Performance ───
 const ALL_CAMPAIGNS = [
@@ -119,7 +142,7 @@ const CHANNEL_MIX = [
   { name: 'SMS', value: 8, color: 'hsl(var(--chart-4))' },
 ];
 
-type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date';
+type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date' | 'channel' | 'segment';
 
 function StatCard({ icon: Icon, label, value, color }: {
   icon: React.ElementType;
@@ -164,12 +187,6 @@ const AI_INSIGHTS = [
     tagColor: 'bg-green-500/10 text-green-600',
   },
   {
-    title: 'SMS Growth Opportunity',
-    body: 'SMS captures grew from 40/mo to 129/mo but remain a fraction of total. SMS converts 5.5x better per recipient than email for browse abandonment.',
-    tag: 'Opportunity',
-    tagColor: 'bg-blue-500/10 text-blue-600',
-  },
-  {
     title: 'CRM Revenue Below Benchmark',
     body: 'CRM contributes ~10% of total site revenue. Industry benchmark is 25–35%. Even the best month (Oct at 14.48%) shows a massive gap.',
     tag: 'Benchmark',
@@ -185,6 +202,8 @@ export default function Analytics() {
   const [sortAsc, setSortAsc] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'ai'; content: string }[]>([]);
+  const [selectedFlow, setSelectedFlow] = useState<string | null>(null);
+  const [comparisonPeriod, setComparisonPeriod] = useState<'yoy' | 'mom'>('yoy');
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -196,7 +215,7 @@ export default function Analytics() {
   };
 
   const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return null;
+    if (sortKey !== col) return <ChevronDown className="inline h-3 w-3 ml-0.5 opacity-30" />;
     return sortAsc ? <ChevronUp className="inline h-3 w-3 ml-0.5" /> : <ChevronDown className="inline h-3 w-3 ml-0.5" />;
   };
 
@@ -212,6 +231,9 @@ export default function Analytics() {
       if (sortKey === 'revenue') return mul * (a.revenue - b.revenue);
       if (sortKey === 'orders') return mul * (a.orders - b.orders);
       if (sortKey === 'ctr') return mul * (a.ctr - b.ctr);
+      if (sortKey === 'date') return mul * a.date.localeCompare(b.date);
+      if (sortKey === 'channel') return mul * a.channel.localeCompare(b.channel);
+      if (sortKey === 'segment') return mul * a.segment.localeCompare(b.segment);
       return 0;
     });
 
@@ -224,6 +246,8 @@ export default function Analytics() {
     ]);
     setChatInput('');
   };
+
+  const touchpointData = selectedFlow ? FLOW_TOUCHPOINT_DATA[selectedFlow] || [] : [];
 
   return (
     <AppLayout>
@@ -282,30 +306,101 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        {/* Monthly Flow Revenue */}
+        {/* Flow Revenue by Flow (replaces Monthly Flow Revenue) */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Workflow className="h-4 w-4 text-purple-500" />
-              Monthly Flow Revenue
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Workflow className="h-4 w-4 text-purple-500" />
+                  Flow Revenue by Flow
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Click a flow to see revenue by touchpoint</p>
+              </div>
+              {selectedFlow && (
+                <div className="flex items-center gap-2">
+                  <Select value={comparisonPeriod} onValueChange={(v) => setComparisonPeriod(v as 'yoy' | 'mom')}>
+                    <SelectTrigger className="h-7 w-[90px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yoy">YoY</SelectItem>
+                      <SelectItem value="mom">MoM</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => setSelectedFlow(null)}>
+                    ← All Flows
+                  </Button>
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={MONTHLY_FLOW_REVENUE} margin={{ top: 8, right: 8, bottom: 0, left: -4 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-[10px]" tickLine={false} axisLine={false} />
-                  <YAxis className="text-xs" tickLine={false} axisLine={false} tickFormatter={formatDollar} />
-                  <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `$${v.toLocaleString()}`} />
-                  <Bar dataKey="revenue" name="Flow Revenue" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {!selectedFlow ? (
+              /* Flow overview bar chart */
+              <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={FLOW_REVENUE_BY_FLOW} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 80 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
+                    <XAxis type="number" className="text-xs" tickLine={false} axisLine={false} tickFormatter={formatDollar} />
+                    <YAxis 
+                      type="category" 
+                      dataKey="name" 
+                      className="text-xs" 
+                      tickLine={false} 
+                      axisLine={false} 
+                      width={80}
+                      tick={({ x, y, payload }: any) => (
+                        <text
+                          x={x}
+                          y={y}
+                          dy={4}
+                          textAnchor="end"
+                          className="text-xs fill-foreground cursor-pointer hover:fill-primary"
+                          onClick={() => setSelectedFlow(payload.value)}
+                        >
+                          {payload.value}
+                        </text>
+                      )}
+                    />
+                    <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number) => `$${v.toLocaleString()}`} />
+                    <Bar 
+                      dataKey="revenue" 
+                      name="Revenue" 
+                      fill="hsl(var(--primary))" 
+                      radius={[0, 4, 4, 0]} 
+                      cursor="pointer"
+                      onClick={(data: any) => setSelectedFlow(data.name)}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              /* Touchpoint drill-down with trend line */
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs">{selectedFlow}</Badge>
+                  <span className="text-xs text-muted-foreground">
+                    Total: ${FLOW_REVENUE_BY_FLOW.find(f => f.name === selectedFlow)?.revenue.toLocaleString()}
+                  </span>
+                </div>
+                <div className="h-[260px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={touchpointData} margin={{ top: 8, right: 16, bottom: 0, left: -4 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis dataKey="touchpoint" className="text-[10px]" tickLine={false} axisLine={false} />
+                      <YAxis className="text-xs" tickLine={false} axisLine={false} tickFormatter={formatDollar} />
+                      <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(v: number, name: string) => [`$${v.toLocaleString()}`, name]} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="revenue" name="Current Period" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                      <Line type="monotone" dataKey="priorRevenue" name={comparisonPeriod === 'yoy' ? 'Prior Year' : 'Prior Month'} stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="6 3" dot={{ r: 3 }} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* All Campaigns — sortable table */}
+        {/* All Campaigns — sortable table — all columns clickable */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -334,13 +429,13 @@ export default function Analytics() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="text-xs cursor-pointer select-none" onClick={() => handleSort('name')}>Campaign <SortIcon col="name" /></TableHead>
-                    <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => handleSort('revenue')}>Revenue <SortIcon col="revenue" /></TableHead>
-                    <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => handleSort('orders')}>Orders <SortIcon col="orders" /></TableHead>
-                    <TableHead className="text-xs text-right cursor-pointer select-none" onClick={() => handleSort('ctr')}>CTR <SortIcon col="ctr" /></TableHead>
-                    <TableHead className="text-xs">Channel</TableHead>
-                    <TableHead className="text-xs">Segment</TableHead>
-                    <TableHead className="text-xs">Date</TableHead>
+                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('name')}>Campaign <SortIcon col="name" /></TableHead>
+                    <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('revenue')}>Revenue <SortIcon col="revenue" /></TableHead>
+                    <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('orders')}>Orders <SortIcon col="orders" /></TableHead>
+                    <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('ctr')}>CTR <SortIcon col="ctr" /></TableHead>
+                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('channel')}>Channel <SortIcon col="channel" /></TableHead>
+                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('segment')}>Segment <SortIcon col="segment" /></TableHead>
+                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('date')}>Date <SortIcon col="date" /></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

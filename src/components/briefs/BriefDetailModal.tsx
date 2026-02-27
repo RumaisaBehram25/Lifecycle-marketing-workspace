@@ -26,7 +26,7 @@ import {
 import { 
   FileText, Mail, Bell, Smartphone, Clock, Sparkles,
   Zap, Workflow, Calendar, Save, Trash2, ExternalLink,
-  Palette, Upload, Paperclip, CheckCircle2, Image,
+  Palette, Upload, Paperclip, CheckCircle2, Image, X, Plus,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -56,6 +56,13 @@ interface EmailCopy {
   body?: string;
   cta_text?: string;
   cta_url?: string;
+}
+
+interface Attachment {
+  id: string;
+  name: string;
+  size: string;
+  type: string;
 }
 
 interface BriefDetailModalProps {
@@ -92,6 +99,12 @@ const PROGRESS_STEPS = [
   { id: 'live', label: 'Live' },
 ];
 
+const PLACEHOLDER_ATTACHMENTS: Attachment[] = [
+  { id: 'a1', name: 'campaign-brief-v2.pdf', size: '2.4 MB', type: 'pdf' },
+  { id: 'a2', name: 'brand-guidelines.docx', size: '1.8 MB', type: 'docx' },
+  { id: 'a3', name: 'hero-mockup.png', size: '540 KB', type: 'image' },
+];
+
 /* ─────── Sub-components ─────── */
 
 function BriefProgressBar({ status }: { status: string }) {
@@ -110,10 +123,57 @@ function BriefProgressBar({ status }: { status: string }) {
   );
 }
 
-function DetailsTab({ brief, onChange }: { brief: Brief; onChange: (b: Brief) => void }) {
+function AttachmentsSection({ attachments, onAdd, onRemove }: { 
+  attachments: Attachment[]; 
+  onAdd: () => void; 
+  onRemove: (id: string) => void;
+}) {
+  const getIcon = (type: string) => {
+    if (type === 'image') return <Image className="h-3.5 w-3.5 text-green-500" />;
+    if (type === 'pdf') return <FileText className="h-3.5 w-3.5 text-red-500" />;
+    return <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />;
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">Attachments ({attachments.length})</Label>
+        <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={onAdd}>
+          <Plus className="h-3 w-3" /> Add File
+        </Button>
+      </div>
+      <div className="border border-dashed rounded-lg p-4 text-center hover:border-primary/50 transition-colors cursor-pointer group" onClick={onAdd}>
+        <Upload className="h-6 w-6 mx-auto text-muted-foreground group-hover:text-primary transition-colors mb-1" />
+        <p className="text-xs text-muted-foreground">Drop files here or click to upload</p>
+        <p className="text-[10px] text-muted-foreground/60 mt-0.5">PDF, DOCX, images up to 10MB</p>
+      </div>
+      {attachments.length > 0 && (
+        <div className="space-y-1">
+          {attachments.map(att => (
+            <div key={att.id} className="flex items-center gap-2 p-2 rounded border bg-muted/30 text-sm group/att">
+              {getIcon(att.type)}
+              <span className="flex-1 truncate text-xs">{att.name}</span>
+              <span className="text-[10px] text-muted-foreground">{att.size}</span>
+              <button onClick={() => onRemove(att.id)} className="opacity-0 group-hover/att:opacity-100 transition-opacity">
+                <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailsTab({ brief, onChange, attachments, onAddAttachment, onRemoveAttachment }: { 
+  brief: Brief; 
+  onChange: (b: Brief) => void;
+  attachments: Attachment[];
+  onAddAttachment: () => void;
+  onRemoveAttachment: (id: string) => void;
+}) {
   return (
     <div className="space-y-5">
-      {/* Status + Progress */}
       <div className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="space-y-1 flex-1">
@@ -140,7 +200,6 @@ function DetailsTab({ brief, onChange }: { brief: Brief; onChange: (b: Brief) =>
         <BriefProgressBar status={brief.status} />
       </div>
 
-      {/* Name */}
       <div className="space-y-1.5">
         <Label className="text-xs">Campaign / Brief Name</Label>
         <Input
@@ -150,7 +209,6 @@ function DetailsTab({ brief, onChange }: { brief: Brief; onChange: (b: Brief) =>
         />
       </div>
 
-      {/* About */}
       <div className="space-y-1.5">
         <Label className="text-xs">About / Brief Details</Label>
         <Textarea
@@ -162,25 +220,12 @@ function DetailsTab({ brief, onChange }: { brief: Brief; onChange: (b: Brief) =>
         />
       </div>
 
-      {/* Attachments */}
-      <div className="space-y-2">
-        <Label className="text-xs">Attachments</Label>
-        <div className="border border-dashed rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer group">
-          <Upload className="h-8 w-8 mx-auto text-muted-foreground group-hover:text-primary transition-colors mb-2" />
-          <p className="text-sm text-muted-foreground">Drop files here or click to upload</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">PDF, DOCX, images up to 10MB</p>
-        </div>
-        {/* Placeholder attached files */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2 p-2 rounded border bg-muted/30 text-sm">
-            <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="flex-1 truncate">campaign-brief-v2.pdf</span>
-            <span className="text-xs text-muted-foreground">2.4 MB</span>
-          </div>
-        </div>
-      </div>
+      <AttachmentsSection 
+        attachments={attachments} 
+        onAdd={onAddAttachment} 
+        onRemove={onRemoveAttachment} 
+      />
 
-      {/* Metadata */}
       <div className="grid grid-cols-2 gap-4 pt-3 border-t">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Created</p>
@@ -195,90 +240,104 @@ function DetailsTab({ brief, onChange }: { brief: Brief; onChange: (b: Brief) =>
   );
 }
 
-function EmailCopyTab({ emailCopy, onChange, onGenerate, loading }: {
+function EmailCopyTab({ emailCopy, onChange, onGenerate, loading, briefName }: {
   emailCopy: EmailCopy;
   onChange: (c: EmailCopy) => void;
   onGenerate: () => void;
   loading: boolean;
+  briefName: string;
 }) {
   return (
-    <div className="bg-background border rounded-lg shadow-sm">
-      <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+    <div className="bg-background border rounded-lg shadow-sm max-w-2xl mx-auto">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between p-3 border-b bg-muted/30">
         <div className="flex items-center gap-2">
           <Mail className="h-4 w-4 text-primary" />
-          <span className="font-medium text-sm">Email Copy</span>
+          <span className="font-medium text-sm">Email Proof</span>
         </div>
         <Button variant="default" size="sm" onClick={onGenerate} disabled={loading}>
           {loading ? <LoadingSpinner size="sm" className="mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
           Generate with AI
         </Button>
       </div>
-      <div className="p-6 space-y-6 max-h-[50vh] overflow-y-auto">
-        <div className="space-y-3 pb-4 border-b">
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Subject Line</label>
-            <Input
-              value={emailCopy.subject_line || ''}
-              onChange={(e) => onChange({ ...emailCopy, subject_line: e.target.value })}
-              placeholder="The first thing recipients see..."
-              className="mt-1 text-base font-semibold border-none shadow-none px-0 focus-visible:ring-0 bg-transparent"
-            />
-            <p className="text-[10px] text-muted-foreground mt-1">{(emailCopy.subject_line || '').length}/60 chars</p>
+
+      {/* Email document proof */}
+      <div className="max-h-[55vh] overflow-y-auto">
+        {/* Envelope header */}
+        <div className="border-b px-6 py-4 bg-muted/10">
+          <div className="space-y-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground w-20">From</span>
+              <span className="text-sm">BRCG &lt;hello@brcg.com&gt;</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground w-20">Subject</span>
+              <Input
+                value={emailCopy.subject_line || ''}
+                onChange={(e) => onChange({ ...emailCopy, subject_line: e.target.value })}
+                placeholder="Enter subject line..."
+                className="border-none shadow-none h-auto p-0 text-sm font-semibold bg-transparent focus-visible:ring-0"
+              />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground w-20">Preheader</span>
+              <Input
+                value={emailCopy.preheader || ''}
+                onChange={(e) => onChange({ ...emailCopy, preheader: e.target.value })}
+                placeholder="Preview text..."
+                className="border-none shadow-none h-auto p-0 text-sm text-muted-foreground bg-transparent focus-visible:ring-0"
+              />
+            </div>
           </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Preheader</label>
-            <Input
-              value={emailCopy.preheader || ''}
-              onChange={(e) => onChange({ ...emailCopy, preheader: e.target.value })}
-              placeholder="Preview text after subject..."
-              className="mt-1 text-sm border-none shadow-none px-0 focus-visible:ring-0 bg-transparent text-muted-foreground"
-            />
+          <div className="flex gap-4 mt-2 text-[10px] text-muted-foreground">
+            <span>Subject: {(emailCopy.subject_line || '').length}/60 chars</span>
+            <span>Preheader: {(emailCopy.preheader || '').length}/100 chars</span>
           </div>
         </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Headline</label>
-          <Input
-            value={emailCopy.headline || ''}
-            onChange={(e) => onChange({ ...emailCopy, headline: e.target.value })}
-            placeholder="Main heading..."
-            className="mt-1 text-xl font-bold border-none shadow-none px-0 focus-visible:ring-0 bg-transparent"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Body Copy</label>
+
+        {/* Email body — document-like */}
+        <div className="px-8 py-6 space-y-6">
+          {/* Hero / Headline area */}
+          <div className="bg-gradient-to-br from-primary/5 to-primary/10 rounded-xl p-6 text-center">
+            <Input
+              value={emailCopy.headline || ''}
+              onChange={(e) => onChange({ ...emailCopy, headline: e.target.value })}
+              placeholder="Main Headline"
+              className="border-none shadow-none text-center text-xl font-bold bg-transparent focus-visible:ring-0 placeholder:text-muted-foreground/40"
+            />
+          </div>
+
+          {/* Body */}
           <Textarea
             value={emailCopy.body || ''}
             onChange={(e) => onChange({ ...emailCopy, body: e.target.value })}
-            placeholder="The main message content..."
-            className="mt-1 min-h-[120px] border-none shadow-none px-0 focus-visible:ring-0 bg-transparent resize-none"
+            placeholder="Write the main body copy of the email here. This area supports longer-form content that will be the primary message of your email..."
+            className="min-h-[160px] border-none shadow-none px-0 bg-transparent focus-visible:ring-0 resize-none text-sm leading-relaxed"
           />
-        </div>
-        <div className="pt-4 border-t">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Call to Action</label>
-          <div className="flex items-center gap-3 mt-2">
-            <div className="flex-1">
+
+          {/* CTA Button */}
+          <div className="text-center space-y-3 py-4 border-t border-b border-dashed">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Call to Action</p>
+            <div className="flex items-center gap-3 max-w-md mx-auto">
               <Input
                 value={emailCopy.cta_text || ''}
                 onChange={(e) => onChange({ ...emailCopy, cta_text: e.target.value })}
                 placeholder="Button text..."
-                className="font-medium"
+                className="text-center font-medium"
               />
             </div>
-            <span className="text-muted-foreground text-sm">→</span>
-            <div className="flex-1">
-              <Input
-                value={emailCopy.cta_url || ''}
-                onChange={(e) => onChange({ ...emailCopy, cta_url: e.target.value })}
-                placeholder="https://..."
-                className="text-sm"
-              />
-            </div>
+            <Input
+              value={emailCopy.cta_url || ''}
+              onChange={(e) => onChange({ ...emailCopy, cta_url: e.target.value })}
+              placeholder="https://..."
+              className="text-xs text-center max-w-sm mx-auto h-8 text-muted-foreground"
+            />
+            {emailCopy.cta_text && (
+              <div className="pt-2">
+                <Button size="lg" className="px-8 font-semibold">{emailCopy.cta_text}</Button>
+              </div>
+            )}
           </div>
-          {emailCopy.cta_text && (
-            <div className="mt-4 flex justify-center">
-              <Button size="sm">{emailCopy.cta_text}</Button>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -363,6 +422,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
   const [emailCopy, setEmailCopy] = useState<EmailCopy>({});
   const [aiLoading, setAiLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
+  const [attachments, setAttachments] = useState<Attachment[]>(PLACEHOLDER_ATTACHMENTS);
 
   useEffect(() => {
     if (brief) {
@@ -455,6 +515,14 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
     });
   };
 
+  const handleAddAttachment = () => {
+    toast({ title: 'File upload coming soon', description: 'File storage integration will be added.' });
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
   if (!brief || !editedBrief) return null;
 
   return (
@@ -502,7 +570,13 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
 
           <div className="flex-1 overflow-y-auto py-4">
             <TabsContent value="details" className="mt-0">
-              <DetailsTab brief={editedBrief} onChange={setEditedBrief} />
+              <DetailsTab 
+                brief={editedBrief} 
+                onChange={setEditedBrief} 
+                attachments={attachments}
+                onAddAttachment={handleAddAttachment}
+                onRemoveAttachment={handleRemoveAttachment}
+              />
             </TabsContent>
 
             <TabsContent value="copy" className="mt-0">
@@ -511,6 +585,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
                 onChange={setEmailCopy}
                 onGenerate={handleGenerateCopy}
                 loading={aiLoading}
+                briefName={editedBrief.name}
               />
             </TabsContent>
 
