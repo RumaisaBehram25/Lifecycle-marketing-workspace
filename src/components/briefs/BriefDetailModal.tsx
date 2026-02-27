@@ -184,7 +184,7 @@ function DetailsTab({ brief, onChange }: { brief: Brief; onChange: (b: Brief) =>
       <div className="grid grid-cols-2 gap-4 pt-3 border-t">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Created</p>
-          <p className="text-sm">{format(new Date(brief.created_at), 'PPP')}</p>
+          <p className="text-sm">{brief.created_at ? format(new Date(brief.created_at), 'PPP') : '—'}</p>
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Type</p>
