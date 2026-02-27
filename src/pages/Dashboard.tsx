@@ -78,6 +78,8 @@ const PLACEHOLDER_BRIEFS = [
   { id: 'p6', name: 'Cart Abandonment V2', content_type: 'lifecycle', status: 'to_brief', deadline: '2026-04-15', channels: ['email', 'push'], created_at: '2026-02-18', about: 'Update cart abandonment flow with new incentives', stage: 'Recovery' },
   { id: 'p7', name: 'Upload UTM Tracking Doc', content_type: 'task', status: 'to_brief', deadline: '2026-03-05', channels: [], created_at: '2026-02-22', about: 'Upload UTM tracking documentation' },
   { id: 'p8', name: 'Summer Sale Campaign', content_type: 'campaign', status: 'to_brief', deadline: '2026-06-15', channels: ['email', 'push'], created_at: '2026-02-25', about: 'Summer sale kickoff', quarter: 'Q2 2026' },
+  { id: 'p9', name: 'Valentine\'s Day Campaign', content_type: 'campaign', status: 'complete', deadline: '2026-02-14', channels: ['email'], created_at: '2026-01-10', about: 'Valentine\'s Day promo email blast', quarter: 'Q1 2026' },
+  { id: 'p10', name: 'New Year Welcome Flow', content_type: 'lifecycle', status: 'live', deadline: '2026-01-05', channels: ['email', 'push'], created_at: '2025-12-15', about: 'New Year welcome series for Jan subscribers', stage: 'Onboarding' },
 ];
 
 // Determine quarter from deadline
@@ -243,6 +245,49 @@ function OpenBriefsTracker({ briefs, clientId, onRefresh }: { briefs: any[]; cli
   );
 }
 
+function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
+  const [selectedBrief, setSelectedBrief] = useState<any>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
+  const closedBriefs = displayBriefs.filter(b => ['complete', 'live'].includes(b.status));
+
+  if (closedBriefs.length === 0) return null;
+
+  return (
+    <>
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="pb-3 cursor-pointer flex flex-row items-center justify-between hover:bg-muted/30 transition-colors rounded-t-lg">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                Closed Briefs
+                <Badge variant="secondary" className="text-[10px] ml-1">{closedBriefs.length}</Badge>
+              </CardTitle>
+              {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-2 pt-0">
+              {closedBriefs.map(brief => (
+                <BriefRow key={brief.id} brief={brief} onClick={() => setSelectedBrief(brief)} />
+              ))}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      <BriefDetailModal
+        brief={selectedBrief}
+        open={!!selectedBrief}
+        onOpenChange={(open) => { if (!open) setSelectedBrief(null); }}
+        clientId={clientId}
+        onUpdate={onRefresh}
+      />
+    </>
+  );
+}
+
 export default function Dashboard() {
   const { data: client } = useDoubleGoodClient();
   const [createBriefOpen, setCreateBriefOpen] = useState(false);
@@ -312,6 +357,13 @@ export default function Dashboard() {
 
         {/* Open Briefs Tracker — with folders */}
         <OpenBriefsTracker
+          briefs={briefs || []}
+          clientId={client?.id || ''}
+          onRefresh={() => {}}
+        />
+
+        {/* Closed Briefs */}
+        <ClosedBriefsSection
           briefs={briefs || []}
           clientId={client?.id || ''}
           onRefresh={() => {}}

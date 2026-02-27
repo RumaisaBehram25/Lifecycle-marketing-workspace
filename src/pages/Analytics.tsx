@@ -66,35 +66,35 @@ const FLOW_REVENUE_BY_FLOW = [
 ];
 
 // ─── Touchpoint drill-down data per flow ───
-const FLOW_TOUCHPOINT_DATA: Record<string, Array<{ touchpoint: string; revenue: number; priorRevenue: number }>> = {
+const FLOW_TOUCHPOINT_DATA: Record<string, Array<{ touchpoint: string; revenue: number; priorRevenue: number; openRate: number; clickRate: number; unsubRate: number; conversionRate: number }>> = {
   'Welcome Series': [
-    { touchpoint: 'Email 1 – Welcome', revenue: 62400, priorRevenue: 48200 },
-    { touchpoint: 'Email 2 – Value Props', revenue: 41200, priorRevenue: 35800 },
-    { touchpoint: 'Email 3 – Social Proof', revenue: 28100, priorRevenue: 22400 },
-    { touchpoint: 'Email 4 – Offer', revenue: 20200, priorRevenue: 18600 },
+    { touchpoint: 'Email 1 – Welcome', revenue: 62400, priorRevenue: 48200, openRate: 58.2, clickRate: 12.4, unsubRate: 0.3, conversionRate: 4.1 },
+    { touchpoint: 'Email 2 – Value Props', revenue: 41200, priorRevenue: 35800, openRate: 42.1, clickRate: 8.7, unsubRate: 0.5, conversionRate: 2.8 },
+    { touchpoint: 'Email 3 – Social Proof', revenue: 28100, priorRevenue: 22400, openRate: 36.8, clickRate: 6.2, unsubRate: 0.4, conversionRate: 1.9 },
+    { touchpoint: 'Email 4 – Offer', revenue: 20200, priorRevenue: 18600, openRate: 31.4, clickRate: 9.1, unsubRate: 0.8, conversionRate: 3.2 },
   ],
   'Browse Abandon': [
-    { touchpoint: 'Email 1 – Reminder', revenue: 31200, priorRevenue: 24100 },
-    { touchpoint: 'Email 2 – Incentive', revenue: 14800, priorRevenue: 11200 },
-    { touchpoint: 'Push – Nudge', revenue: 6400, priorRevenue: 5800 },
+    { touchpoint: 'Email 1 – Reminder', revenue: 31200, priorRevenue: 24100, openRate: 44.3, clickRate: 7.8, unsubRate: 0.4, conversionRate: 2.1 },
+    { touchpoint: 'Email 2 – Incentive', revenue: 14800, priorRevenue: 11200, openRate: 38.6, clickRate: 10.2, unsubRate: 0.6, conversionRate: 3.4 },
+    { touchpoint: 'Push – Nudge', revenue: 6400, priorRevenue: 5800, openRate: 28.1, clickRate: 5.4, unsubRate: 0.2, conversionRate: 1.1 },
   ],
   'Cart Abandon': [
-    { touchpoint: 'Email 1 – Cart Reminder', revenue: 22100, priorRevenue: 19400 },
-    { touchpoint: 'Email 2 – Urgency', revenue: 12600, priorRevenue: 10200 },
-    { touchpoint: 'SMS – Final Push', revenue: 6500, priorRevenue: 4800 },
+    { touchpoint: 'Email 1 – Cart Reminder', revenue: 22100, priorRevenue: 19400, openRate: 52.1, clickRate: 11.3, unsubRate: 0.3, conversionRate: 4.8 },
+    { touchpoint: 'Email 2 – Urgency', revenue: 12600, priorRevenue: 10200, openRate: 41.7, clickRate: 8.9, unsubRate: 0.7, conversionRate: 3.1 },
+    { touchpoint: 'SMS – Final Push', revenue: 6500, priorRevenue: 4800, openRate: 0, clickRate: 6.2, unsubRate: 1.1, conversionRate: 2.4 },
   ],
   'Post-Purchase': [
-    { touchpoint: 'Thank You', revenue: 12400, priorRevenue: 9800 },
-    { touchpoint: 'Cross-Sell', revenue: 10200, priorRevenue: 8400 },
-    { touchpoint: 'Review Request', revenue: 6100, priorRevenue: 5200 },
+    { touchpoint: 'Thank You', revenue: 12400, priorRevenue: 9800, openRate: 62.4, clickRate: 8.1, unsubRate: 0.1, conversionRate: 1.8 },
+    { touchpoint: 'Cross-Sell', revenue: 10200, priorRevenue: 8400, openRate: 35.2, clickRate: 6.7, unsubRate: 0.5, conversionRate: 2.2 },
+    { touchpoint: 'Review Request', revenue: 6100, priorRevenue: 5200, openRate: 29.8, clickRate: 4.3, unsubRate: 0.3, conversionRate: 0.9 },
   ],
   'Win-Back': [
-    { touchpoint: 'Email 1 – We Miss You', revenue: 8200, priorRevenue: 6800 },
-    { touchpoint: 'Email 2 – Offer', revenue: 5900, priorRevenue: 4200 },
+    { touchpoint: 'Email 1 – We Miss You', revenue: 8200, priorRevenue: 6800, openRate: 18.4, clickRate: 3.2, unsubRate: 1.2, conversionRate: 1.1 },
+    { touchpoint: 'Email 2 – Offer', revenue: 5900, priorRevenue: 4200, openRate: 14.6, clickRate: 4.8, unsubRate: 1.8, conversionRate: 1.6 },
   ],
   'Sunset': [
-    { touchpoint: 'Final Email', revenue: 5200, priorRevenue: 4100 },
-    { touchpoint: 'Suppression', revenue: 3500, priorRevenue: 2800 },
+    { touchpoint: 'Final Email', revenue: 5200, priorRevenue: 4100, openRate: 8.2, clickRate: 1.4, unsubRate: 3.2, conversionRate: 0.4 },
+    { touchpoint: 'Suppression', revenue: 3500, priorRevenue: 2800, openRate: 0, clickRate: 0, unsubRate: 0, conversionRate: 0 },
   ],
 };
 
@@ -280,6 +280,14 @@ export default function Analytics() {
           <StatCard icon={UserPlus} label="List Growth" value="24,308" color="bg-green-500/10 text-green-600" />
         </div>
 
+        {/* Engagement Metrics Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={Eye} label="Avg. Open Rate" value="32.4%" color="bg-amber-500/10 text-amber-600" />
+          <StatCard icon={Send} label="Avg. Click Rate" value="4.8%" color="bg-cyan-500/10 text-cyan-600" />
+          <StatCard icon={Users} label="Active Subscribers" value="18,742" color="bg-emerald-500/10 text-emerald-600" />
+          <StatCard icon={DollarSign} label="Revenue per Send" value="$0.42" color="bg-rose-500/10 text-rose-600" />
+        </div>
+
         {/* Flow vs Campaign Revenue + CRM % */}
         <Card>
           <CardHeader className="pb-2">
@@ -306,31 +314,37 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        {/* Flow Revenue by Flow (replaces Monthly Flow Revenue) */}
+        {/* Lifecycle Flow Performance Dashboard */}
         <Card>
           <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Workflow className="h-4 w-4 text-purple-500" />
-                  Flow Revenue by Flow
+                  Lifecycle Flow Performance
                 </CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">Click a flow to see revenue by touchpoint</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Select a flow to see touchpoint-level metrics</p>
               </div>
-              {selectedFlow && (
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <Select value={selectedFlow || 'all'} onValueChange={(v) => setSelectedFlow(v === 'all' ? null : v)}>
+                  <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue placeholder="Select flow..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Flows (Revenue)</SelectItem>
+                    {FLOW_REVENUE_BY_FLOW.map(f => (
+                      <SelectItem key={f.name} value={f.name}>{f.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedFlow && (
                   <Select value={comparisonPeriod} onValueChange={(v) => setComparisonPeriod(v as 'yoy' | 'mom')}>
-                    <SelectTrigger className="h-7 w-[90px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8 w-[80px] text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="yoy">YoY</SelectItem>
                       <SelectItem value="mom">MoM</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => setSelectedFlow(null)}>
-                    ← All Flows
-                  </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -374,7 +388,7 @@ export default function Analytics() {
                 </ResponsiveContainer>
               </div>
             ) : (
-              /* Touchpoint drill-down with trend line */
+              /* Touchpoint drill-down with metrics */
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary" className="text-xs">{selectedFlow}</Badge>
@@ -382,7 +396,7 @@ export default function Analytics() {
                     Total: ${FLOW_REVENUE_BY_FLOW.find(f => f.name === selectedFlow)?.revenue.toLocaleString()}
                   </span>
                 </div>
-                <div className="h-[260px]">
+                <div className="h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={touchpointData} margin={{ top: 8, right: 16, bottom: 0, left: -4 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -394,6 +408,33 @@ export default function Analytics() {
                       <Line type="monotone" dataKey="priorRevenue" name={comparisonPeriod === 'yoy' ? 'Prior Year' : 'Prior Month'} stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="6 3" dot={{ r: 3 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
+                </div>
+                {/* Touchpoint metrics table */}
+                <div className="overflow-auto border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="text-xs">Touchpoint</TableHead>
+                        <TableHead className="text-xs text-right">Revenue</TableHead>
+                        <TableHead className="text-xs text-right">Open Rate</TableHead>
+                        <TableHead className="text-xs text-right">Click Rate</TableHead>
+                        <TableHead className="text-xs text-right">Unsub Rate</TableHead>
+                        <TableHead className="text-xs text-right">Conversion</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {touchpointData.map((tp, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-sm font-medium py-2">{tp.touchpoint}</TableCell>
+                          <TableCell className="text-sm text-right font-semibold py-2">${tp.revenue.toLocaleString()}</TableCell>
+                          <TableCell className="text-sm text-right py-2">{tp.openRate > 0 ? `${tp.openRate}%` : '—'}</TableCell>
+                          <TableCell className="text-sm text-right py-2">{tp.clickRate > 0 ? `${tp.clickRate}%` : '—'}</TableCell>
+                          <TableCell className="text-sm text-right py-2">{tp.unsubRate > 0 ? `${tp.unsubRate}%` : '—'}</TableCell>
+                          <TableCell className="text-sm text-right py-2">{tp.conversionRate > 0 ? `${tp.conversionRate}%` : '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
             )}

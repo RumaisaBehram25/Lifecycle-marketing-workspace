@@ -431,11 +431,6 @@ function StepMetaModule({
             </div>
           )}
           
-          {/* Visual affordance */}
-          <div className="mt-2 flex items-center gap-1 text-[10px] text-violet-500 opacity-60 group-hover:opacity-100 transition-opacity">
-            <ArrowRight className="h-3 w-3" />
-            <span>View paths</span>
-          </div>
         </button>
       )}
       

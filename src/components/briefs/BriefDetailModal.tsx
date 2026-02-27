@@ -26,7 +26,7 @@ import {
 import { 
   FileText, Mail, Bell, Smartphone, Clock, Sparkles,
   Zap, Workflow, Calendar, Save, Trash2, ExternalLink,
-  Palette, Upload, Paperclip, CheckCircle2, Image, X, Plus,
+  Palette, Upload, Paperclip, CheckCircle2, Image, X, Plus, Copy,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -523,6 +523,34 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
     setAttachments(prev => prev.filter(a => a.id !== id));
   };
 
+  const handleDuplicate = async () => {
+    if (!editedBrief || !clientId) return;
+    try {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) throw new Error('Not authenticated');
+      const { error } = await supabase.from('briefs').insert({
+        name: `${editedBrief.name} (Copy)`,
+        content_type: editedBrief.content_type,
+        channels: editedBrief.channels,
+        status: 'to_brief',
+        deadline: editedBrief.deadline,
+        about: editedBrief.about,
+        client_id: clientId,
+        user_id: user.user.id,
+        ai_generated_copy: emailCopy as Record<string, unknown>,
+      } as any);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['briefs'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-briefs'] });
+      queryClient.invalidateQueries({ queryKey: ['brief-counts'] });
+      toast({ title: 'Brief duplicated', description: `"${editedBrief.name} (Copy)" created` });
+      onOpenChange(false);
+      onUpdate();
+    } catch (err: any) {
+      toast({ title: 'Failed to duplicate', description: err.message, variant: 'destructive' });
+    }
+  };
+
   if (!brief || !editedBrief) return null;
 
   return (
@@ -597,19 +625,29 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-4 border-t">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => {
-              if (confirm('Are you sure you want to delete this brief?')) {
-                deleteMutation.mutate();
-              }
-            }}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this brief?')) {
+                  deleteMutation.mutate();
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDuplicate}
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Duplicate
+            </Button>
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={updateMutation.isPending}>
