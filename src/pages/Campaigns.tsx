@@ -208,6 +208,7 @@ export default function Campaigns() {
   const [channelFilter, setChannelFilter] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'calendar'>('grid');
   const [selectedCampaign, setSelectedCampaign] = useState<PlaceholderCampaign | null>(null);
+  const [dateFilter, setDateFilter] = useState('All Time');
 
   const filtered = PLACEHOLDER_CAMPAIGNS.filter(c => {
     const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -232,6 +233,15 @@ export default function Campaigns() {
             </Button>
           }
         />
+
+        {/* Date Quick Filters */}
+        <div className="flex flex-wrap gap-2">
+          {['Last 7 Days', 'Last 30 Days', 'This Quarter', 'Last Quarter', 'YTD', 'All Time'].map(label => (
+            <Button key={label} variant={dateFilter === label ? 'default' : 'outline'} size="sm" className="text-xs h-7" onClick={() => setDateFilter(label)}>
+              {label}
+            </Button>
+          ))}
+        </div>
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

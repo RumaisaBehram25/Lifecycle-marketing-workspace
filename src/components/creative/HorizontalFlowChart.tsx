@@ -431,10 +431,11 @@ function StepMetaModule({
             </div>
           )}
           
-          {/* Click hint */}
-          <p className="text-[10px] text-muted-foreground mt-2 group-hover:text-violet-600 transition-colors">
-            Click to view each path's creative →
-          </p>
+          {/* Visual affordance */}
+          <div className="mt-2 flex items-center gap-1 text-[10px] text-violet-500 opacity-60 group-hover:opacity-100 transition-opacity">
+            <ArrowRight className="h-3 w-3" />
+            <span>View paths</span>
+          </div>
         </button>
       )}
       
