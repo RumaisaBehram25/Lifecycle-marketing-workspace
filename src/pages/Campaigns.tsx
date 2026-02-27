@@ -250,13 +250,17 @@ export default function Campaigns() {
                 <SelectItem value="inapp">In-App</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex flex-wrap gap-1.5">
-              {['Last 7 Days', 'Last 30 Days', 'This Quarter', 'Last Quarter', 'YTD', 'All Time'].map(label => (
-                <Button key={label} variant={dateFilter === label ? 'default' : 'outline'} size="sm" className="text-xs h-7" onClick={() => setDateFilter(label)}>
-                  {label}
-                </Button>
-              ))}
-            </div>
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Date Range" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All Time">All Time</SelectItem>
+                <SelectItem value="Last 7 Days">Last 7 Days</SelectItem>
+                <SelectItem value="Last 30 Days">Last 30 Days</SelectItem>
+                <SelectItem value="This Quarter">This Quarter</SelectItem>
+                <SelectItem value="Last Quarter">Last Quarter</SelectItem>
+                <SelectItem value="YTD">YTD</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center gap-2">
             <Button variant={viewMode === 'grid' ? 'default' : 'outline'} size="icon" onClick={() => setViewMode('grid')}>
