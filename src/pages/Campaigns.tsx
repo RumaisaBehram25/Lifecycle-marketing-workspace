@@ -234,18 +234,9 @@ export default function Campaigns() {
           }
         />
 
-        {/* Date Quick Filters */}
-        <div className="flex flex-wrap gap-2">
-          {['Last 7 Days', 'Last 30 Days', 'This Quarter', 'Last Quarter', 'YTD', 'All Time'].map(label => (
-            <Button key={label} variant={dateFilter === label ? 'default' : 'outline'} size="sm" className="text-xs h-7" onClick={() => setDateFilter(label)}>
-              {label}
-            </Button>
-          ))}
-        </div>
-
-        {/* Filters */}
+        {/* Filters — date + channel inline */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px] max-w-md">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Search campaigns..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
@@ -259,6 +250,13 @@ export default function Campaigns() {
                 <SelectItem value="inapp">In-App</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex flex-wrap gap-1.5">
+              {['Last 7 Days', 'Last 30 Days', 'This Quarter', 'Last Quarter', 'YTD', 'All Time'].map(label => (
+                <Button key={label} variant={dateFilter === label ? 'default' : 'outline'} size="sm" className="text-xs h-7" onClick={() => setDateFilter(label)}>
+                  {label}
+                </Button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Button variant={viewMode === 'grid' ? 'default' : 'outline'} size="icon" onClick={() => setViewMode('grid')}>
