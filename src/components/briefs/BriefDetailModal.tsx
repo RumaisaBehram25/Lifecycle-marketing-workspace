@@ -27,6 +27,7 @@ import {
   FileText, Mail, Bell, Smartphone, Clock, Sparkles,
   Zap, Workflow, Calendar, Save, Trash2, ExternalLink,
   Palette, Upload, Paperclip, CheckCircle2, Image, X, Plus, Copy,
+  Type, AlignLeft, Heading1, MousePointer,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -56,6 +57,13 @@ interface EmailCopy {
   body?: string;
   cta_text?: string;
   cta_url?: string;
+}
+
+interface ContentBlock {
+  id: string;
+  type: 'heading' | 'body' | 'cta' | 'image' | 'divider';
+  content: string;
+  meta?: string; // e.g. CTA url, image alt
 }
 
 interface Attachment {
@@ -103,6 +111,14 @@ const PLACEHOLDER_ATTACHMENTS: Attachment[] = [
   { id: 'a1', name: 'campaign-brief-v2.pdf', size: '2.4 MB', type: 'pdf' },
   { id: 'a2', name: 'brand-guidelines.docx', size: '1.8 MB', type: 'docx' },
   { id: 'a3', name: 'hero-mockup.png', size: '540 KB', type: 'image' },
+];
+
+const BLOCK_TYPES = [
+  { type: 'heading' as const, label: 'Heading', icon: Heading1 },
+  { type: 'body' as const, label: 'Body Text', icon: AlignLeft },
+  { type: 'cta' as const, label: 'CTA Button', icon: MousePointer },
+  { type: 'image' as const, label: 'Image Placeholder', icon: Image },
+  { type: 'divider' as const, label: 'Divider', icon: Type },
 ];
 
 /* ─────── Sub-components ─────── */
@@ -240,12 +256,119 @@ function DetailsTab({ brief, onChange, attachments, onAddAttachment, onRemoveAtt
   );
 }
 
-function EmailCopyTab({ emailCopy, onChange, onGenerate, loading, briefName }: {
+function ContentBlockEditor({ blocks, onChange }: { blocks: ContentBlock[]; onChange: (blocks: ContentBlock[]) => void }) {
+  const addBlock = (type: ContentBlock['type']) => {
+    const newBlock: ContentBlock = {
+      id: `block-${Date.now()}`,
+      type,
+      content: type === 'divider' ? '' : '',
+      meta: type === 'cta' ? 'https://' : undefined,
+    };
+    onChange([...blocks, newBlock]);
+  };
+
+  const updateBlock = (id: string, updates: Partial<ContentBlock>) => {
+    onChange(blocks.map(b => b.id === id ? { ...b, ...updates } : b));
+  };
+
+  const removeBlock = (id: string) => {
+    onChange(blocks.filter(b => b.id !== id));
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Existing blocks */}
+      {blocks.map((block) => (
+        <div key={block.id} className="group relative border rounded-lg p-3 hover:border-primary/30 transition-colors">
+          <button
+            onClick={() => removeBlock(block.id)}
+            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+          </button>
+          
+          {block.type === 'heading' && (
+            <Input
+              value={block.content}
+              onChange={(e) => updateBlock(block.id, { content: e.target.value })}
+              placeholder="Section heading..."
+              className="border-none shadow-none text-lg font-bold bg-transparent focus-visible:ring-0 p-0 h-auto"
+            />
+          )}
+          {block.type === 'body' && (
+            <Textarea
+              value={block.content}
+              onChange={(e) => updateBlock(block.id, { content: e.target.value })}
+              placeholder="Write body copy..."
+              className="border-none shadow-none bg-transparent focus-visible:ring-0 p-0 min-h-[60px] resize-none text-sm leading-relaxed"
+            />
+          )}
+          {block.type === 'cta' && (
+            <div className="space-y-2">
+              <Input
+                value={block.content}
+                onChange={(e) => updateBlock(block.id, { content: e.target.value })}
+                placeholder="Button text..."
+                className="text-center font-medium"
+              />
+              <Input
+                value={block.meta || ''}
+                onChange={(e) => updateBlock(block.id, { meta: e.target.value })}
+                placeholder="https://..."
+                className="text-xs text-muted-foreground h-8"
+              />
+              {block.content && (
+                <div className="text-center pt-1">
+                  <Button size="sm" className="px-6">{block.content}</Button>
+                </div>
+              )}
+            </div>
+          )}
+          {block.type === 'image' && (
+            <div className="border border-dashed rounded-lg p-6 text-center bg-muted/20">
+              <Image className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
+              <Input
+                value={block.content}
+                onChange={(e) => updateBlock(block.id, { content: e.target.value })}
+                placeholder="Image description / alt text..."
+                className="border-none shadow-none text-center text-xs bg-transparent focus-visible:ring-0"
+              />
+            </div>
+          )}
+          {block.type === 'divider' && (
+            <div className="border-t my-2" />
+          )}
+        </div>
+      ))}
+
+      {/* Add block toolbar */}
+      <div className="flex items-center gap-1 pt-2 border-t border-dashed">
+        <span className="text-[10px] text-muted-foreground mr-2">Add block:</span>
+        {BLOCK_TYPES.map(bt => (
+          <Button
+            key={bt.type}
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1 px-2"
+            onClick={() => addBlock(bt.type)}
+          >
+            <bt.icon className="h-3 w-3" />
+            {bt.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmailCopyTab({ emailCopy, onChange, onGenerate, loading, briefName, contentBlocks, onBlocksChange }: {
   emailCopy: EmailCopy;
   onChange: (c: EmailCopy) => void;
   onGenerate: () => void;
   loading: boolean;
   briefName: string;
+  contentBlocks: ContentBlock[];
+  onBlocksChange: (blocks: ContentBlock[]) => void;
 }) {
   return (
     <div className="bg-background border rounded-lg shadow-sm max-w-2xl mx-auto">
@@ -295,8 +418,8 @@ function EmailCopyTab({ emailCopy, onChange, onGenerate, loading, briefName }: {
           </div>
         </div>
 
-        {/* Email body — document-like */}
-        <div className="px-8 py-6 space-y-6">
+        {/* Email body — block-based document */}
+        <div className="px-8 py-6 space-y-4">
           {/* Hero / Headline area */}
           <div className="bg-gradient-to-br from-primary/5 to-primary/10 rounded-xl p-6 text-center">
             <Input
@@ -307,37 +430,44 @@ function EmailCopyTab({ emailCopy, onChange, onGenerate, loading, briefName }: {
             />
           </div>
 
-          {/* Body */}
-          <Textarea
-            value={emailCopy.body || ''}
-            onChange={(e) => onChange({ ...emailCopy, body: e.target.value })}
-            placeholder="Write the main body copy of the email here. This area supports longer-form content that will be the primary message of your email..."
-            className="min-h-[160px] border-none shadow-none px-0 bg-transparent focus-visible:ring-0 resize-none text-sm leading-relaxed"
-          />
+          {/* Content blocks */}
+          <ContentBlockEditor blocks={contentBlocks} onChange={onBlocksChange} />
 
-          {/* CTA Button */}
-          <div className="text-center space-y-3 py-4 border-t border-b border-dashed">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Call to Action</p>
-            <div className="flex items-center gap-3 max-w-md mx-auto">
-              <Input
-                value={emailCopy.cta_text || ''}
-                onChange={(e) => onChange({ ...emailCopy, cta_text: e.target.value })}
-                placeholder="Button text..."
-                className="text-center font-medium"
-              />
-            </div>
-            <Input
-              value={emailCopy.cta_url || ''}
-              onChange={(e) => onChange({ ...emailCopy, cta_url: e.target.value })}
-              placeholder="https://..."
-              className="text-xs text-center max-w-sm mx-auto h-8 text-muted-foreground"
+          {/* Legacy body fallback */}
+          {contentBlocks.length === 0 && (
+            <Textarea
+              value={emailCopy.body || ''}
+              onChange={(e) => onChange({ ...emailCopy, body: e.target.value })}
+              placeholder="Write the main body copy of the email here..."
+              className="min-h-[160px] border-none shadow-none px-0 bg-transparent focus-visible:ring-0 resize-none text-sm leading-relaxed"
             />
-            {emailCopy.cta_text && (
-              <div className="pt-2">
-                <Button size="lg" className="px-8 font-semibold">{emailCopy.cta_text}</Button>
+          )}
+
+          {/* CTA Button (legacy) */}
+          {contentBlocks.length === 0 && (
+            <div className="text-center space-y-3 py-4 border-t border-b border-dashed">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Call to Action</p>
+              <div className="flex items-center gap-3 max-w-md mx-auto">
+                <Input
+                  value={emailCopy.cta_text || ''}
+                  onChange={(e) => onChange({ ...emailCopy, cta_text: e.target.value })}
+                  placeholder="Button text..."
+                  className="text-center font-medium"
+                />
               </div>
-            )}
-          </div>
+              <Input
+                value={emailCopy.cta_url || ''}
+                onChange={(e) => onChange({ ...emailCopy, cta_url: e.target.value })}
+                placeholder="https://..."
+                className="text-xs text-center max-w-sm mx-auto h-8 text-muted-foreground"
+              />
+              {emailCopy.cta_text && (
+                <div className="pt-2">
+                  <Button size="lg" className="px-8 font-semibold">{emailCopy.cta_text}</Button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -423,12 +553,14 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
   const [aiLoading, setAiLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
   const [attachments, setAttachments] = useState<Attachment[]>(PLACEHOLDER_ATTACHMENTS);
+  const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
 
   useEffect(() => {
     if (brief) {
       setEditedBrief(brief);
       setEmailCopy((brief.ai_generated_copy as EmailCopy) || {});
       setActiveTab('details');
+      setContentBlocks([]);
     }
   }, [brief?.id]);
 
@@ -614,6 +746,8 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
                 onGenerate={handleGenerateCopy}
                 loading={aiLoading}
                 briefName={editedBrief.name}
+                contentBlocks={contentBlocks}
+                onBlocksChange={setContentBlocks}
               />
             </TabsContent>
 

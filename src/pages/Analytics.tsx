@@ -144,11 +144,12 @@ const CHANNEL_MIX = [
 
 type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date' | 'channel' | 'segment';
 
-function StatCard({ icon: Icon, label, value, color }: {
+function StatCard({ icon: Icon, label, value, color, trend }: {
   icon: React.ElementType;
   label: string;
   value: string;
   color: string;
+  trend?: { direction: 'up' | 'down' | 'flat'; value: string };
 }) {
   return (
     <Card>
@@ -160,6 +161,14 @@ function StatCard({ icon: Icon, label, value, color }: {
           <span className="text-sm text-muted-foreground">{label}</span>
         </div>
         <p className="text-2xl font-bold tracking-tight">{value}</p>
+        {trend && (
+          <div className={cn("flex items-center gap-1 mt-1 text-xs font-medium",
+            trend.direction === 'up' ? 'text-green-600' : trend.direction === 'down' ? 'text-red-500' : 'text-muted-foreground'
+          )}>
+            {trend.direction === 'up' ? <ChevronUp className="h-3 w-3" /> : trend.direction === 'down' ? <ChevronDown className="h-3 w-3" /> : null}
+            {trend.value}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -274,18 +283,18 @@ export default function Analytics() {
 
         {/* KPI Row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={DollarSign} label="CRM Attributed Revenue" value="$469K" color="bg-primary/10 text-primary" />
-          <StatCard icon={Workflow} label="Flow Revenue" value="$297K" color="bg-purple-500/10 text-purple-600" />
-          <StatCard icon={Send} label="Campaign Revenue" value="$172K" color="bg-blue-500/10 text-blue-600" />
-          <StatCard icon={UserPlus} label="List Growth" value="24,308" color="bg-green-500/10 text-green-600" />
+          <StatCard icon={DollarSign} label="CRM Attributed Revenue" value="$469K" color="bg-primary/10 text-primary" trend={period !== 'default' ? { direction: 'up', value: '+12.3% vs prior' } : undefined} />
+          <StatCard icon={Workflow} label="Flow Revenue" value="$297K" color="bg-purple-500/10 text-purple-600" trend={period !== 'default' ? { direction: 'up', value: '+8.1% vs prior' } : undefined} />
+          <StatCard icon={Send} label="Campaign Revenue" value="$172K" color="bg-blue-500/10 text-blue-600" trend={period !== 'default' ? { direction: 'down', value: '-3.2% vs prior' } : undefined} />
+          <StatCard icon={UserPlus} label="List Growth" value="24,308" color="bg-green-500/10 text-green-600" trend={period !== 'default' ? { direction: 'up', value: '+5.7% vs prior' } : undefined} />
         </div>
 
         {/* Engagement Metrics Row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Eye} label="Avg. Open Rate" value="32.4%" color="bg-amber-500/10 text-amber-600" />
-          <StatCard icon={Send} label="Avg. Click Rate" value="4.8%" color="bg-cyan-500/10 text-cyan-600" />
-          <StatCard icon={Users} label="Active Subscribers" value="18,742" color="bg-emerald-500/10 text-emerald-600" />
-          <StatCard icon={DollarSign} label="Revenue per Send" value="$0.42" color="bg-rose-500/10 text-rose-600" />
+          <StatCard icon={Eye} label="Avg. Open Rate" value="32.4%" color="bg-amber-500/10 text-amber-600" trend={period !== 'default' ? { direction: 'up', value: '+1.8pp vs prior' } : undefined} />
+          <StatCard icon={Send} label="Avg. Click Rate" value="4.8%" color="bg-cyan-500/10 text-cyan-600" trend={period !== 'default' ? { direction: 'up', value: '+0.4pp vs prior' } : undefined} />
+          <StatCard icon={Users} label="Active Subscribers" value="18,742" color="bg-emerald-500/10 text-emerald-600" trend={period !== 'default' ? { direction: 'up', value: '+6.2% vs prior' } : undefined} />
+          <StatCard icon={DollarSign} label="Revenue per Send" value="$0.42" color="bg-rose-500/10 text-rose-600" trend={period !== 'default' ? { direction: 'down', value: '-$0.03 vs prior' } : undefined} />
         </div>
 
         {/* Flow vs Campaign Revenue + CRM % */}

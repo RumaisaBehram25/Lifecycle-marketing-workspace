@@ -16,7 +16,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { format } from 'date-fns';
 import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
-import { PastCampaigns } from '@/components/dashboard/PastCampaigns';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
@@ -56,7 +55,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   in_review: { label: 'In Design Review', color: 'bg-blue-500/20 text-blue-600' },
   approved: { label: 'In Development', color: 'bg-purple-500/20 text-purple-600' },
   in_progress: { label: 'In Progress', color: 'bg-purple-500/20 text-purple-600' },
-  complete: { label: 'Live', color: 'bg-green-500/20 text-green-600' },
+  complete: { label: 'Complete', color: 'bg-green-500/20 text-green-600' },
 };
 
 const PROGRESS_STEPS = [
@@ -80,9 +79,10 @@ const PLACEHOLDER_BRIEFS = [
   { id: 'p8', name: 'Summer Sale Campaign', content_type: 'campaign', status: 'to_brief', deadline: '2026-06-15', channels: ['email', 'push'], created_at: '2026-02-25', about: 'Summer sale kickoff', quarter: 'Q2 2026' },
   { id: 'p9', name: 'Valentine\'s Day Campaign', content_type: 'campaign', status: 'complete', deadline: '2026-02-14', channels: ['email'], created_at: '2026-01-10', about: 'Valentine\'s Day promo email blast', quarter: 'Q1 2026' },
   { id: 'p10', name: 'New Year Welcome Flow', content_type: 'lifecycle', status: 'live', deadline: '2026-01-05', channels: ['email', 'push'], created_at: '2025-12-15', about: 'New Year welcome series for Jan subscribers', stage: 'Onboarding' },
+  { id: 'p11', name: 'Black Friday Series', content_type: 'campaign', status: 'complete', deadline: '2025-11-29', channels: ['email', 'push'], created_at: '2025-10-15', about: 'Black Friday email and push series', quarter: 'Q4 2025' },
+  { id: 'p12', name: 'Holiday Win-Back', content_type: 'lifecycle', status: 'complete', deadline: '2025-12-20', channels: ['email'], created_at: '2025-11-01', about: 'Holiday re-engagement for lapsed users', stage: 'Win-Back' },
 ];
 
-// Determine quarter from deadline
 function getQuarter(deadline?: string | null): string {
   if (!deadline) return 'Unscheduled';
   const d = new Date(deadline);
@@ -90,7 +90,6 @@ function getQuarter(deadline?: string | null): string {
   return `Q${q} ${d.getFullYear()}`;
 }
 
-// Determine lifecycle stage
 function getStage(brief: any): string {
   return brief.stage || 'General';
 }
@@ -147,7 +146,6 @@ function BriefFolder({ type, briefs, onSelectBrief }: { type: FolderType; briefs
   const config = FOLDER_CONFIG[type];
   const Icon = config.icon;
 
-  // Group briefs
   const groups: Record<string, any[]> = {};
   if (type === 'campaign') {
     briefs.forEach(b => {
@@ -253,6 +251,11 @@ function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; c
 
   if (closedBriefs.length === 0) return null;
 
+  // Group closed briefs by type
+  const campaignBriefs = closedBriefs.filter(b => b.content_type === 'campaign');
+  const lifecycleBriefs = closedBriefs.filter(b => b.content_type === 'lifecycle');
+  const taskBriefs = closedBriefs.filter(b => b.content_type === 'task');
+
   return (
     <>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -269,9 +272,15 @@ function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; c
           </CollapsibleTrigger>
           <CollapsibleContent>
             <CardContent className="space-y-2 pt-0">
-              {closedBriefs.map(brief => (
-                <BriefRow key={brief.id} brief={brief} onClick={() => setSelectedBrief(brief)} />
-              ))}
+              {campaignBriefs.length > 0 && (
+                <BriefFolder type="campaign" briefs={campaignBriefs} onSelectBrief={setSelectedBrief} />
+              )}
+              {lifecycleBriefs.length > 0 && (
+                <BriefFolder type="lifecycle" briefs={lifecycleBriefs} onSelectBrief={setSelectedBrief} />
+              )}
+              {taskBriefs.length > 0 && (
+                <BriefFolder type="task" briefs={taskBriefs} onSelectBrief={setSelectedBrief} />
+              )}
             </CardContent>
           </CollapsibleContent>
         </Card>
@@ -362,35 +371,25 @@ export default function Dashboard() {
           onRefresh={() => {}}
         />
 
-        {/* Closed Briefs */}
+        {/* Closed Briefs — now grouped by type */}
         <ClosedBriefsSection
           briefs={briefs || []}
           clientId={client?.id || ''}
           onRefresh={() => {}}
         />
 
-        {/* Recent Campaigns */}
-        <PastCampaigns />
-
-        {/* AI Chat Module */}
-        <Collapsible>
-          <Card>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="pb-3 cursor-pointer flex flex-row items-center justify-between hover:bg-muted/30 transition-colors rounded-t-lg">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center">
-                    <Sparkles className="h-3 w-3 text-primary-foreground" />
-                  </div>
-                  AI Chat
-                </CardTitle>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <EmbeddedChat />
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
+        {/* AI Chat Module — expanded by default */}
+        <Card>
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center">
+                <Sparkles className="h-3 w-3 text-primary-foreground" />
+              </div>
+              AI Chat
+            </CardTitle>
+          </CardHeader>
+          <EmbeddedChat />
+        </Card>
 
         <CreateBriefModal open={createBriefOpen} onOpenChange={setCreateBriefOpen} />
       </div>

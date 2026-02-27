@@ -423,13 +423,15 @@ export default function Lifecycle() {
 
             <Select value={launchDateFilter} onValueChange={setLaunchDateFilter}>
               <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Launched" />
+                <SelectValue placeholder="Date Range" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="All">Any time</SelectItem>
-                <SelectItem value="7days">Last 7 days</SelectItem>
-                <SelectItem value="30days">Last 30 days</SelectItem>
-                <SelectItem value="90days">Last 90 days</SelectItem>
+                <SelectItem value="All">All Time</SelectItem>
+                <SelectItem value="7days">Last 7 Days</SelectItem>
+                <SelectItem value="15days">Last 15 Days</SelectItem>
+                <SelectItem value="30days">Last 30 Days</SelectItem>
+                <SelectItem value="90days">Last 90 Days</SelectItem>
+                <SelectItem value="year">Last 12 Months</SelectItem>
               </SelectContent>
             </Select>
           </div>
