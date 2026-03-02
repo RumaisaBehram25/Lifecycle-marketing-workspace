@@ -23,7 +23,7 @@ const RESOURCE_TABS = [
   { id: 'events', label: 'Events & Attributes', icon: Database },
 ];
 
-export default function ResourceCenter() {
+function ResourceCenterContent() {
   const { data: client, isLoading: clientLoading, refetch: refetchClient } = useDoubleGoodClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') || 'voice';
@@ -31,82 +31,82 @@ export default function ResourceCenter() {
   const isCollapsed = state === 'collapsed';
 
   if (clientLoading) {
-    return (
-      <AppLayout>
-        <LoadingPage />
-      </AppLayout>
-    );
+    return <LoadingPage />;
   }
 
   if (!client) {
     return (
-      <AppLayout>
-        <div className="p-6 lg:p-8">
-          <p>Failed to load resources. Please refresh.</p>
-          <Button onClick={() => refetchClient()} className="mt-4">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Retry
-          </Button>
-        </div>
-      </AppLayout>
+      <div className="p-6 lg:p-8">
+        <p>Failed to load resources. Please refresh.</p>
+        <Button onClick={() => refetchClient()} className="mt-4">
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Retry
+        </Button>
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="flex">
-        {/* Inline tab nav when sidebar is collapsed */}
-        {isCollapsed && (
-          <nav className="w-48 flex-shrink-0 border-r bg-muted/20 p-3 space-y-1 min-h-[calc(100vh-4rem)]">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold px-2 mb-2">Resources</p>
-            {RESOURCE_TABS.map(tab => {
-              const isActive = tabFromUrl === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setSearchParams({ tab: tab.id })}
-                  className={cn(
-                    "flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm transition-colors",
-                    isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  )}
-                >
-                  <tab.icon className="h-4 w-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
+    <div className="flex">
+      {/* Inline tab nav when sidebar is collapsed */}
+      {isCollapsed && (
+        <nav className="w-48 flex-shrink-0 border-r bg-muted/20 p-3 space-y-1 min-h-[calc(100vh-4rem)]">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold px-2 mb-2">Resources</p>
+          {RESOURCE_TABS.map(tab => {
+            const isActive = tabFromUrl === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setSearchParams({ tab: tab.id })}
+                className={cn(
+                  "flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm transition-colors",
+                  isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                )}
+              >
+                <tab.icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      )}
+
+      <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+        <PageHeader
+          title="Resource Center"
+          description="Brand guidelines, audience segments, user journeys, and data reference"
+        />
+
+        {tabFromUrl === 'voice' && (
+          <BrandVoiceTab 
+            client={{
+              brand_voice: client.brand_voice,
+              do_rules: Array.isArray(client.do_rules) ? client.do_rules as string[] : null,
+              dont_rules: Array.isArray(client.dont_rules) ? client.dont_rules as string[] : null,
+              value_propositions: Array.isArray((client as any).value_propositions) 
+                ? (client as any).value_propositions as string[] 
+                : null,
+              key_messaging_pillars: Array.isArray((client as any).key_messaging_pillars)
+                ? (client as any).key_messaging_pillars as string[]
+                : null,
+            }}
+          />
         )}
 
-        <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-          <PageHeader
-            title="Resource Center"
-            description="Brand guidelines, audience segments, user journeys, and data reference"
-          />
-
-          {tabFromUrl === 'voice' && (
-            <BrandVoiceTab 
-              client={{
-                brand_voice: client.brand_voice,
-                do_rules: Array.isArray(client.do_rules) ? client.do_rules as string[] : null,
-                dont_rules: Array.isArray(client.dont_rules) ? client.dont_rules as string[] : null,
-                value_propositions: Array.isArray((client as any).value_propositions) 
-                  ? (client as any).value_propositions as string[] 
-                  : null,
-                key_messaging_pillars: Array.isArray((client as any).key_messaging_pillars)
-                  ? (client as any).key_messaging_pillars as string[]
-                  : null,
-              }}
-            />
-          )}
-
-          {tabFromUrl === 'design' && <DesignTab clientId={client.id} />}
-          {tabFromUrl === 'rules' && <RulesTab clientId={client.id} />}
-          {tabFromUrl === 'audience' && <AudienceTab />}
-          {tabFromUrl === 'journeys' && <UserJourneysTab />}
-          {tabFromUrl === 'events' && <EventsAttributesTab />}
-        </div>
+        {tabFromUrl === 'design' && <DesignTab clientId={client.id} />}
+        {tabFromUrl === 'rules' && <RulesTab clientId={client.id} />}
+        {tabFromUrl === 'audience' && <AudienceTab />}
+        {tabFromUrl === 'journeys' && <UserJourneysTab />}
+        {tabFromUrl === 'events' && <EventsAttributesTab />}
       </div>
+    </div>
+  );
+}
+
+export default function ResourceCenter() {
+  return (
+    <AppLayout>
+      <ResourceCenterContent />
     </AppLayout>
   );
 }
