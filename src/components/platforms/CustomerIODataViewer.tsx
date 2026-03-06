@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useToast } from '@/hooks/use-toast';
 import { RefreshCw, Eye, Copy, Check, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 // ── Types ───────────────────────────────────────────────────────────────
 interface CampaignItem {
@@ -107,9 +108,9 @@ export function CustomerIODataViewer({ clientId, platformId }: Props) {
       await cioCall('/health');
       setHealthStatus({ ok: true });
       toast({ title: 'Connection successful', description: 'Customer.io API key is valid.' });
-    } catch (err: any) {
-      setHealthStatus({ ok: false, hint: err.message });
-      toast({ title: 'Connection failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      setHealthStatus({ ok: false, hint: err instanceof Error ? err.message : 'Unknown error' });
+      toast({ title: 'Connection failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setHealthLoading(false);
     }
@@ -122,8 +123,8 @@ export function CustomerIODataViewer({ clientId, platformId }: Props) {
       const data = await cioCall('/campaigns');
       setCampaigns(data.items || []);
       setCampaignsLoaded(true);
-    } catch (err: any) {
-      toast({ title: 'Failed to load campaigns', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to load campaigns', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setCampaignsLoading(false);
     }
@@ -136,8 +137,8 @@ export function CustomerIODataViewer({ clientId, platformId }: Props) {
       const data = await cioCall('/newsletters');
       setNewsletters(data.items || []);
       setNewslettersLoaded(true);
-    } catch (err: any) {
-      toast({ title: 'Failed to load newsletters', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to load newsletters', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setNewslettersLoading(false);
     }
@@ -152,8 +153,8 @@ export function CustomerIODataViewer({ clientId, platformId }: Props) {
     try {
       const data = await cioCall(`/campaigns/${campaignId}/messages/${messageId}/creative`);
       setCreative(data.creative);
-    } catch (err: any) {
-      toast({ title: 'Failed to load creative', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to load creative', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
       setCreativeOpen(false);
     } finally {
       setCreativeLoading(false);
@@ -168,8 +169,8 @@ export function CustomerIODataViewer({ clientId, platformId }: Props) {
     try {
       const data = await cioCall(`/newsletters/${newsletterId}/variants/${variantId}/creative`);
       setCreative(data.creative);
-    } catch (err: any) {
-      toast({ title: 'Failed to load creative', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to load creative', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
       setCreativeOpen(false);
     } finally {
       setCreativeLoading(false);
@@ -390,10 +391,10 @@ export function CustomerIODataViewer({ clientId, platformId }: Props) {
                   </div>
                   <div className="border rounded-lg overflow-hidden bg-white">
                     <iframe
-                      srcDoc={creative.html_body}
+                      srcDoc={sanitizeHtml(creative.html_body)}
                       title="Creative preview"
                       className="w-full h-[400px] border-0"
-                      sandbox="allow-same-origin"
+                      sandbox=""
                       style={{ background: 'white' }}
                     />
                   </div>

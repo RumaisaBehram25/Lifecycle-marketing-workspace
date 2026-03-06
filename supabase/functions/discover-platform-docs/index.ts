@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -316,7 +317,7 @@ Format in clear markdown with proper headings and code blocks.`
           });
 
           if (!response.ok) {
-            console.error(`Failed to search topic "${topic}":`, response.status);
+            logger.error(`Failed to search topic "${topic}":`, response.status);
             allResults.push({ platform: platformKey, topic, category, success: false, error: `API error: ${response.status}` });
             totalFailed++;
             continue;
@@ -348,7 +349,7 @@ Format in clear markdown with proper headings and code blocks.`
               });
 
             if (insertError) {
-              console.error(`Database error for "${topic}":`, insertError);
+              logger.error(`Database error for "${topic}":`, insertError);
               allResults.push({ platform: platformKey, topic, category, success: false, error: insertError.message });
               totalFailed++;
             } else {
@@ -364,7 +365,7 @@ Format in clear markdown with proper headings and code blocks.`
           // Delay to avoid rate limiting
           await new Promise(resolve => setTimeout(resolve, 600));
         } catch (topicError) {
-          console.error(`Error processing topic "${topic}":`, topicError);
+          logger.error(`Error processing topic "${topic}":`, topicError);
           allResults.push({ 
             platform: platformKey, 
             topic, 
@@ -391,7 +392,7 @@ Format in clear markdown with proper headings and code blocks.`
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error discovering platform docs:', error);
+    logger.error('Error discovering platform docs:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to discover docs';
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),

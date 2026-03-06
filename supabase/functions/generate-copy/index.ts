@@ -5,6 +5,7 @@ import {
   buildSystemPromptFromContext,
 } from "../_shared/unified-context.ts";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -132,7 +133,7 @@ Return JSON with: subject_lines (array of 3), preheader (string), body (string),
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI error:', errorText);
+      logger.error('AI error:', errorText);
       throw new Error('AI generation failed');
     }
 
@@ -169,7 +170,7 @@ Return JSON with: subject_lines (array of 3), preheader (string), body (string),
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
   } catch (error: unknown) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), { 
       status: 500, 

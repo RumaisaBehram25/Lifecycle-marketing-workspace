@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -63,7 +64,7 @@ async function iterableFetch(endpoint: string, apiKey: string, method = 'GET', b
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`Iterable API error (${endpoint}):`, response.status, errorText);
+    logger.error(`Iterable API error (${endpoint}):`, response.status, errorText);
     throw new Error(`Iterable API error: ${response.status}`);
   }
 
@@ -114,7 +115,7 @@ serve(async (req) => {
       throw new Error('This endpoint only supports Iterable');
     }
 
-    const apiKey = platform.api_key_encrypted;
+    const apiKey = platform.api_key;
     if (!apiKey) {
       throw new Error('No API key configured for this platform');
     }
@@ -147,7 +148,7 @@ serve(async (req) => {
       }));
       console.log('Fetched lists:', results.lists.length);
     } catch (e) {
-      console.error('Failed to fetch lists:', e);
+      logger.error('Failed to fetch lists:', e);
     }
 
     // Fetch channels (message types)
@@ -161,7 +162,7 @@ serve(async (req) => {
       }));
       console.log('Fetched channels:', results.channels.length);
     } catch (e) {
-      console.error('Failed to fetch channels:', e);
+      logger.error('Failed to fetch channels:', e);
     }
 
     // Fetch campaigns
@@ -178,7 +179,7 @@ serve(async (req) => {
       }));
       console.log('Fetched campaigns:', results.campaigns.length);
     } catch (e) {
-      console.error('Failed to fetch campaigns:', e);
+      logger.error('Failed to fetch campaigns:', e);
     }
 
     // Fetch templates
@@ -196,7 +197,7 @@ serve(async (req) => {
       results.templates.push(...emailTemplates);
       console.log('Fetched email templates:', emailTemplates.length);
     } catch (e) {
-      console.error('Failed to fetch templates:', e);
+      logger.error('Failed to fetch templates:', e);
     }
 
     // Fetch event names (custom events)
@@ -211,7 +212,7 @@ serve(async (req) => {
       }
       console.log('Fetched event fields:', results.events.length);
     } catch (e) {
-      console.error('Failed to fetch events:', e);
+      logger.error('Failed to fetch events:', e);
     }
 
     // Store the schema data in platform_schemas
@@ -284,7 +285,7 @@ serve(async (req) => {
         .insert(schemaEntries);
 
       if (insertError) {
-        console.error('Failed to store schemas:', insertError);
+        logger.error('Failed to store schemas:', insertError);
       } else {
         console.log('Stored', schemaEntries.length, 'schema entries');
       }
@@ -326,7 +327,7 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
-    console.error('Error syncing Iterable:', error);
+    logger.error('Error syncing Iterable:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ success: false, error: message }),

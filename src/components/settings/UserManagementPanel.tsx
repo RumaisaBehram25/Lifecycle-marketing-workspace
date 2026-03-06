@@ -16,6 +16,7 @@ import {
 import { Check, X, ShieldCheck, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Profile, AppRole } from '@/lib/types';
+import { logger } from '@/lib/logger';
 
 interface UserWithRole extends Profile {
   role?: AppRole;
@@ -57,7 +58,7 @@ export function UserManagementPanel() {
       }));
       setUsers(usersWithRoles);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      logger.error('Error fetching users:', error);
       toast.error('Failed to load users');
     } finally {
       setIsLoading(false);
@@ -75,7 +76,7 @@ export function UserManagementPanel() {
       toast.success('User approved successfully');
       fetchUsers();
     } catch (error) {
-      console.error('Error approving user:', error);
+      logger.error('Error approving user:', error);
       toast.error('Failed to approve user');
     } finally {
       setActionLoading(null);
@@ -94,7 +95,7 @@ export function UserManagementPanel() {
       toast.success('User access revoked');
       fetchUsers();
     } catch (error) {
-      console.error('Error rejecting user:', error);
+      logger.error('Error rejecting user:', error);
       toast.error('Failed to revoke user access');
     } finally {
       setActionLoading(null);

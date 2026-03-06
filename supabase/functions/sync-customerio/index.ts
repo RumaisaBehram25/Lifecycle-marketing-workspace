@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -69,7 +70,7 @@ serve(async (req) => {
       .single();
 
     if (syncRunError) {
-      console.error('Failed to create sync run:', syncRunError);
+      logger.error('Failed to create sync run:', syncRunError);
       throw syncRunError;
     }
 
@@ -93,7 +94,7 @@ serve(async (req) => {
       
       if (!campaignsResponse.ok) {
         const errorText = await campaignsResponse.text();
-        console.error('Customer.io campaigns API error:', campaignsResponse.status, errorText);
+        logger.error('Customer.io campaigns API error:', campaignsResponse.status, errorText);
         throw new Error(`Customer.io API error: ${campaignsResponse.status} - ${errorText}`);
       }
 
@@ -121,7 +122,7 @@ serve(async (req) => {
           }, { onConflict: 'client_id,cio_campaign_id' });
 
         if (upsertError) {
-          console.error('Error upserting campaign:', upsertError);
+          logger.error('Error upserting campaign:', upsertError);
         } else {
           campaignsSynced++;
         }
@@ -133,7 +134,7 @@ serve(async (req) => {
       
       if (!broadcastsResponse.ok) {
         const errorText = await broadcastsResponse.text();
-        console.error('Customer.io broadcasts API error:', broadcastsResponse.status, errorText);
+        logger.error('Customer.io broadcasts API error:', broadcastsResponse.status, errorText);
         // Don't throw - broadcasts might not be available on all plans
       } else {
         const broadcastsData = await broadcastsResponse.json();
@@ -158,7 +159,7 @@ serve(async (req) => {
             }, { onConflict: 'client_id,cio_broadcast_id' });
 
           if (upsertError) {
-            console.error('Error upserting broadcast:', upsertError);
+            logger.error('Error upserting broadcast:', upsertError);
           } else {
             broadcastsSynced++;
           }
@@ -179,7 +180,7 @@ serve(async (req) => {
         .eq('id', platformId);
 
       if (platformUpdateError) {
-        console.error('Error updating platform:', platformUpdateError);
+        logger.error('Error updating platform:', platformUpdateError);
       }
 
       // Mark sync run as complete
@@ -224,7 +225,7 @@ serve(async (req) => {
     }
 
   } catch (error) {
-    console.error('Sync error:', error);
+    logger.error('Sync error:', error);
     return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

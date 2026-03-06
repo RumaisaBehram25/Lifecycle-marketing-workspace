@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.89.0";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -215,7 +216,7 @@ Deno.serve(async (req) => {
       throw new Error('This endpoint only supports Braze');
     }
 
-    const apiKey = platform.api_key_encrypted;
+    const apiKey = platform.api_key;
     if (!apiKey) {
       throw new Error('No API key configured for this platform');
     }
@@ -263,7 +264,7 @@ Deno.serve(async (req) => {
         canvasPage++;
         await new Promise(r => setTimeout(r, 100));
       } catch (err) {
-        console.error(`Failed to fetch canvas page ${canvasPage}:`, err);
+        logger.error(`Failed to fetch canvas page ${canvasPage}:`, err);
         break;
       }
     }
@@ -657,7 +658,7 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
-    console.error('Error syncing Braze:', error);
+    logger.error('Error syncing Braze:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ success: false, error: message }),

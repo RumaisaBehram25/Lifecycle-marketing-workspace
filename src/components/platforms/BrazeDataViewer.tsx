@@ -8,6 +8,7 @@ import { RefreshCw, Mail, Workflow, Users, FileText, ChevronRight } from 'lucide
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import {
+import { logger } from '@/lib/logger';
   Dialog,
   DialogContent,
   DialogDescription,
@@ -103,11 +104,11 @@ export function BrazeDataViewer({
       
       toast({ title: 'Braze data synced successfully' });
       onSyncComplete?.();
-    } catch (error: any) {
-      console.error('Sync error:', error);
+    } catch (error: unknown) {
+      logger.error('Sync error:', error);
       toast({ 
         title: 'Sync failed', 
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive' 
       });
     } finally {

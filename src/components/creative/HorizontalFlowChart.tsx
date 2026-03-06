@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -172,7 +173,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               className="absolute inset-0 border-0 origin-top-left scale-[0.35] w-[286%] h-[286%]"
               sandbox=""
               loading="lazy"
-              srcDoc={message.html_content}
+              srcDoc={sanitizeHtml(message.html_content)}
             />
           ) : message?.body ? (
             <div className="p-2 text-sm text-foreground leading-relaxed">
@@ -241,7 +242,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               className="absolute inset-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
               sandbox=""
               loading="lazy"
-              srcDoc={bodyContent}
+              srcDoc={sanitizeHtml(bodyContent)}
             />
           </div>
         </div>
@@ -994,8 +995,8 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <iframe
               title={message?.subject || step.name}
               className="w-full h-[500px] border-0"
-              sandbox="allow-same-origin"
-              srcDoc={message.html_content}
+              sandbox=""
+              srcDoc={sanitizeHtml(message.html_content)}
             />
           ) : message?.body ? (
             <div className="p-4 text-foreground leading-relaxed">
@@ -1052,8 +1053,8 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <iframe
               title={message?.title || step.name}
               className="w-full h-[500px] border-0"
-              sandbox="allow-same-origin"
-              srcDoc={bodyContent}
+              sandbox=""
+              srcDoc={sanitizeHtml(bodyContent)}
             />
           </div>
         </div>

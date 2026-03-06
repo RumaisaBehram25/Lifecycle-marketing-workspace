@@ -2,6 +2,7 @@ import { useState, useEffect, createContext, useContext, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import type { Profile, UserRole, AppRole } from '@/lib/types';
+import { logger } from '@/lib/logger';
 
 interface AuthContextType {
   user: User | null;
@@ -79,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole((roleData as UserRole).role);
       }
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      logger.error('Error fetching user data:', error);
     } finally {
       setIsLoading(false);
     }

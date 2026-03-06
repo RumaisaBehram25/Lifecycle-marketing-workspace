@@ -578,7 +578,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
       onUpdate();
     },
     onError: (err: any) => {
-      toast({ title: 'Failed to update', description: err.message, variant: 'destructive' });
+      toast({ title: 'Failed to update', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     },
   });
 
@@ -596,7 +596,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
       onUpdate();
     },
     onError: (err: any) => {
-      toast({ title: 'Failed to delete', description: err.message, variant: 'destructive' });
+      toast({ title: 'Failed to delete', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     },
   });
 
@@ -630,8 +630,8 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
         });
         toast({ title: 'Copy suggestions generated!' });
       }
-    } catch (err: any) {
-      toast({ title: 'Generation failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Generation failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setAiLoading(false);
     }
@@ -678,8 +678,8 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
       toast({ title: 'Brief duplicated', description: `"${editedBrief.name} (Copy)" created` });
       onOpenChange(false);
       onUpdate();
-    } catch (err: any) {
-      toast({ title: 'Failed to duplicate', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to duplicate', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     }
   };
 

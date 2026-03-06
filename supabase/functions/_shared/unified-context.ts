@@ -2,6 +2,7 @@
 // This ensures consistent, rich context across ops-chat, generate-copy, generate-code, etc.
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logger } from './logger.ts';
 
 // ============= Types =============
 
@@ -114,7 +115,7 @@ async function fetchClient(supabase: SupabaseClient, clientId: string): Promise<
     .single();
 
   if (error || !data) {
-    console.error('Failed to fetch client:', error);
+    logger.error('Failed to fetch client:', error);
     return {
       id: clientId,
       name: 'Unknown Client',
@@ -163,7 +164,7 @@ async function fetchPlatformData(supabase: SupabaseClient, clientId: string): Pr
     .eq('is_connected', true);
 
   if (error || !platforms) {
-    console.error('Failed to fetch platforms:', error);
+    logger.error('Failed to fetch platforms:', error);
     return [];
   }
 

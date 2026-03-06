@@ -9,6 +9,7 @@ import { X, Maximize2, Minimize2, PanelLeftClose, PanelLeft, AlertTriangle, Spar
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import {
+import { logger } from '@/lib/logger';
   useClientConversations,
   useConversationMessages,
   useCreateConversation,
@@ -327,7 +328,7 @@ export function ClientChat({
       }
 
     } catch (error) {
-      console.error('Chat error:', error);
+      logger.error('Chat error:', error);
       if ((error as Error).message !== 'Rate limited' && (error as Error).message !== 'Payment required') {
         toast({
           title: 'Chat error',

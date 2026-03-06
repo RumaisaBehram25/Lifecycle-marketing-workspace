@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -58,7 +59,7 @@ async function klaviyoFetch(endpoint: string, apiKey: string) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`Klaviyo API error (${endpoint}):`, response.status, errorText);
+    logger.error(`Klaviyo API error (${endpoint}):`, response.status, errorText);
     throw new Error(`Klaviyo API error: ${response.status}`);
   }
 
@@ -109,7 +110,7 @@ serve(async (req) => {
       throw new Error('This endpoint only supports Klaviyo');
     }
 
-    const apiKey = platform.api_key_encrypted;
+    const apiKey = platform.api_key;
     if (!apiKey) {
       throw new Error('No API key configured for this platform');
     }
@@ -137,7 +138,7 @@ serve(async (req) => {
       results.account = accountData.data?.[0]?.attributes || {};
       console.log('Fetched account info');
     } catch (e) {
-      console.error('Failed to fetch account:', e);
+      logger.error('Failed to fetch account:', e);
     }
 
     // Fetch profiles with full attributes
@@ -163,7 +164,7 @@ serve(async (req) => {
       results.profiles.count = results.profiles.sample.length;
       console.log('Fetched profiles:', results.profiles.count);
     } catch (e) {
-      console.error('Failed to fetch profiles:', e);
+      logger.error('Failed to fetch profiles:', e);
     }
 
     // Fetch metrics (events/triggers) with full metadata
@@ -178,7 +179,7 @@ serve(async (req) => {
       }));
       console.log('Fetched metrics:', results.metrics.length);
     } catch (e) {
-      console.error('Failed to fetch metrics:', e);
+      logger.error('Failed to fetch metrics:', e);
     }
 
     // Fetch lists with profile counts
@@ -203,7 +204,7 @@ serve(async (req) => {
       }));
       console.log('Fetched lists:', results.lists.length);
     } catch (e) {
-      console.error('Failed to fetch lists:', e);
+      logger.error('Failed to fetch lists:', e);
     }
 
     // Fetch templates with HTML content
@@ -220,7 +221,7 @@ serve(async (req) => {
       }));
       console.log('Fetched templates:', results.templates.length);
     } catch (e) {
-      console.error('Failed to fetch templates:', e);
+      logger.error('Failed to fetch templates:', e);
     }
 
     // Store the schema data in platform_schemas with full metadata
@@ -281,7 +282,7 @@ serve(async (req) => {
         .insert(schemaEntries);
 
       if (insertError) {
-        console.error('Failed to store schemas:', insertError);
+        logger.error('Failed to store schemas:', insertError);
       } else {
         console.log('Stored', schemaEntries.length, 'schema entries');
       }
@@ -334,7 +335,7 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
-    console.error('Error syncing Klaviyo:', error);
+    logger.error('Error syncing Klaviyo:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ success: false, error: message }),

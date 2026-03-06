@@ -13,7 +13,7 @@ SELECT
   created_at,
   updated_at
 FROM public.client_platforms;
--- Excludes: api_key_encrypted, api_secret_encrypted, additional_config
+-- Excludes: api_key, api_secret, additional_config
 
 -- Grant access to the view for authenticated users
 GRANT SELECT ON public.client_platforms_public TO authenticated;

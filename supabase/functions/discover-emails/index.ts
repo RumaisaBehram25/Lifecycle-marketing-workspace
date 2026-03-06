@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -142,7 +143,7 @@ serve(async (req) => {
           .eq('id', existing.id);
 
         if (!error) storedCount++;
-        else console.error('Failed to update email:', error);
+        else logger.error('Failed to update email:', error);
       } else {
         // Insert new
         const { error } = await supabase.from('knowledge_documents').insert({
@@ -157,7 +158,7 @@ serve(async (req) => {
         });
 
         if (!error) storedCount++;
-        else console.error('Failed to store email:', error);
+        else logger.error('Failed to store email:', error);
       }
     }
 
@@ -175,7 +176,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: unknown) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,

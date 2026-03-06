@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import type { CodeGeneratorInput } from '@/lib/types';
 import { Link } from 'react-router-dom';
+import { logger } from '@/lib/logger';
 
 const TRIGGER_TYPES = [
   { value: 'event', label: 'Event-based (user action)' },
@@ -208,7 +209,7 @@ ${additionalContext}
       setGeneratedCode(data);
       toast({ title: 'Code generated!', description: 'Your Braze Liquid code is ready.' });
     } catch (error) {
-      console.error('Generation error:', error);
+      logger.error('Generation error:', error);
       toast({ 
         title: 'Generation failed', 
         description: error instanceof Error ? error.message : 'Something went wrong',
