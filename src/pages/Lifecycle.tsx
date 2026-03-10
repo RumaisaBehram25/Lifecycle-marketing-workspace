@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { Link } from 'react-router-dom';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -526,10 +527,10 @@ export default function Lifecycle() {
                     {(message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview) ? (
                       <div className="border rounded-lg overflow-hidden bg-white">
                         <iframe
-                          srcDoc={message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview}
+                          srcDoc={sanitizeHtml(message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview)}
                           className="w-full h-[600px]"
                           title="Email Preview"
-                          sandbox="allow-same-origin"
+                          sandbox=""
                         />
                       </div>
                     ) : message?.body ? (
@@ -582,7 +583,7 @@ export default function Lifecycle() {
                       if (isHtmlBody) {
                         return (
                           <div className="border rounded-lg overflow-hidden bg-white">
-                            <iframe srcDoc={bodyContent} className="w-full h-[600px]" title="In-App Message Preview" sandbox="allow-same-origin" />
+                            <iframe srcDoc={sanitizeHtml(bodyContent)} className="w-full h-[600px]" title="In-App Message Preview" sandbox="" />
                           </div>
                         );
                       }

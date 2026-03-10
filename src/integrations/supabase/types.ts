@@ -316,8 +316,8 @@ export type Database = {
       client_platforms: {
         Row: {
           additional_config: Json | null
-          api_key_encrypted: string | null
-          api_secret_encrypted: string | null
+          api_key: string | null
+          api_secret: string | null
           client_id: string
           created_at: string
           id: string
@@ -329,8 +329,8 @@ export type Database = {
         }
         Insert: {
           additional_config?: Json | null
-          api_key_encrypted?: string | null
-          api_secret_encrypted?: string | null
+          api_key?: string | null
+          api_secret?: string | null
           client_id: string
           created_at?: string
           id?: string
@@ -342,8 +342,8 @@ export type Database = {
         }
         Update: {
           additional_config?: Json | null
-          api_key_encrypted?: string | null
-          api_secret_encrypted?: string | null
+          api_key?: string | null
+          api_secret?: string | null
           client_id?: string
           created_at?: string
           id?: string

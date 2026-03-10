@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -61,7 +62,7 @@ serve(async (req) => {
 
     if (!scrapeResponse.ok) {
       const errorText = await scrapeResponse.text();
-      console.error('Firecrawl scrape failed:', errorText);
+      logger.error('Firecrawl scrape failed:', errorText);
       throw new Error('Failed to scrape website');
     }
 
@@ -134,7 +135,7 @@ Return only valid JSON.`
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error('AI analysis failed:', errorText);
+      logger.error('AI analysis failed:', errorText);
       throw new Error('Failed to analyze brand');
     }
 
@@ -148,7 +149,7 @@ Return only valid JSON.`
       try {
         brandAnalysis = JSON.parse(jsonMatch[0]);
       } catch (e) {
-        console.error('Failed to parse AI response as JSON:', e);
+        logger.error('Failed to parse AI response as JSON:', e);
         brandAnalysis = { brand_voice: content };
       }
     }
@@ -191,7 +192,7 @@ Return only valid JSON.`
         .eq('id', clientId);
 
       if (updateError) {
-        console.error('Failed to update client:', updateError);
+        logger.error('Failed to update client:', updateError);
         throw new Error(`Database update failed: ${updateError.message}`);
       } else {
         console.log('Client updated with brand data');
@@ -206,7 +207,7 @@ Return only valid JSON.`
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: unknown) {
-    console.error('Error:', error);
+    logger.error('Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,

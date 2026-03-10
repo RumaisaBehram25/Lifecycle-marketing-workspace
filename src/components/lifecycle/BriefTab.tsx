@@ -559,8 +559,8 @@ function CreateBriefDialog({
         }));
         toast({ title: 'AI suggestions applied!' });
       }
-    } catch (err: any) {
-      toast({ title: 'AI assist failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'AI assist failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setAiLoading(false);
     }
@@ -599,8 +599,8 @@ function CreateBriefDialog({
       handleClose();
       onSuccess();
 
-    } catch (err: any) {
-      toast({ title: 'Failed to create brief', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to create brief', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setLoading(false);
     }

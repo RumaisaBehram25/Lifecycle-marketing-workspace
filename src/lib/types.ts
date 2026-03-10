@@ -42,8 +42,8 @@ export interface ClientPlatform {
   id: string;
   client_id: string;
   platform: PlatformType;
-  api_key_encrypted: string | null;
-  api_secret_encrypted: string | null;
+  api_key: string | null;
+  api_secret: string | null;
   additional_config: Record<string, unknown>;
   is_connected: boolean;
   last_sync_at: string | null;

@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.89.0";
+import { logger } from './logger.ts';
 
 export interface AuthResult {
   success: boolean;
@@ -38,7 +39,7 @@ export async function validateAuth(req: Request): Promise<AuthResult> {
   const { data, error } = await userClient.auth.getClaims(token);
   
   if (error || !data?.claims) {
-    console.error('Auth validation failed:', error);
+    logger.error('Auth validation failed:', error);
     return {
       success: false,
       error: 'Invalid or expired token',
@@ -86,7 +87,7 @@ export async function validateClientAccess(
     .maybeSingle();
 
   if (error) {
-    console.error('Client access check failed:', error);
+    logger.error('Client access check failed:', error);
     return {
       success: false,
       error: 'Failed to validate client access',

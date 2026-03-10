@@ -100,7 +100,7 @@ export function TasksSection() {
       toast({ title: 'Task deleted' });
     },
     onError: (err: any) => {
-      toast({ title: 'Failed to delete', description: err.message, variant: 'destructive' });
+      toast({ title: 'Failed to delete', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     },
   });
 
@@ -400,8 +400,8 @@ function TaskModal({
         toast({ title: 'Task created' });
       }
       onSuccess();
-    } catch (err: any) {
-      toast({ title: 'Failed to save', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Failed to save', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setLoading(false);
     }

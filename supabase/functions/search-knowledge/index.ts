@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateAuth, authErrorResponse } from "../_shared/auth.ts";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,7 +30,7 @@ Deno.serve(async (req) => {
 
     const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY');
     if (!perplexityApiKey) {
-      console.error('PERPLEXITY_API_KEY not configured');
+      logger.error('PERPLEXITY_API_KEY not configured');
       return new Response(
         JSON.stringify({ success: false, error: 'Perplexity API key not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -64,7 +65,7 @@ Deno.serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Perplexity API error:', response.status, errorText);
+      logger.error('Perplexity API error:', response.status, errorText);
       return new Response(
         JSON.stringify({ success: false, error: `Perplexity API error: ${response.status}` }),
         { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -88,7 +89,7 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error searching knowledge:', error);
+    logger.error('Error searching knowledge:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to search';
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),

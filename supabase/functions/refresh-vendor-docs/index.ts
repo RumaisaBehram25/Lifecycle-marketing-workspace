@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -174,7 +175,7 @@ async function mapAndScrapeUrl(
     });
 
     if (!mapResponse.ok) {
-      console.error(`Failed to map ${baseUrl}: ${mapResponse.status}`);
+      logger.error(`Failed to map ${baseUrl}: ${mapResponse.status}`);
       return results;
     }
 
@@ -224,7 +225,7 @@ async function mapAndScrapeUrl(
         });
 
         if (!scrapeResponse.ok) {
-          console.error(`Failed to scrape ${url}: ${scrapeResponse.status}`);
+          logger.error(`Failed to scrape ${url}: ${scrapeResponse.status}`);
           continue;
         }
 
@@ -240,11 +241,11 @@ async function mapAndScrapeUrl(
         // Small delay to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 300));
       } catch (error) {
-        console.error(`Error scraping ${url}:`, error);
+        logger.error(`Error scraping ${url}:`, error);
       }
     }
   } catch (error) {
-    console.error(`Error mapping ${baseUrl}:`, error);
+    logger.error(`Error mapping ${baseUrl}:`, error);
   }
 
   return results;
@@ -268,7 +269,7 @@ serve(async (req) => {
     .single();
 
   if (syncLogError) {
-    console.error('Failed to create sync log:', syncLogError);
+    logger.error('Failed to create sync log:', syncLogError);
   }
 
   const syncId = syncLog?.id;
@@ -335,7 +336,7 @@ serve(async (req) => {
               .eq('id', existing.id);
 
             if (error) {
-              console.error(`Error updating ${doc.url}:`, error);
+              logger.error(`Error updating ${doc.url}:`, error);
               failed++;
             } else {
               console.log(`Updated: ${doc.title}`);
@@ -357,7 +358,7 @@ serve(async (req) => {
             });
 
           if (error) {
-            console.error(`Error inserting ${doc.url}:`, error);
+            logger.error(`Error inserting ${doc.url}:`, error);
             failed++;
           } else {
             console.log(`Added: ${doc.title}`);
@@ -416,7 +417,7 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
-    console.error('Error refreshing docs:', error);
+    logger.error('Error refreshing docs:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
 
     // Update sync log with error

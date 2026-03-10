@@ -173,8 +173,8 @@ export function useConnectPlatform() {
         .insert({
           client_id: client.id,
           platform,
-          api_key_encrypted: apiKey,
-          api_secret_encrypted: apiSecret || null,
+          api_key: apiKey,
+          api_secret: apiSecret || null,
           is_connected: true,
         })
         .select()

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -380,7 +381,7 @@ export function CampaignsSection({ clientId, clientName }: CampaignsSectionProps
           <div className="flex-1 overflow-auto border rounded-lg bg-white min-h-[400px]">
             {previewCampaign?.htmlContent ? (
               <iframe
-                srcDoc={previewCampaign.htmlContent}
+                srcDoc={sanitizeHtml(previewCampaign.htmlContent)}
                 className="w-full h-full min-h-[500px]"
                 title="Email Preview"
               />
@@ -416,7 +417,7 @@ function CampaignCard({ campaign, onPreview }: { campaign: Campaign; onPreview: 
           />
         ) : campaign.htmlContent ? (
           <iframe
-            srcDoc={campaign.htmlContent}
+            srcDoc={sanitizeHtml(campaign.htmlContent)}
             className="w-full h-full pointer-events-none scale-50 origin-top-left"
             style={{ width: '200%', height: '200%' }}
             title="Preview"

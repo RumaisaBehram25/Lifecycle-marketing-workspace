@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { X, Maximize2, Minimize2, PanelLeftClose, PanelLeft, AlertTriangle, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { logger } from '@/lib/logger';
 import {
   useClientConversations,
   useConversationMessages,
@@ -327,7 +328,7 @@ export function ClientChat({
       }
 
     } catch (error) {
-      console.error('Chat error:', error);
+      logger.error('Chat error:', error);
       if ((error as Error).message !== 'Rate limited' && (error as Error).message !== 'Payment required') {
         toast({
           title: 'Chat error',

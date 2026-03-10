@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { logger } from '@/lib/logger';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -181,7 +182,7 @@ export function EmbeddedChat() {
         setMessages([...newMessages, { role: 'assistant', content: assistantContent }]);
       }
     } catch (error) {
-      console.error('Chat error:', error);
+      logger.error('Chat error:', error);
       if ((error as Error).message !== 'Rate limited') {
         toast({ title: 'Chat error', description: 'Please try again.', variant: 'destructive' });
       }

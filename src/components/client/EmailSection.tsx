@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,7 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/lib/logger';
 
 interface Email {
   id: string;
@@ -190,7 +192,7 @@ export function EmailSection({ clientId, clientName, client }: EmailSectionProps
       };
       setChatMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
-      console.error('Generation error:', error);
+      logger.error('Generation error:', error);
       const errorMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -584,7 +586,7 @@ export function EmailSection({ clientId, clientName, client }: EmailSectionProps
           <div className="flex-1 overflow-auto border rounded-lg bg-white min-h-[400px]">
             {previewEmail?.htmlContent ? (
               <iframe
-                srcDoc={previewEmail.htmlContent}
+                srcDoc={sanitizeHtml(previewEmail.htmlContent)}
                 className="w-full h-full min-h-[500px]"
                 title="Email Preview"
               />
@@ -619,7 +621,7 @@ function EmailCard({ email, onPreview }: { email: Email; onPreview: () => void }
           />
         ) : email.htmlContent ? (
           <iframe
-            srcDoc={email.htmlContent}
+            srcDoc={sanitizeHtml(email.htmlContent)}
             className="w-full h-full pointer-events-none scale-50 origin-top-left"
             style={{ width: '200%', height: '200%' }}
             title="Preview"

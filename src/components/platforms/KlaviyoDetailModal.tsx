@@ -11,6 +11,7 @@ import {
   Copy, Check, Code, Eye, Pencil, X, Phone, Hash, Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 interface KlaviyoDetailModalProps {
   open: boolean;
@@ -266,9 +267,9 @@ export function KlaviyoDetailModal({ open, onOpenChange, type, data, onRename }:
           <TabsContent value="preview" className="flex-1 mt-4 min-h-0">
             <div className="h-full border rounded-lg overflow-hidden bg-white">
               <iframe 
-                srcDoc={data.html} 
+                srcDoc={sanitizeHtml(data.html)} 
                 className="w-full h-full"
-                sandbox="allow-same-origin"
+                sandbox=""
                 title="Template Preview"
               />
             </div>

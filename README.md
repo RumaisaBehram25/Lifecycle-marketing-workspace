@@ -1,5 +1,25 @@
 # Welcome to your Lovable project
 
+Running locally                                                                                                                                                                            
+                                                                                                                                                                                             
+  # 1. Install dependencies                                                                                                                                                                  
+  npm install                                                                                                                                                                                
+                                                                                                                                                                                           
+  # 2. Configure Supabase — copy the example env and fill in your values
+  cp .env.example .env
+
+  Edit .env with your Supabase project credentials:
+  VITE_SUPABASE_PROJECT_ID="your-project-id"
+  VITE_SUPABASE_PUBLISHABLE_KEY="your-anon-key"
+  VITE_SUPABASE_URL="https://your-project-id.supabase.co"
+
+  You can get these from your Supabase project dashboard under Settings > API.
+
+  # 3. Start the dev server
+  npm run dev
+
+  The app will be available at http://localhost:5173.
+
 ## Project info
 
 **URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID

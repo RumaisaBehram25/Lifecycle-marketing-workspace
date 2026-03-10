@@ -26,6 +26,7 @@ import {
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { TemplatePickerModal } from './TemplatePickerModal';
+import { logger } from '@/lib/logger';
 
 interface CreateBriefModalProps {
   open: boolean;
@@ -126,9 +127,9 @@ export function CreateBriefModal({ open, onOpenChange }: CreateBriefModalProps) 
         }));
         toast({ title: 'AI suggestions applied!' });
       }
-    } catch (err: any) {
-      console.error('AI assist error:', err);
-      toast({ title: 'AI assist failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      logger.error('AI assist error:', err);
+      toast({ title: 'AI assist failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setAiLoading(false);
     }
@@ -176,9 +177,9 @@ export function CreateBriefModal({ open, onOpenChange }: CreateBriefModalProps) 
       queryClient.invalidateQueries({ queryKey: ['brief-counts'] });
       handleClose();
 
-    } catch (err: any) {
-      console.error('Create brief error:', err);
-      toast({ title: 'Failed to create brief', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      logger.error('Create brief error:', err);
+      toast({ title: 'Failed to create brief', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
       setLoading(false);
     }

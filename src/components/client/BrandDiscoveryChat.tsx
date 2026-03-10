@@ -8,6 +8,7 @@ import { Sparkles, Send, Globe, Mail, Bot, User, ChevronUp, ChevronDown } from '
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ReactMarkdown from 'react-markdown';
+import { logger } from '@/lib/logger';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -211,7 +212,7 @@ ${client.dont_rules ? `Don'ts: ${JSON.stringify(client.dont_rules)}` : ''}
         }
       }
     } catch (error) {
-      console.error('Chat error:', error);
+      logger.error('Chat error:', error);
       toast({
         title: 'Chat error',
         description: 'Failed to get a response.',

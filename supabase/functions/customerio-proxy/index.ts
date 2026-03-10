@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -61,8 +62,8 @@ async function handleDebug() {
     const url = `${base}/v1/api/campaigns?page=1&page_size=1`;
     const res = await fetch(url, { headers: cioHeaders() });
     testResult = { url, status: res.status, ok: res.ok, body: (await res.text()).slice(0, 500) };
-  } catch (e: any) {
-    testResult = { error: e.message };
+  } catch (e: unknown) {
+    testResult = { error: e instanceof Error ? e.message : 'Unknown error' };
   }
   return okResponse({ ok: true, key_masked: masked, base_url: base, test: testResult });
 }
@@ -212,11 +213,11 @@ serve(async (req) => {
     if (nm) return await handleNewsletterCreative(nm[1], nm[2]);
 
     return errResponse(404, subPath, 'Unknown route');
-  } catch (err: any) {
-    if (err.status && err.hint) {
-      return errResponse(err.status, err.endpoint || '', err.hint, err.bodySnippet || '');
+  } catch (err: unknown) {
+    if (typeof err === "object" && err !== null && "status" in err && "hint" in err) {
+      const e = err as { status: number; endpoint?: string; hint: string; bodySnippet?: string }; return errResponse(e.status, e.endpoint || "", e.hint, e.bodySnippet || "");
     }
-    console.error('Proxy error:', err);
-    return errResponse(500, '', err.message || 'Internal error');
+    logger.error('Proxy error:', err);
+    return errResponse(500, "", err instanceof Error ? err.message : "Internal error");
   }
 });

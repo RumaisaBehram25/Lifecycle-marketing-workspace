@@ -8,6 +8,7 @@ import {
   type PlatformData,
 } from "../_shared/unified-context.ts";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -210,7 +211,7 @@ serve(async (req) => {
 
     if (!toolCheckResponse.ok) {
       const errorText = await toolCheckResponse.text();
-      console.error('AI tool check error:', toolCheckResponse.status, errorText);
+      logger.error('AI tool check error:', toolCheckResponse.status, errorText);
       throw new Error('AI gateway error');
     }
 
@@ -268,7 +269,7 @@ serve(async (req) => {
 
       if (!streamResponse.ok) {
         const errorText = await streamResponse.text();
-        console.error('AI stream error:', streamResponse.status, errorText);
+        logger.error('AI stream error:', streamResponse.status, errorText);
         throw new Error('AI gateway error during streaming');
       }
 
@@ -296,7 +297,7 @@ serve(async (req) => {
 
     if (!streamResponse.ok) {
       const errorText = await streamResponse.text();
-      console.error('AI stream error:', streamResponse.status, errorText);
+      logger.error('AI stream error:', streamResponse.status, errorText);
       throw new Error('AI gateway error');
     }
 
@@ -305,7 +306,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('ops-chat error:', error);
+    logger.error('ops-chat error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
@@ -404,7 +405,7 @@ async function handleSearchKnowledge(apiKey: string | undefined, args: { query: 
       citations: data.citations || []
     };
   } catch (error) {
-    console.error('Knowledge search error:', error);
+    logger.error('Knowledge search error:', error);
     return { error: 'Search failed' };
   }
 }
@@ -436,7 +437,7 @@ async function handleSearchClientKnowledge(
     const { data, error } = await query.limit(15);
 
     if (error) {
-      console.error('Client knowledge search error:', error);
+      logger.error('Client knowledge search error:', error);
       return { error: 'Failed to search knowledge base' };
     }
 
@@ -471,7 +472,7 @@ async function handleSearchClientKnowledge(
       total_found: data.length
     };
   } catch (error) {
-    console.error('Client knowledge search error:', error);
+    logger.error('Client knowledge search error:', error);
     return { error: 'Failed to search knowledge base' };
   }
 }
