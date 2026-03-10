@@ -7,8 +7,8 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { RefreshCw, Mail, Workflow, Users, FileText, ChevronRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import {
 import { logger } from '@/lib/logger';
+import {
   Dialog,
   DialogContent,
   DialogDescription,

@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { X, Maximize2, Minimize2, PanelLeftClose, PanelLeft, AlertTriangle, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import {
 import { logger } from '@/lib/logger';
+import {
   useClientConversations,
   useConversationMessages,
   useCreateConversation,
