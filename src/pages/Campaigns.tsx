@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import {
   Select,
   SelectContent,
@@ -19,13 +20,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { 
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
   Search, Mail, Bell, Smartphone, LayoutGrid, List,
-  Sparkles, Calendar as CalendarIcon, Image, CalendarDays,
+  Sparkles, Calendar as CalendarIcon, Image, CalendarDays, RefreshCw, Info, ArrowRight,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { format, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
+import { format, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, isAfter, subQuarters, startOfQuarter, endOfQuarter, startOfYear } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/lib/logger';
 
 interface PlaceholderCampaign {
   id: string;
@@ -210,13 +217,122 @@ export default function Campaigns() {
   const [selectedCampaign, setSelectedCampaign] = useState<PlaceholderCampaign | null>(null);
   const [dateFilter, setDateFilter] = useState('All Time');
 
-  const filtered = PLACEHOLDER_CAMPAIGNS.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.push_title?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesChannel = channelFilter === 'All' || c.channel === channelFilter;
-    return matchesSearch && matchesChannel;
+  const [syncing, setSyncing] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: client } = useDoubleGoodClient();
+  const { data: platforms } = useDoubleGoodPlatforms();
+  const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
+
+  const handleSyncFromBraze = async () => {
+    if (!client?.id || !brazePlatform?.id) return;
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-braze', {
+        body: { clientId: client.id, platformId: brazePlatform.id },
+      });
+
+      if (error) throw error;
+
+      toast({ title: 'Campaigns synced from Braze' });
+      queryClient.invalidateQueries({ queryKey: ['braze_campaigns', client.id] });
+    } catch (error: unknown) {
+      logger.error('Sync error:', error);
+      toast({
+        title: 'Failed to sync campaigns',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const { data: dbCampaigns, isLoading } = useQuery({
+    queryKey: ['braze_campaigns', client?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('braze_campaigns')
+        .select('*')
+        .eq('client_id', client!.id)
+        .order('sent_date', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!client?.id,
   });
+
+  // Map database records to the PlaceholderCampaign shape the UI expects
+  const campaigns: PlaceholderCampaign[] = useMemo(() => {
+    if (!dbCampaigns || dbCampaigns.length === 0) return PLACEHOLDER_CAMPAIGNS;
+
+    return dbCampaigns.map((row: any) => {
+      const rawDetails = (row.raw_details ?? {}) as Record<string, unknown>;
+      const channel = (row.channel ?? 'email') as PlaceholderCampaign['channel'];
+
+      return {
+        id: row.braze_campaign_id ?? row.id,
+        name: row.name,
+        channel,
+        subject: row.subject ?? undefined,
+        preheader: row.preheader ?? undefined,
+        push_title: (rawDetails.push_title as string | undefined) ?? undefined,
+        push_body: (rawDetails.push_body as string | undefined) ?? undefined,
+        sent_date: row.sent_date ? format(new Date(row.sent_date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+        status: (row.status ?? 'draft') as PlaceholderCampaign['status'],
+        opens: row.opens ?? undefined,
+        clicks: row.clicks ?? undefined,
+        segment: row.segment ?? undefined,
+        deliveries: row.deliveries ?? undefined,
+        open_rate: row.open_rate != null ? `${Number(row.open_rate).toFixed(1)}%` : undefined,
+        click_rate: row.click_rate != null ? `${Number(row.click_rate).toFixed(1)}%` : undefined,
+        unsubs: row.unsubs ?? undefined,
+        creative_preview: row.creative_preview ?? undefined,
+      } satisfies PlaceholderCampaign;
+    });
+  }, [dbCampaigns]);
+
+  // Show preview banner when no real Braze data exists
+  const isPreviewMode = !dbCampaigns || dbCampaigns.length === 0;
+
+  // Apply filters (search, channel, date range)
+  const filtered = useMemo(() => {
+    return campaigns.filter(c => {
+      const matchesSearch = !searchQuery ||
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.push_title?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesChannel = channelFilter === 'All' || c.channel === channelFilter;
+
+      let matchesDate = true;
+      if (dateFilter !== 'All Time') {
+        const sentDate = new Date(c.sent_date);
+        const today = new Date();
+        switch (dateFilter) {
+          case 'Last 7 Days':
+            matchesDate = isAfter(sentDate, subDays(today, 7));
+            break;
+          case 'Last 30 Days':
+            matchesDate = isAfter(sentDate, subDays(today, 30));
+            break;
+          case 'This Quarter':
+            matchesDate = isAfter(sentDate, startOfQuarter(today)) || isSameDay(sentDate, startOfQuarter(today));
+            break;
+          case 'Last Quarter': {
+            const lastQ = subQuarters(today, 1);
+            matchesDate = isAfter(sentDate, startOfQuarter(lastQ)) && !isAfter(sentDate, endOfQuarter(lastQ));
+            break;
+          }
+          case 'YTD':
+            matchesDate = isAfter(sentDate, startOfYear(today)) || isSameDay(sentDate, startOfYear(today));
+            break;
+        }
+      }
+
+      return matchesSearch && matchesChannel && matchesDate;
+    });
+  }, [campaigns, searchQuery, channelFilter, dateFilter]);
 
   return (
     <AppLayout>
@@ -225,12 +341,26 @@ export default function Campaigns() {
           title="Campaigns"
           description="Browse sent campaigns and one-off communications"
           actions={
-            <Button asChild>
-              <Link to="/chat">
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate New
-              </Link>
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={handleSyncFromBraze}
+                disabled={syncing || !brazePlatform}
+              >
+                {syncing ? (
+                  <LoadingSpinner size="sm" className="mr-2" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Sync from Braze
+              </Button>
+              <Button asChild>
+                <Link to="/chat">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Generate New
+                </Link>
+              </Button>
+            </>
           }
         />
 
@@ -275,8 +405,38 @@ export default function Campaigns() {
           </div>
         </div>
 
-        {/* Calendar View */}
-        {viewMode === 'calendar' ? (
+        {/* Sample Data Banner */}
+        {isPreviewMode && !isLoading && (
+          <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/50">
+            <Info className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <span className="text-amber-800 dark:text-amber-200">
+                This is sample data. Connect your Braze account on the Platforms page to see real campaign data.
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                className="border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/50 w-fit shrink-0"
+              >
+                <Link to="/platforms">
+                  Connect Braze
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Loading State */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <LoadingSpinner />
+          </div>
+        ) :
+
+        /* Calendar View */
+        viewMode === 'calendar' ? (
           <Card>
             <CardContent className="p-4">
               <CalendarView campaigns={filtered} briefs={BRIEF_CALENDAR_ITEMS} onSelectCampaign={setSelectedCampaign} />

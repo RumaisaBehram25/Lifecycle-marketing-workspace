@@ -13,6 +13,7 @@ const corsHeaders = {
 const BATCH_SIZE = 3;
 const MAX_HTML_SIZE = 50000;
 const MAX_CANVASES_TO_PROCESS = 100;
+const MAX_CAMPAIGNS_TO_PROCESS = 100;
 
 // Priority scoring for lifecycle canvas detection
 function getCanvasPriority(name: string): number {
@@ -173,6 +174,33 @@ interface ProcessedCanvas {
   entries_last_60d?: number;
   sends_last_30d?: number;
   last_activity_at?: string;
+}
+
+interface CampaignListItem {
+  id: string;
+  name: string;
+  is_api_campaign?: boolean;
+  last_sent?: string;
+  tags?: string[];
+}
+
+interface ProcessedCampaign {
+  id: string;
+  name: string;
+  channel?: string;
+  subject?: string;
+  preheader?: string;
+  status: string;
+  sent_date?: string;
+  opens: number;
+  clicks: number;
+  deliveries: number;
+  open_rate: number | null;
+  click_rate: number | null;
+  unsubs: number;
+  segment?: string;
+  tags?: string[];
+  raw_details?: Record<string, unknown>;
 }
 
 Deno.serve(async (req) => {
@@ -608,15 +636,241 @@ Deno.serve(async (req) => {
 
     console.log(`Processed ${processedCount} canvases, ${enabledCount} enabled`);
 
+    // === PHASE 4: Fetch and process campaigns ===
+    console.log('Phase 4: Fetching all campaign IDs...');
+    const allCampaignList: CampaignListItem[] = [];
+    const seenCampaignIds = new Set<string>();
+    let campaignPage = 0;
+
+    while (campaignPage < 50) {
+      try {
+        const campaignsData = await brazeFetch(
+          `campaigns/list?page=${campaignPage}&include_archived=false&sort_direction=desc`,
+          apiKey,
+          brazeRestEndpoint
+        );
+        const campaigns = campaignsData.campaigns || [];
+        console.log(`Campaign page ${campaignPage}: ${campaigns.length} items`);
+
+        if (campaigns.length === 0) break;
+
+        for (const c of campaigns) {
+          if (!seenCampaignIds.has(c.id)) {
+            seenCampaignIds.add(c.id);
+            allCampaignList.push(c);
+          }
+        }
+
+        campaignPage++;
+        await new Promise(r => setTimeout(r, 100));
+      } catch (err) {
+        logger.error(`Failed to fetch campaign page ${campaignPage}:`, err);
+        break;
+      }
+    }
+
+    console.log(`Total campaigns found: ${allCampaignList.length}`);
+
+    const campaignsToProcess = allCampaignList.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
+    console.log(`Will process ${campaignsToProcess.length} campaigns`);
+
+    console.log('Phase 4b: Processing campaign details in batches of 3...');
+    let campaignsProcessedCount = 0;
+    let campaignsEnabledCount = 0;
+
+    for (let i = 0; i < campaignsToProcess.length; i += BATCH_SIZE) {
+      const batch = campaignsToProcess.slice(i, i + BATCH_SIZE);
+      console.log(`Processing campaign batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(campaignsToProcess.length / BATCH_SIZE)}`);
+
+      const batchResults = await Promise.allSettled(
+        batch.map(async (c): Promise<ProcessedCampaign | null> => {
+          let channel: string | undefined;
+          let subject: string | undefined;
+          let preheader: string | undefined;
+          let status = 'draft';
+          let sentDate: string | undefined;
+          let segment: string | undefined;
+          let tags = c.tags || [];
+          let rawDetails: Record<string, unknown> = {};
+
+          // Fetch campaign details
+          try {
+            const details = await brazeFetch(
+              `campaigns/details?campaign_id=${c.id}`,
+              apiKey,
+              brazeRestEndpoint
+            );
+
+            rawDetails = {
+              description: details.description,
+              schedule_type: details.schedule_type,
+              channels: details.channels,
+              first_sent: details.first_sent,
+              last_sent: details.last_sent,
+              is_api_campaign: details.is_api_campaign ?? c.is_api_campaign,
+            };
+
+            // Determine channel from details
+            if (details.channels && Array.isArray(details.channels) && details.channels.length > 0) {
+              channel = details.channels[0];
+            } else if (details.channel) {
+              channel = details.channel;
+            } else if (details.messages) {
+              // Try to infer channel from messages object keys
+              const msgKeys = Object.keys(details.messages);
+              if (msgKeys.length > 0) {
+                const firstMsg = details.messages[msgKeys[0]];
+                channel = firstMsg?.channel || msgKeys[0];
+              }
+            }
+
+            // Extract subject/preheader from email messages if available
+            if (details.messages && typeof details.messages === 'object') {
+              const msgEntries = Object.values(details.messages) as Array<Record<string, unknown>>;
+              for (const msg of msgEntries) {
+                if (msg.subject) { subject = msg.subject as string; break; }
+              }
+              for (const msg of msgEntries) {
+                if (msg.preheader) { preheader = msg.preheader as string; break; }
+              }
+            }
+
+            // Determine status
+            const lastSent = details.last_sent || c.last_sent;
+            if (lastSent) {
+              status = 'sent';
+              sentDate = toIso(lastSent);
+            } else if (details.schedule_type) {
+              status = 'scheduled';
+            } else {
+              status = 'draft';
+            }
+
+            // Extract segment
+            segment = details.segment?.name || details.segment_name || undefined;
+
+            // Update tags from details if available
+            if (details.tags && Array.isArray(details.tags)) {
+              tags = details.tags;
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch details for campaign ${c.id}:`, err);
+            // Still determine status from list data
+            if (c.last_sent) {
+              status = 'sent';
+              sentDate = toIso(c.last_sent);
+            }
+          }
+
+          // Fetch analytics for sent/scheduled campaigns
+          let opens = 0;
+          let clicks = 0;
+          let deliveries = 0;
+          let unsubs = 0;
+
+          if (status === 'sent' || status === 'scheduled') {
+            try {
+              const analyticsData = await brazeFetch(
+                `campaigns/data_series?campaign_id=${c.id}&length=60`,
+                apiKey,
+                brazeRestEndpoint
+              );
+
+              if (analyticsData.data?.length > 0) {
+                const dataSeries = analyticsData.data as Array<Record<string, unknown>>;
+
+                for (const day of dataSeries) {
+                  opens += (day.unique_opens as number) || 0;
+                  clicks += (day.unique_clicks as number) || 0;
+                  deliveries += (day.deliveries as number) || (day.sent as number) || 0;
+                  unsubs += (day.unsubscribes as number) || 0;
+                }
+              }
+            } catch (err) {
+              console.warn(`Failed to fetch analytics for campaign ${c.id}:`, err);
+            }
+          }
+
+          // Compute rates
+          const open_rate = deliveries > 0 ? Math.round((opens / deliveries) * 10000) / 10000 : null;
+          const click_rate = deliveries > 0 ? Math.round((clicks / deliveries) * 10000) / 10000 : null;
+
+          return {
+            id: c.id,
+            name: c.name,
+            channel,
+            subject,
+            preheader,
+            status,
+            sent_date: sentDate,
+            opens,
+            clicks,
+            deliveries,
+            open_rate,
+            click_rate,
+            unsubs,
+            segment,
+            tags,
+            raw_details: rawDetails,
+          };
+        })
+      );
+
+      // Immediately upsert this batch to the database (checkpointing)
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value) {
+          const c = result.value;
+          const row = {
+            client_id: clientId,
+            braze_campaign_id: c.id,
+            name: c.name,
+            channel: c.channel || null,
+            subject: c.subject || null,
+            preheader: c.preheader || null,
+            status: c.status,
+            sent_date: c.sent_date || null,
+            opens: c.opens,
+            clicks: c.clicks,
+            deliveries: c.deliveries,
+            open_rate: c.open_rate,
+            click_rate: c.click_rate,
+            unsubs: c.unsubs,
+            segment: c.segment || null,
+            tags: c.tags || [],
+            raw_details: c.raw_details || {},
+            synced_at: nowIso,
+          };
+
+          const { error: upsertErr } = await supabase
+            .from('braze_campaigns')
+            .upsert(row, { onConflict: 'client_id,braze_campaign_id' });
+
+          if (upsertErr) {
+            console.warn(`Campaign upsert failed for ${c.id}:`, upsertErr.message);
+          } else {
+            campaignsProcessedCount++;
+            if (c.status === 'sent' || c.status === 'scheduled') campaignsEnabledCount++;
+          }
+        }
+      }
+
+      // Release memory between batches
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    console.log(`Processed ${campaignsProcessedCount} campaigns, ${campaignsEnabledCount} enabled/sent`);
+
     // === Update schema_cache with summary (no full canvas data) ===
     const schemaCache = {
-      cache_version: 7,
+      cache_version: 8,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
       canvases_count: processedCount,
       canvases_enabled_count: enabledCount,
+      campaigns_count: campaignsProcessedCount,
+      campaigns_enabled_count: campaignsEnabledCount,
       last_sync: nowIso,
-      // Intentionally NOT storing full canvas data here - it's in braze_canvases table
+      // Intentionally NOT storing full canvas/campaign data here - it's in dedicated tables
     };
 
     await supabase
@@ -636,10 +890,11 @@ Deno.serve(async (req) => {
         completed_at: nowIso,
         duration_ms: syncDuration,
         canvases_synced: processedCount,
+        campaigns_synced: campaignsProcessedCount,
       }).eq('id', syncRunId);
     }
 
-    console.log(`Braze sync complete in ${syncDuration}ms: ${processedCount} canvases, ${enabledCount} enabled`);
+    console.log(`Braze sync complete in ${syncDuration}ms: ${processedCount} canvases, ${enabledCount} enabled, ${campaignsProcessedCount} campaigns`);
 
     return new Response(
       JSON.stringify({
@@ -649,9 +904,12 @@ Deno.serve(async (req) => {
           saved_at: nowIso,
           duration_ms: syncDuration,
           counts: {
-            total_found: allCanvasList.length,
-            processed: processedCount,
-            enabled: enabledCount,
+            canvases_found: allCanvasList.length,
+            canvases_processed: processedCount,
+            canvases_enabled: enabledCount,
+            campaigns_found: allCampaignList.length,
+            campaigns_processed: campaignsProcessedCount,
+            campaigns_enabled: campaignsEnabledCount,
           },
         },
       }),
