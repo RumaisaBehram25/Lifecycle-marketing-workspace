@@ -1,0 +1,7 @@
+campaign_name,date_range,channel,total_sent,total_delivered,total_opens,unique_opens,total_clicks,unique_clicks,bounces,unsubscribes,spam_reports,conversions,revenue,delivery_rate,open_rate,unique_open_rate,click_rate,unique_click_rate,click_to_open_rate,bounce_rate,unsubscribe_rate,spam_rate,conversion_rate
+Spring Sale Launch (Variant A),2025-03-01 to 2025-03-03,email,15234,14892,6310,5256,1844,1577,342,59,11,435,6195.50,97.76%,42.37%,35.29%,12.38%,10.59%,29.23%,2.25%,0.40%,0.07%,2.92%
+Spring Sale Launch (Variant B),2025-03-01 to 2025-03-03,email,15180,14901,7502,6117,2357,1956,279,52,9,552,8010.00,98.16%,50.35%,41.05%,15.82%,13.13%,31.40%,1.84%,0.35%,0.06%,3.70%
+Weekly Newsletter #12,2025-03-01 to 2025-03-03,email,42300,41105,16075,12750,4412,3813,1195,225,33,0,0.00,97.17%,39.11%,31.02%,10.73%,9.28%,27.44%,2.83%,0.55%,0.08%,0.00%
+Cart Abandonment Reminder,2025-03-05 to 2025-03-07,email,26805,26245,9436,8711,5658,4954,560,84,12,1344,26910.00,97.91%,35.95%,33.19%,21.56%,18.88%,59.90%,2.09%,0.32%,0.05%,5.12%
+--- CROSS-CAMPAIGN AVERAGES ---,,,,,,,,,,,,,,,,,,,,,,
+All Campaigns Average,2025-03-01 to 2025-03-07,email,99519,97143,39323,32834,14271,12300,2376,420,65,2331,41115.50,97.61%,40.48%,33.80%,14.69%,12.66%,36.39%,2.39%,0.43%,0.07%,2.40%

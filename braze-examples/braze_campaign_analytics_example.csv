@@ -1,0 +1,13 @@
+date,campaign_id,campaign_name,variation_api_id,channel,sent,delivered,opens,unique_opens,clicks,unique_clicks,unsubscribes,bounces,reported_spam,unique_recipients,conversions,conversions_by_send_time,revenue
+2025-03-01,abc123,Spring Sale Launch,var_001,email,15234,14892,4320,3856,1245,1089,42,342,8,14892,312,287,4520.00
+2025-03-02,abc123,Spring Sale Launch,var_001,email,0,0,1560,1102,487,401,12,0,2,0,89,95,1230.50
+2025-03-03,abc123,Spring Sale Launch,var_001,email,0,0,430,298,112,87,5,0,1,0,34,28,445.00
+2025-03-01,abc123,Spring Sale Launch,var_002,email,15180,14901,5102,4455,1678,1402,38,279,6,14901,398,365,5890.00
+2025-03-02,abc123,Spring Sale Launch,var_002,email,0,0,1890,1320,534,445,10,0,3,0,112,101,1540.00
+2025-03-03,abc123,Spring Sale Launch,var_002,email,0,0,510,342,145,109,4,0,0,0,42,35,580.00
+2025-03-01,def456,Weekly Newsletter #12,var_003,email,42300,41105,11450,9870,3210,2845,156,1195,22,41105,0,0,0.00
+2025-03-02,def456,Weekly Newsletter #12,var_003,email,0,0,3420,2100,890,723,48,0,8,0,0,0,0.00
+2025-03-03,def456,Weekly Newsletter #12,var_003,email,0,0,1205,780,312,245,21,0,3,0,0,0,0.00
+2025-03-05,ghi789,Cart Abandonment Reminder,var_004,email,8920,8734,3102,2876,1890,1654,28,186,4,8734,445,412,8920.00
+2025-03-06,ghi789,Cart Abandonment Reminder,var_004,email,9105,8910,3245,2990,1945,1702,31,195,5,8910,467,430,9340.00
+2025-03-07,ghi789,Cart Abandonment Reminder,var_004,email,8780,8601,3089,2845,1823,1598,25,179,3,8601,432,398,8650.00
