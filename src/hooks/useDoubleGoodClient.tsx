@@ -166,7 +166,7 @@ export function useConnectPlatform() {
   const { data: client } = useDoubleGoodClient();
   
   return useMutation({
-    mutationFn: async ({ platform, apiKey, apiSecret }: { platform: PlatformType; apiKey: string; apiSecret?: string }) => {
+    mutationFn: async ({ platform, apiKey, apiSecret, additionalConfig }: { platform: PlatformType; apiKey: string; apiSecret?: string; additionalConfig?: Record<string, unknown> }) => {
       if (!client?.id) throw new Error('Client not found');
       const { data, error } = await supabase
         .from('client_platforms')
@@ -176,6 +176,7 @@ export function useConnectPlatform() {
           api_key: apiKey,
           api_secret: apiSecret || null,
           is_connected: true,
+          ...(additionalConfig ? { additional_config: additionalConfig } : {}),
         })
         .select()
         .single();

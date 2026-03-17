@@ -41,6 +41,7 @@ export default function Platforms() {
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformType | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+  const [restEndpoint, setRestEndpoint] = useState('');
 
   const handleConnectPlatform = useCallback(async () => {
     if (!selectedPlatform || !apiKey) return;
@@ -49,13 +50,15 @@ export default function Platforms() {
       platform: selectedPlatform,
       apiKey,
       apiSecret: apiSecret || undefined,
+      additionalConfig: restEndpoint ? { rest_endpoint: restEndpoint } : undefined,
     });
-    
+
     setConnectDialogOpen(false);
     setSelectedPlatform(null);
     setApiKey('');
     setApiSecret('');
-  }, [selectedPlatform, apiKey, apiSecret, connectPlatform]);
+    setRestEndpoint('');
+  }, [selectedPlatform, apiKey, apiSecret, restEndpoint, connectPlatform]);
 
   const handleDisconnectPlatform = useCallback(async (platform: PlatformType) => {
     await disconnectPlatform.mutateAsync(platform);
@@ -237,6 +240,21 @@ export default function Platforms() {
                 placeholder="Enter API secret if required"
               />
             </div>
+            {selectedPlatform === 'braze' && (
+              <div className="space-y-2">
+                <Label htmlFor="restEndpoint">REST API URL</Label>
+                <Input
+                  id="restEndpoint"
+                  type="text"
+                  value={restEndpoint}
+                  onChange={(e) => setRestEndpoint(e.target.value)}
+                  placeholder="https://rest.iad-06.braze.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Defaults to iad-01 if left blank. Find yours in Braze under Settings &gt; APIs and Identifiers.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConnectDialogOpen(false)}>
