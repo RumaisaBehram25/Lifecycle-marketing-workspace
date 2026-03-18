@@ -1222,6 +1222,10 @@ export type Database = {
       }
     }
     Functions: {
+      get_table_columns: {
+        Args: { tablename: string }
+        Returns: string[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

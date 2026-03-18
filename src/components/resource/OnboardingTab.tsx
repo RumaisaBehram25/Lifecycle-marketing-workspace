@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,8 +22,15 @@ import {
   Upload,
   Swords,
   Check,
+  FileSpreadsheet,
+  Loader2,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
 
 interface OnboardingData {
   companyName: string;
@@ -56,6 +64,7 @@ const SECTIONS = [
   { id: 'tech', label: 'Tech Stack', icon: Cpu },
   { id: 'competitors', label: 'Competitors', icon: Swords },
   { id: 'resources', label: 'Brand Resources', icon: Upload },
+  { id: 'analytics', label: 'Upload Analytics CSVs', icon: FileSpreadsheet },
 ];
 
 const TECH_TOOLS = [
@@ -75,10 +84,197 @@ const INITIAL_DATA: OnboardingData = {
   uploadedFiles: [],
 };
 
+const BUCKET = 'analytics-csvs';
+
+type FileProgressItem = {
+  file: File;
+  status: 'uploading' | 'processing' | 'done' | 'error';
+  error?: string;
+};
+
+function formatError(error: unknown): string {
+  if (error == null) return 'Unknown error';
+  if (typeof error === 'object' && 'message' in error && typeof (error as { message: unknown }).message === 'string')
+    return (error as { message: string }).message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error) || 'Unknown error';
+  } catch {
+    return 'Unknown error';
+  }
+}
+
+type AnalyticsTable =
+  | 'braze_campaign_analytics'
+  | 'customerio_campaigns'
+  | 'customerio_broadcasts'
+  | 'customerio_messages'
+  | 'braze_sync_runs';
+
+type DetectedFormat = AnalyticsTable | 'braze_segment_analytics' | 'braze_usage_analytics';
+
+/** Normalize header for matching: lowercase, spaces → underscores */
+function normalizeHeader(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function parseCSV(text: string): { headers: string[]; rawHeaderLine: string; rows: Record<string, string>[] } {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length === 0) return { headers: [], rawHeaderLine: '', rows: [] };
+  const rawHeaderLine = lines[0];
+  const headers = rawHeaderLine.split(',').map((h) => normalizeHeader(h));
+  const rows: Record<string, string>[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',').map((v) => v.trim());
+    const row: Record<string, string> = {};
+    headers.forEach((h, j) => {
+      row[h] = values[j] ?? '';
+    });
+    rows.push(row);
+  }
+  return { headers, rawHeaderLine, rows };
+}
+
+/** Return true if headers array contains every key (normalized). */
+function headersContainAll(headers: string[], keys: string[]): boolean {
+  const set = new Set(headers);
+  return keys.every((k) => set.has(normalizeHeader(k)));
+}
+
+/** Detection: braze_campaign_analytics → campaign_id + variation_api_id; braze_computed_rates → campaign_name + delivery_rate */
+function detectTableFromHeaders(headers: string[], rawHeaderLine: string): DetectedFormat | null {
+  if (headersContainAll(headers, ['campaign_id', 'variation_api_id'])) return 'braze_campaign_analytics';
+  if (headersContainAll(headers, ['campaign_name', 'delivery_rate'])) return 'customerio_campaigns';
+  if (headersContainAll(headers, ['segment_id', 'segment_name'])) return 'braze_segment_analytics';
+  if (headersContainAll(headers, ['dau', 'mau'])) return 'braze_usage_analytics';
+
+  console.warn('[Upload Analytics CSVs] CSV did not match any table. Actual headers:', rawHeaderLine || headers);
+  return null;
+}
+
+/** Hardcoded column whitelist per table. Only these columns are allowed when inserting from CSV. */
+const TABLE_WHITELIST: Record<string, Set<string>> = {
+  braze_campaign_analytics: new Set([
+    'id', 'client_id', 'created_at', 'campaign_id', 'campaign_name',
+    'variation_api_id', 'channel', 'date', 'sent', 'delivered', 'opens', 'unique_opens',
+    'clicks', 'unique_clicks', 'unsubscribes', 'bounces', 'reported_spam',
+    'unique_recipients', 'conversions', 'conversions_by_send_time', 'revenue',
+  ]),
+  customerio_campaigns: new Set([
+    'id', 'client_id', 'created_at', 'campaign_name', 'date_range', 'channel',
+    'total_sent', 'total_delivered', 'total_opens', 'unique_opens', 'total_clicks',
+    'unique_clicks', 'bounces', 'unsubscribes', 'spam_reports', 'conversions',
+    'revenue', 'delivery_rate', 'open_rate', 'unique_open_rate', 'click_rate',
+    'unique_click_rate', 'click_to_open_rate', 'bounce_rate', 'unsubscribe_rate',
+    'spam_rate', 'conversion_rate',
+  ]),
+  braze_usage_analytics: new Set([
+    'id', 'client_id', 'created_at', 'date', 'sessions', 'dau', 'mau', 'new_users',
+    'emails_sent', 'emails_delivered', 'emails_opened', 'email_clicks', 'email_bounces',
+    'emails_reported_spam', 'push_sent', 'push_total_opens', 'push_direct_opens',
+    'push_bounces', 'in_app_sent', 'in_app_impressions', 'in_app_clicks',
+  ]),
+  braze_segment_analytics: new Set([
+    'id', 'client_id', 'created_at', 'date', 'segment_id', 'segment_name', 'size',
+  ]),
+};
+
+function getTableWhitelist(table: string): Set<string> {
+  const cols = TABLE_WHITELIST[table];
+  if (!cols) throw new Error(`No whitelist for table: ${table}`);
+  return cols;
+}
+
+/** Tables that use upsert with this onConflict (column list) to avoid duplicates. Must match DB UNIQUE constraint exactly. */
+const UPSERT_ON_CONFLICT: Record<string, string> = {
+  braze_campaign_analytics: 'client_id,campaign_id,date,variation_api_id',
+  braze_canvases: 'campaign_id,date,variation_api_id',
+  braze_segment_analytics: 'segment_id,date',
+  braze_usage_analytics: 'date,client_id',
+  customerio_campaigns: 'campaign_name,date_range',
+};
+
+/** Coerce a CSV string for DB: strip "%" and parse as number for numeric columns, else return trimmed string. */
+function coerceValue(raw: string): string | number {
+  const s = raw.trim();
+  if (s.endsWith('%')) {
+    const n = parseFloat(s.slice(0, -1));
+    return Number.isNaN(n) ? s : n;
+  }
+  return s;
+}
+
+/** Parse common date formats (M/D/YYYY, M/D/YY, YYYY-MM-DD) to ISO YYYY-MM-DD for the DB. */
+function coerceDate(raw: string): string {
+  const s = raw.trim();
+  if (!s) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})$/);
+  if (m) {
+    const month = m[1].padStart(2, '0');
+    const day = m[2].padStart(2, '0');
+    const year = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${year}-${month}-${day}`;
+  }
+  return s;
+}
+
+/** CSV column name → DB column name for tables where Braze exports use different names. */
+const COLUMN_ALIASES: Record<string, Record<string, string>> = {
+  braze_campaign_analytics: { conversions_by_revenue: 'conversions_by_send_time' },
+};
+
+/** Build insert rows: normalize CSV columns to lowercase + underscores, only keep keys in whitelist, add client_id. */
+function buildInsertRows(
+  table: string,
+  whitelist: Set<string>,
+  headers: string[],
+  rows: Record<string, string>[],
+  client_id: string
+): Record<string, unknown>[] {
+  const aliases = COLUMN_ALIASES[table] ?? {};
+  return rows.map((row) => {
+    const obj: Record<string, unknown> = { client_id };
+    for (const csvKey of headers) {
+      const value = row[csvKey];
+      if (value === undefined || value === '') continue;
+      const normalized = csvKey.toLowerCase().replace(/\s+/g, '_');
+      const dbKey = aliases[normalized] ?? normalized;
+      if (!whitelist.has(dbKey)) continue;
+      const raw = String(value).trim();
+      const finalValue = dbKey === 'date' ? coerceDate(raw) : coerceValue(value);
+      obj[dbKey] = finalValue;
+    }
+    return obj;
+  });
+}
+
 export function OnboardingTab() {
   const [activeSection, setActiveSection] = useState('company');
   const [data, setData] = useState<OnboardingData>(INITIAL_DATA);
   const [submitted, setSubmitted] = useState(false);
+  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
+  const { data: fallbackClient, isLoading: fallbackLoading } = useQuery({
+    queryKey: ['onboarding-fallback-client'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { id: string } | null;
+    },
+    enabled: !client?.id,
+    staleTime: 1000 * 60 * 5,
+  });
+  const clientId = client?.id ?? fallbackClient?.id ?? undefined;
+  const clientStillLoading = clientLoading || (!client?.id && fallbackLoading);
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fileProgressList, setFileProgressList] = useState<FileProgressItem[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const updateField = (field: keyof OnboardingData, value: any) => {
     setData(prev => ({ ...prev, [field]: value }));
@@ -119,6 +315,113 @@ export function OnboardingTab() {
     }));
   };
 
+  const setFileProgress = (index: number, update: Partial<FileProgressItem>) => {
+    setFileProgressList(prev => prev.map((item, i) => i === index ? { ...item, ...update } : item));
+  };
+
+  const handleAnalyticsCsvFileSelect = async (files: FileList | null) => {
+    if (!files?.length) {
+      toast({ title: 'No files', description: 'Please select one or more files.', variant: 'destructive' });
+      return;
+    }
+    if (!clientId) {
+      toast({ title: 'No client context', description: 'Client is required. Please ensure you are logged in with a client.', variant: 'destructive' });
+      return;
+    }
+    const list = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.csv'));
+    if (list.length === 0) {
+      toast({ title: 'No CSV files', description: 'Please select one or more .csv files.', variant: 'destructive' });
+      return;
+    }
+    setIsUploading(true);
+    setFileProgressList(list.map(file => ({ file, status: 'uploading' as const })));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    let successCount = 0;
+    const now = Date.now();
+    const client_id = clientId;
+
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      const path = `${clientId}/${now + i}_${file.name}`;
+
+      try {
+        setFileProgress(i, { status: 'uploading' });
+        const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
+        if (uploadErr) throw uploadErr;
+
+        setFileProgress(i, { status: 'processing' });
+        const text = await file.text();
+        const { headers, rawHeaderLine, rows } = parseCSV(text);
+        const table = detectTableFromHeaders(headers, rawHeaderLine);
+        if (!table) {
+          setFileProgress(i, { status: 'error', error: 'Unknown CSV format: no matching table' });
+          continue;
+        }
+
+        const whitelist = getTableWhitelist(table);
+        let rowsToUse = rows;
+
+        if (table === 'customerio_campaigns') {
+          rowsToUse = rows.filter((row) => {
+            const name = (row.campaign_name ?? row['campaign_name'] ?? '').trim();
+            return name !== '' && !name.startsWith('---');
+          });
+        }
+
+        const insertRows = buildInsertRows(table, whitelist, headers, rowsToUse, client_id);
+
+        if (insertRows.length === 0) {
+          setFileProgress(i, { status: 'error', error: 'No rows to insert after filtering' });
+          continue;
+        }
+
+        const onConflict = UPSERT_ON_CONFLICT[table];
+        if (onConflict) {
+          const { data: upsertData, error: upsertErr } = await (supabase as any)
+            .from(table)
+            .upsert(insertRows, { onConflict })
+            .select('id');
+          if (upsertErr) {
+            setFileProgress(i, { status: 'error', error: upsertErr.message ?? formatError(upsertErr) });
+            continue;
+          }
+          const affected = Array.isArray(upsertData) ? upsertData.length : 0;
+          if (affected === 0) {
+            setFileProgress(i, { status: 'error', error: 'Upsert reported no rows affected' });
+            continue;
+          }
+        } else {
+          const { data: insertData, error: insertErr } = await (supabase as any)
+            .from(table)
+            .insert(insertRows)
+            .select('id');
+          if (insertErr) {
+            setFileProgress(i, { status: 'error', error: insertErr.message ?? formatError(insertErr) });
+            continue;
+          }
+          const affected = Array.isArray(insertData) ? insertData.length : 0;
+          if (affected === 0) {
+            setFileProgress(i, { status: 'error', error: 'Insert reported no rows affected' });
+            continue;
+          }
+        }
+
+        setFileProgress(i, { status: 'done' });
+        successCount++;
+      } catch (e: unknown) {
+        setFileProgress(i, { status: 'error', error: formatError(e) });
+      }
+    }
+
+    setIsUploading(false);
+    toast({
+      title: 'Processing complete',
+      description: `${successCount} of ${list.length} files processed successfully.`,
+      variant: successCount === list.length ? 'default' : 'destructive',
+    });
+  };
+
   const handleSubmit = () => {
     setSubmitted(true);
   };
@@ -146,6 +449,15 @@ export function OnboardingTab() {
 
   return (
     <div className="flex gap-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv"
+        multiple
+        className="sr-only"
+        aria-hidden
+        onChange={e => handleAnalyticsCsvFileSelect(e.target.files)}
+      />
       {/* Section Nav */}
       <div className="w-56 flex-shrink-0 space-y-1 hidden md:block">
         {SECTIONS.map((section) => {
@@ -450,6 +762,84 @@ export function OnboardingTab() {
                 <p className="text-xs text-muted-foreground">
                   Uploaded brand resources will be analyzed and used to populate your Brand Voice, Design, and Rules tabs automatically.
                 </p>
+              </>
+            )}
+
+            {/* Upload Analytics CSVs */}
+            {activeSection === 'analytics' && (
+              <>
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">Upload Analytics CSVs</h3>
+                  <p className="text-sm text-muted-foreground">Upload Braze or Customer.io CSV exports. Files are stored and rows are imported into the matching analytics tables.</p>
+                </div>
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    disabled={isUploading}
+                    onClick={() => {
+                      if (!clientId) {
+                        toast({ title: 'Client required', description: 'No client is available. Add a client in the clients table (Supabase) and refresh, or check RLS allows your user to read clients.', variant: 'destructive' });
+                        return;
+                      }
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading…
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        Upload Analytics CSVs
+                      </>
+                    )}
+                  </Button>
+                  {clientStillLoading && (
+                    <p className="text-sm text-muted-foreground">
+                      Loading client…
+                    </p>
+                  )}
+                  {!clientId && !clientStillLoading && (
+                    <p className="text-sm text-amber-600 dark:text-amber-500">
+                      No client found. Add at least one row to the <code className="text-xs bg-muted px-1 rounded">clients</code> table (e.g. in Supabase or via a seed), then refresh.
+                    </p>
+                  )}
+                </div>
+                {fileProgressList.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Files</p>
+                    <ul className="space-y-1.5">
+                      {fileProgressList.map((item, idx) => (
+                        <li key={idx} className="flex items-center gap-2 text-sm">
+                          {item.status === 'uploading' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                          {item.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                          {item.status === 'done' && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                          {item.status === 'error' && <XCircle className="h-4 w-4 text-destructive" />}
+                          <span className={cn(
+                            item.status === 'error' && 'text-destructive'
+                          )}>
+                            {item.file.name}
+                          </span>
+                          {item.status === 'uploading' && <span className="text-muted-foreground">Uploading…</span>}
+                          {item.status === 'processing' && <span className="text-muted-foreground">Processing…</span>}
+                          {item.status === 'done' && <span className="text-muted-foreground">Done</span>}
+                          {item.status === 'error' && (
+                            <span className="text-destructive text-xs">
+                              ({formatError(item.error)})
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {!isUploading && (
+                      <p className="text-sm text-muted-foreground">
+                        {fileProgressList.filter(f => f.status === 'done').length} of {fileProgressList.length} files processed successfully.
+                      </p>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </CardContent>

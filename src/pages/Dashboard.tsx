@@ -8,15 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
-  ArrowRight, Plus, CheckCircle2, ListTodo, Send,
+  ArrowRight, CheckCircle2, ListTodo, Send,
   Workflow, Clock, Zap, Sparkles, ChevronDown, ChevronRight,
-  FolderOpen,
+  FolderOpen, FileText,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
-import { CreateBriefModal } from '@/components/briefs/CreateBriefModal';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
+import { useDriveBriefs } from '@/hooks/useDriveBriefs';
+import { DriveBriefCard } from '@/components/briefs/DriveBriefCard';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
 
@@ -68,7 +69,7 @@ const PROGRESS_STEPS = [
   { id: 'live', label: 'Live' },
 ];
 
-const PLACEHOLDER_BRIEFS = [
+export const PLACEHOLDER_BRIEFS = [
   { id: 'p1', name: 'Welcome Series Revamp', content_type: 'lifecycle', status: 'pending_copy', deadline: '2026-03-15', channels: ['email', 'push'], created_at: '2026-02-01', about: 'Revamp the welcome series with updated brand voice', stage: 'Onboarding' },
   { id: 'p2', name: 'Spring Sale Campaign', content_type: 'campaign', status: 'to_brief', deadline: '2026-03-20', channels: ['email'], created_at: '2026-02-10', about: 'Q1 spring sale push', quarter: 'Q1 2026' },
   { id: 'p3', name: 'Post-Purchase Flow', content_type: 'lifecycle', status: 'in_development', deadline: '2026-03-10', channels: ['email', 'inapp'], created_at: '2026-01-20', about: 'Post-purchase thank you and cross-sell flow', stage: 'Post-Purchase' },
@@ -193,7 +194,7 @@ function BriefFolder({ type, briefs, onSelectBrief }: { type: FolderType; briefs
   );
 }
 
-function OpenBriefsTracker({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
+export function OpenBriefsTracker({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
   const [selectedBrief, setSelectedBrief] = useState<any>(null);
   const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
   const openBriefs = displayBriefs.filter(b => !['complete', 'live'].includes(b.status));
@@ -243,7 +244,7 @@ function OpenBriefsTracker({ briefs, clientId, onRefresh }: { briefs: any[]; cli
   );
 }
 
-function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
+export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
   const [selectedBrief, setSelectedBrief] = useState<any>(null);
   const [isOpen, setIsOpen] = useState(false);
   const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
@@ -299,7 +300,7 @@ function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; c
 
 export default function Dashboard() {
   const { data: client } = useDoubleGoodClient();
-  const [createBriefOpen, setCreateBriefOpen] = useState(false);
+  const { data: driveBriefs = [] } = useDriveBriefs();
   
   const { data: briefs } = useQuery({
     queryKey: ['dashboard-briefs', client?.id],
@@ -348,10 +349,6 @@ export default function Dashboard() {
                   CRM Copilot — Lifecycle marketing command center
                 </p>
               </div>
-              <Button onClick={() => setCreateBriefOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Brief
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -360,8 +357,42 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard icon={Send} label="Campaigns Sent" value={10} trend="Last 30 days" color="bg-blue-500/10 text-blue-600" />
           <MetricCard icon={Workflow} label="Lifecycle Flows Updated" value={4} trend="Last 30 days" color="bg-purple-500/10 text-purple-600" />
-          <MetricCard icon={ListTodo} label="Open Briefs" value={briefCounts?.open ?? 0} color="bg-primary/10 text-primary" />
+          <MetricCard icon={FileText} label="Google Drive Briefs" value={driveBriefs.length} color="bg-blue-500/10 text-blue-600" />
           <MetricCard icon={CheckCircle2} label="Closed Briefs" value={briefCounts?.completed ?? 0} trend="Last 30 days" color="bg-green-500/10 text-green-600" />
+        </div>
+
+        {/* Google Drive Briefs */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center border border-blue-500/10">
+              <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h2 className="text-lg font-semibold text-foreground">Google Drive Briefs</h2>
+            <Badge className="rounded-full h-6 min-w-[1.5rem] justify-center bg-blue-500/15 text-blue-700 dark:text-blue-300 border-0 font-medium">
+              {driveBriefs.length}
+            </Badge>
+          </div>
+          {driveBriefs.length === 0 ? (
+            <Card className="border border-dashed border-blue-500/20 bg-blue-500/[0.02] dark:bg-blue-500/5">
+              <CardContent className="py-12 text-center">
+                <FileText className="h-12 w-12 mx-auto mb-4 text-blue-500/40" />
+                <h3 className="font-semibold mb-2">No Drive briefs</h3>
+                <p className="text-sm text-muted-foreground">
+                  Briefs from your Google Drive folder will appear here.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border border-border/80 bg-card shadow-sm overflow-hidden rounded-xl border-blue-500/10">
+              <div className="max-h-[320px] overflow-y-auto overflow-x-hidden bg-muted/20 dark:bg-muted/10">
+                <div className="p-3 space-y-2">
+                  {driveBriefs.map(brief => (
+                    <DriveBriefCard key={brief.id} brief={brief} />
+                  ))}
+                </div>
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* Open Briefs Tracker — with folders */}
@@ -391,7 +422,6 @@ export default function Dashboard() {
           <EmbeddedChat />
         </Card>
 
-        <CreateBriefModal open={createBriefOpen} onOpenChange={setCreateBriefOpen} />
       </div>
     </AppLayout>
   );
