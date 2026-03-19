@@ -1,5 +1,5 @@
-import { useSearchParams } from 'react-router-dom';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useClientForChat } from '@/hooks/useClientForChat';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
@@ -10,7 +10,7 @@ import { AudienceTab } from '@/components/lifecycle/AudienceTab';
 import { UserJourneysTab } from '@/components/resource/UserJourneysTab';
 import { EventsAttributesTab } from '@/components/resource/EventsAttributesTab';
 import { PageHeader } from '@/components/ui/page-header';
-import { RefreshCw, Volume2, Palette, Ruler, Users, Route, Database } from 'lucide-react';
+import { RefreshCw, Volume2, Palette, Ruler, Users, Route, Database, Sparkles, MessageSquare } from 'lucide-react';
 import { useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 
@@ -24,7 +24,7 @@ const RESOURCE_TABS = [
 ];
 
 function ResourceCenterContent() {
-  const { data: client, isLoading: clientLoading, refetch: refetchClient } = useDoubleGoodClient();
+  const { client, isLoading: clientLoading, refetch } = useClientForChat();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') || 'voice';
   const { state } = useSidebar();
@@ -38,7 +38,7 @@ function ResourceCenterContent() {
     return (
       <div className="p-6 lg:p-8">
         <p>Failed to load resources. Please refresh.</p>
-        <Button onClick={() => refetchClient()} className="mt-4">
+        <Button onClick={() => refetch()} className="mt-4">
           <RefreshCw className="mr-2 h-4 w-4" />
           Retry
         </Button>
@@ -72,10 +72,22 @@ function ResourceCenterContent() {
       )}
 
       <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-        <PageHeader
-          title="Resource Center"
-          description="Brand guidelines, audience segments, user journeys, and data reference"
-        />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <PageHeader
+            title="Resource Center"
+            description="Brand guidelines, audience segments, user journeys, and data reference"
+          />
+          <Button
+            asChild
+            className="shrink-0 bg-gradient-to-r from-primary to-violet-600 text-primary-foreground shadow-md shadow-primary/20 hover:opacity-[0.97]"
+          >
+            <Link to="/chat" className="gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Open AI Chat
+              <Sparkles className="h-4 w-4 opacity-90" />
+            </Link>
+          </Button>
+        </div>
 
         {tabFromUrl === 'voice' && (
           <BrandVoiceTab 

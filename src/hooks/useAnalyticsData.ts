@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 
 type Row = Record<string, unknown>;
 
@@ -11,23 +11,7 @@ function num(v: unknown): number {
 }
 
 export function useAnalyticsData() {
-  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
-  const { data: fallbackClient, isLoading: fallbackLoading } = useQuery({
-    queryKey: ['onboarding-fallback-client'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('clients')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as { id: string } | null;
-    },
-    enabled: !client?.id,
-    staleTime: 1000 * 60 * 5,
-  });
-  const clientId = client?.id ?? fallbackClient?.id ?? undefined;
+  const { clientId, isClientLoading } = useResolvedClientId();
 
   const brazeCampaignAnalytics = useQuery({
     queryKey: ['analytics', 'braze_campaign_analytics', clientId],
@@ -91,7 +75,6 @@ export function useAnalyticsData() {
     retry: false,
   });
 
-  const isClientLoading = !clientId && (clientLoading || (fallbackLoading && !fallbackClient));
   const isLoading =
     isClientLoading ||
     (!!clientId && (brazeCampaignAnalytics.isLoading || customerioCampaigns.isLoading));

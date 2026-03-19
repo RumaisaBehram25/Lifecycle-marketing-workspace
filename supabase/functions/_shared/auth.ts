@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.89.0";
+import { createRemoteJWKSet, jwtVerify, decodeJwt } from "https://esm.sh/jose@5.9.6";
 import { logger } from './logger.ts';
 
 export interface AuthResult {
@@ -9,13 +10,28 @@ export interface AuthResult {
   status?: number;
 }
 
+function jwksUrlFromIssuer(iss: string): string {
+  const base = iss.replace(/\/$/, '');
+  return `${base}/.well-known/jwks.json`;
+}
+
+function summarizeVerifyError(e: unknown): string {
+  if (e instanceof Error && e.name) return e.name;
+  return String(e).slice(0, 120);
+}
+
 /**
- * Validates the JWT token from the Authorization header and returns user context.
- * Returns a user-scoped Supabase client that respects RLS policies.
+ * Validates the JWT from Authorization and returns a user-scoped Supabase client (RLS).
+ *
+ * Uses JWKS verification per Supabase docs. JWKS URL and issuer are taken from the token's
+ * `iss` claim when present so we still verify correctly if Edge `SUPABASE_URL` differs from
+ * the URL that issued the session (internal vs public URL, custom domains).
+ *
+ * @see https://supabase.com/docs/guides/auth/jwts
  */
 export async function validateAuth(req: Request): Promise<AuthResult> {
   const authHeader = req.headers.get('Authorization');
-  
+
   if (!authHeader?.startsWith('Bearer ')) {
     return {
       success: false,
@@ -24,41 +40,113 @@ export async function validateAuth(req: Request): Promise<AuthResult> {
     };
   }
 
-  const token = authHeader.replace('Bearer ', '');
-  
-  // Create a user-scoped client with the JWT token
-  const userClient = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { 
-      global: { headers: { Authorization: authHeader } }
+  const accessToken = authHeader.slice(7).trim();
+  if (!accessToken) {
+    return {
+      success: false,
+      error: 'Missing or invalid Authorization header',
+      status: 401,
+    };
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+  const envBase = supabaseUrl.replace(/\/$/, '');
+  const defaultIss = `${envBase}/auth/v1`;
+
+  let unsafe: { role?: string; sub?: string; iss?: string };
+  try {
+    unsafe = decodeJwt(accessToken) as { role?: string; sub?: string; iss?: string };
+  } catch {
+    return {
+      success: false,
+      error: 'Invalid token format. Please sign in again.',
+      status: 401,
+    };
+  }
+
+  if (unsafe.role === 'anon') {
+    return {
+      success: false,
+      error: 'Sign in to use this feature.',
+      status: 401,
+    };
+  }
+
+  const iss =
+    typeof unsafe.iss === 'string' && unsafe.iss.startsWith('http')
+      ? unsafe.iss.replace(/\/$/, '')
+      : defaultIss;
+
+  const jwks = createRemoteJWKSet(new URL(jwksUrlFromIssuer(iss)));
+
+  const verifyOpts = {
+    issuer: iss,
+    clockTolerance: 60,
+  };
+
+  let sub: string | undefined;
+  let role: string | undefined;
+
+  try {
+    const { payload } = await jwtVerify(accessToken, jwks, verifyOpts);
+    sub = typeof payload.sub === 'string' ? payload.sub : undefined;
+    role = typeof payload.role === 'string' ? payload.role : undefined;
+  } catch (e1) {
+    try {
+      const { payload } = await jwtVerify(accessToken, jwks, { clockTolerance: 60 });
+      sub = typeof payload.sub === 'string' ? payload.sub : undefined;
+      role = typeof payload.role === 'string' ? payload.role : undefined;
+    } catch (e2) {
+      logger.error(
+        'JWT JWKS verify failed (issuer=' + iss + '):',
+        summarizeVerifyError(e1),
+        summarizeVerifyError(e2),
+      );
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error } = await userClient.auth.getUser(accessToken);
+      if (error || !userData?.user) {
+        logger.error('Auth getUser fallback failed:', error?.message ?? error);
+        return {
+          success: false,
+          error: error?.message || 'Invalid or expired token',
+          status: 401,
+        };
+      }
+      return {
+        success: true,
+        userId: userData.user.id,
+        userClient,
+      };
     }
-  );
+  }
 
-  // Verify the token and get claims
-  const { data, error } = await userClient.auth.getClaims(token);
-  
-  if (error || !data?.claims) {
-    logger.error('Auth validation failed:', error);
+  if (role === 'anon' || role === 'service_role') {
     return {
       success: false,
-      error: 'Invalid or expired token',
+      error: 'Sign in to use this feature.',
       status: 401,
     };
   }
 
-  const userId = data.claims.sub;
-  if (!userId) {
+  if (!sub) {
     return {
       success: false,
-      error: 'Invalid token: missing user ID',
+      error: 'Invalid token',
       status: 401,
     };
   }
+
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
 
   return {
     success: true,
-    userId,
+    userId: sub,
     userClient,
   };
 }
@@ -116,9 +204,9 @@ export function authErrorResponse(
 ): Response {
   return new Response(
     JSON.stringify({ error: message }),
-    { 
-      status, 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     }
   );
 }

@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,8 +15,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
-import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
-import { useDriveBriefs } from '@/hooks/useDriveBriefs';
+import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
@@ -299,38 +298,39 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
 }
 
 export default function Dashboard() {
-  const { data: client } = useDoubleGoodClient();
-  const { data: driveBriefs = [], isFetching: driveBriefsLoading } = useDriveBriefs(client?.id);
-  
+  const { clientId } = useResolvedClientId();
+  const { data: driveBriefs = [], isFetching: driveBriefsLoading } = useDriveBriefs(clientId);
+  const driveFileCount = useMemo(() => countSyncedDriveFiles(driveBriefs), [driveBriefs]);
+
   const { data: briefs } = useQuery({
-    queryKey: ['dashboard-briefs', client?.id],
+    queryKey: ['dashboard-briefs', clientId],
     queryFn: async () => {
-      if (!client?.id) return [];
+      if (!clientId) return [];
       const { data, error } = await supabase
         .from('briefs')
         .select('*')
-        .eq('client_id', client.id)
+        .eq('client_id', clientId)
         .order('deadline', { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data || [];
     },
-    enabled: !!client?.id,
+    enabled: !!clientId,
   });
 
   const { data: briefCounts } = useQuery({
-    queryKey: ['brief-counts', client?.id],
+    queryKey: ['brief-counts', clientId],
     queryFn: async () => {
-      if (!client?.id) return { open: 0, completed: 0 };
+      if (!clientId) return { open: 0, completed: 0 };
       const { data: allBriefs, error } = await supabase
         .from('briefs')
         .select('status')
-        .eq('client_id', client.id);
+        .eq('client_id', clientId);
       if (error) throw error;
       const open = (allBriefs || []).filter(b => !['complete', 'live'].includes(b.status)).length;
       const completed = (allBriefs || []).filter(b => ['complete', 'live'].includes(b.status)).length;
       return { open, completed };
     },
-    enabled: !!client?.id,
+    enabled: !!clientId,
   });
 
   return (
@@ -357,12 +357,18 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard icon={Send} label="Campaigns Sent" value={10} trend="Last 30 days" color="bg-blue-500/10 text-blue-600" />
           <MetricCard icon={Workflow} label="Lifecycle Flows Updated" value={4} trend="Last 30 days" color="bg-purple-500/10 text-purple-600" />
-          <MetricCard icon={FileText} label="Google Drive Briefs" value="—" color="bg-blue-500/10 text-blue-600" />
+          <MetricCard
+            icon={FileText}
+            label="Google Drive files"
+            value={driveFileCount}
+            trend={driveBriefsLoading ? 'Refreshing…' : 'Synced from Drive'}
+            color="bg-blue-500/10 text-blue-600"
+          />
           <MetricCard icon={CheckCircle2} label="Closed Briefs" value={briefCounts?.completed ?? 0} trend="Last 30 days" color="bg-green-500/10 text-green-600" />
         </div>
 
         <GoogleDriveBriefsPanel
-          clientId={client?.id}
+          clientId={clientId}
           driveBriefs={driveBriefs}
           isFetching={driveBriefsLoading}
         />
@@ -370,28 +376,37 @@ export default function Dashboard() {
         {/* Open Briefs Tracker — with folders */}
         <OpenBriefsTracker
           briefs={briefs || []}
-          clientId={client?.id || ''}
+          clientId={clientId || ''}
           onRefresh={() => {}}
         />
 
         {/* Closed Briefs — now grouped by type */}
         <ClosedBriefsSection
           briefs={briefs || []}
-          clientId={client?.id || ''}
+          clientId={clientId || ''}
           onRefresh={() => {}}
         />
 
-        {/* AI Chat Module — expanded by default */}
-        <Card>
-          <CardHeader className="pb-3 flex flex-row items-center justify-between">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <div className="h-6 w-6 rounded-lg bg-primary flex items-center justify-center">
-                <Sparkles className="h-3 w-3 text-primary-foreground" />
-              </div>
-              AI Chat
-            </CardTitle>
-          </CardHeader>
-          <EmbeddedChat />
+        {/* CRM Copilot — full experience lives on AI Chat tab (single place for history + Grok) */}
+        <Card className="border-primary/25 bg-gradient-to-br from-primary/[0.06] via-card to-violet-500/[0.05] shadow-md shadow-primary/10 ring-1 ring-primary/10 overflow-hidden">
+          <CardContent className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-violet-600 text-primary-foreground shadow-lg shadow-primary/25">
+              <Sparkles className="h-6 w-6" />
+            </div>
+            <div className="flex-1 min-w-0 space-y-1">
+              <p className="font-semibold text-foreground">AI Chat — CRM Copilot</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Conversations, Grok-powered replies, and saved history are all in the{' '}
+                <span className="text-foreground font-medium">AI Chat</span> tab. Use the sidebar or the button below — nothing runs inline on the dashboard anymore.
+              </p>
+            </div>
+            <Button className="shrink-0 sm:self-center" size="lg" asChild>
+              <Link to="/chat">
+                Open AI Chat
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
         </Card>
 
       </div>

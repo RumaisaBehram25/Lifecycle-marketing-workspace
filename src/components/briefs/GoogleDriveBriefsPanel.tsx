@@ -12,6 +12,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { DriveBriefCard } from '@/components/briefs/DriveBriefCard';
 import type { DriveBrief } from '@/hooks/useDriveBriefs';
+import { countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { cn } from '@/lib/utils';
 
 interface GoogleDriveBriefsPanelProps {
@@ -67,7 +68,11 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
     },
   });
 
-  const hasBriefs = driveBriefs.length > 0;
+  const driveFilesOnly = useMemo(
+    () => driveBriefs.filter((b) => (b.file_type ?? 'file') !== 'folder'),
+    [driveBriefs]
+  );
+  const hasBriefs = driveFilesOnly.length > 0;
 
   const folderIdToDisplayName = useMemo(() => {
     const m = new Map<string, string>();
@@ -207,6 +212,8 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
   };
 
   const configured = connections.length > 0;
+  const syncedFileCount = useMemo(() => countSyncedDriveFiles(driveBriefs), [driveBriefs]);
+  const totalSyncedRows = driveBriefs.length;
 
   return (
     <Card
@@ -245,6 +252,16 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
                   </span>
                 )}
               </div>
+              {configured && (
+                <p className="text-[13px] text-muted-foreground tabular-nums">
+                  <span className="font-medium text-foreground">{syncedFileCount}</span>
+                  {syncedFileCount === 1 ? ' file' : ' files'}
+                  {totalSyncedRows > syncedFileCount
+                    ? ` (${totalSyncedRows - syncedFileCount} folder${totalSyncedRows - syncedFileCount === 1 ? '' : 's'})`
+                    : null}{' '}
+                  synced from Drive
+                </p>
+              )}
               {configured && (
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
                   {connections.map((r, i) => {
@@ -372,12 +389,16 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
           </div>
         ) : !hasBriefs ? (
           <div className="py-14 px-5 sm:px-6 text-center">
-            <p className="text-sm text-muted-foreground">No briefs to show yet.</p>
+            <p className="text-sm text-muted-foreground">
+              {driveBriefs.length > 0
+                ? 'No document files in this folder yet (only subfolders were synced).'
+                : 'No files to show yet.'}
+            </p>
           </div>
         ) : (
           <div className="max-h-[min(520px,62vh)] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
             <div className="px-5 sm:px-6 py-4 space-y-3 w-full">
-              {driveBriefs.map(brief => (
+              {driveFilesOnly.map(brief => (
                 <DriveBriefCard key={brief.id} brief={brief} />
               ))}
             </div>

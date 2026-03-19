@@ -70,6 +70,37 @@ const DOUBLEGOOD_BRAND_DEFAULTS = {
   ]),
 };
 
+/** DoubleGood client row + fallback to oldest `clients` row when slug row is missing (matches analytics). */
+export function useResolvedClientId() {
+  const clientQuery = useDoubleGoodClient();
+  const { data: fallbackClient, isLoading: fallbackLoading } = useQuery({
+    queryKey: ['onboarding-fallback-client'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { id: string } | null;
+    },
+    enabled: !clientQuery.data?.id,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const clientId = clientQuery.data?.id ?? fallbackClient?.id ?? undefined;
+  const isClientLoading =
+    !clientId &&
+    (clientQuery.isLoading || (!clientQuery.data?.id && fallbackLoading && !fallbackClient));
+
+  return {
+    ...clientQuery,
+    clientId,
+    isClientLoading,
+  };
+}
+
 // Hook to get or create the single DoubleGood client
 export function useDoubleGoodClient() {
   const { toast } = useToast();

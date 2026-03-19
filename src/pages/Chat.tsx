@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClientChat } from '@/components/chat/ClientChat';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useClientForChat } from '@/hooks/useClientForChat';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { Sparkles } from 'lucide-react';
 import { BRCGIcon } from '@/components/BRCGLogo';
@@ -9,24 +9,12 @@ import { BRCGIcon } from '@/components/BRCGLogo';
 export default function Chat() {
   const [searchParams] = useSearchParams();
   const initialConversationId = searchParams.get('conversation') || undefined;
-  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
-  const { data: platforms } = useDoubleGoodPlatforms();
-
-  const connectedPlatforms = platforms?.filter(p => p.is_connected) || [];
-  const platformContexts = connectedPlatforms
-    .filter(cp => cp.schema_cache)
-    .map(cp => ({
-      platform: cp.platform,
-      events: (cp.schema_cache as any)?.metrics?.map((m: any) => m.name) || [],
-      lists: (cp.schema_cache as any)?.lists?.map((l: any) => ({ 
-        name: l.name, 
-        count: l.profile_count 
-      })) || [],
-      templates: (cp.schema_cache as any)?.templates?.map((t: any) => t.name) || [],
-      profile_properties: extractProfileProperties((cp.schema_cache as any)?.sample_profiles || []),
-      segments: (cp.schema_cache as any)?.segments?.map((s: any) => s.name) || [],
-      last_sync_at: cp.last_sync_at || undefined,
-    }));
+  const {
+    client,
+    isLoading: clientLoading,
+    platformContexts,
+    hasPlatformConnections,
+  } = useClientForChat();
 
   if (clientLoading) {
     return (
@@ -38,11 +26,13 @@ export default function Chat() {
 
   return (
     <AppLayout>
-      <div className="flex h-[calc(100vh-4rem)] lg:h-screen bg-sidebar">
-        <div className="flex-1 flex flex-col bg-background overflow-hidden">
+      <div className="flex h-[calc(100vh-4rem)] lg:min-h-screen lg:h-screen bg-gradient-to-br from-sidebar via-background to-primary/[0.04]">
+        <div className="flex-1 flex flex-col min-h-0 p-2 sm:p-3 md:p-4 overflow-hidden">
           {client ? (
+            <div className="flex-1 flex flex-col min-h-0 rounded-2xl border border-border/70 bg-background/80 shadow-xl shadow-primary/[0.06] backdrop-blur-sm overflow-hidden">
             <ClientChat
               key={client.id}
+              className="h-full min-h-0"
               client={{
                 id: client.id,
                 name: client.name,
@@ -53,33 +43,39 @@ export default function Chat() {
                 legal_requirements: client.legal_requirements || undefined,
               }}
               platformContext={platformContexts.length > 0 ? platformContexts : undefined}
+              hasPlatformConnections={hasPlatformConnections}
               showHistory={true}
               initialConversationId={initialConversationId}
             />
+            </div>
           ) : (
-            <div className="flex-1 flex flex-col">
-              <div className="flex items-center justify-between p-3 sm:p-4 border-b gap-2">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                  <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="h-4 w-4 text-primary-foreground" />
+            <div className="flex-1 flex flex-col min-h-0 rounded-2xl border border-dashed border-border/80 bg-card/40 backdrop-blur-sm">
+              <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border/60 bg-muted/20 rounded-t-2xl gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-violet-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/25">
+                    <Sparkles className="h-5 w-5 text-primary-foreground" />
                   </div>
-                  <span className="font-bold text-base sm:text-lg truncate">BRCG Copilot</span>
+                  <div className="text-left min-w-0">
+                    <span className="font-heading font-bold text-base sm:text-lg truncate block">CRM Copilot</span>
+                    <span className="text-xs text-muted-foreground">Select a client to start chatting</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex-1 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-                <div className="max-w-2xl w-full text-center space-y-6 sm:space-y-8">
+              <div className="flex-1 flex items-center justify-center p-6 sm:p-10 overflow-y-auto">
+                <div className="max-w-lg w-full text-center space-y-8">
                   <div className="flex justify-center">
-                    <div className="h-20 w-20 rounded-2xl bg-primary flex items-center justify-center shadow-2xl shadow-primary/30">
-                      <BRCGIcon className="h-12 w-12 text-primary-foreground" />
+                    <div className="h-24 w-24 rounded-3xl bg-gradient-to-br from-primary/20 to-violet-500/20 flex items-center justify-center ring-1 ring-border/60 shadow-inner">
+                      <BRCGIcon className="h-14 w-14 text-primary" />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <h1 className="text-2xl sm:text-4xl font-bold tracking-tight">
-                      How can I help you today?
+                  <div className="space-y-3">
+                    <h1 className="text-2xl sm:text-3xl font-heading font-bold tracking-tight">
+                      How can we help today?
                     </h1>
-                    <p className="text-base sm:text-lg text-muted-foreground px-2">
-                      Generate on-brand lifecycle marketing copy and build customer journeys.
+                    <p className="text-muted-foreground leading-relaxed px-2">
+                      Connect a client workspace to unlock CRM Copilot — on-brand copy, journeys, and lifecycle
+                      answers grounded in your data.
                     </p>
                   </div>
                 </div>
@@ -90,22 +86,4 @@ export default function Chat() {
       </div>
     </AppLayout>
   );
-}
-
-function extractProfileProperties(sampleProfiles: any[]): string[] {
-  const properties = new Set<string>();
-  sampleProfiles.forEach(profile => {
-    const extractProps = (obj: any, prefix = '') => {
-      if (!obj || typeof obj !== 'object') return;
-      Object.keys(obj).forEach(key => {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        properties.add(fullKey);
-        if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-          extractProps(obj[key], fullKey);
-        }
-      });
-    };
-    extractProps(profile);
-  });
-  return Array.from(properties);
 }

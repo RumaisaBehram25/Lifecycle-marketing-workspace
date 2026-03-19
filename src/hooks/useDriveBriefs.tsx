@@ -11,9 +11,16 @@ export interface DriveBrief {
   source: 'google_drive';
   content_type: 'campaign' | 'lifecycle' | 'task';
   status: 'draft';
+  /** From sync: `folder` rows are excluded from dashboard "file" counts. */
+  file_type?: string | null;
   folder_name?: string;
   folder_id?: string;
   slot_id?: string;
+}
+
+/** Rows synced from Drive that are not subfolders (counts briefs/docs for metrics). */
+export function countSyncedDriveFiles(briefs: readonly DriveBrief[]): number {
+  return briefs.filter((b) => (b.file_type ?? 'file') !== 'folder').length;
 }
 
 export function useDriveBriefs(clientId: string | undefined) {
@@ -49,6 +56,7 @@ export function useDriveBriefs(clientId: string | undefined) {
         const c = byConnectionId.get(String(r.drive_connection_id));
         const folderName = c?.folder_name || 'Connected folder';
         const fileName = String(r.file_name ?? '');
+        const fileType = r.file_type != null ? String(r.file_type) : null;
         return {
           id: String(r.id ?? `${r.drive_connection_id}_${r.file_id}`),
           title: fileName.replace(/\.(docx|pdf|gdoc|doc)$/i, '').replace(/[-_]/g, ' '),
@@ -59,6 +67,7 @@ export function useDriveBriefs(clientId: string | undefined) {
           source: 'google_drive' as const,
           content_type: 'campaign' as const,
           status: 'draft' as const,
+          file_type: fileType,
           folder_name: folderName,
           folder_id: c?.folder_id ?? String(r.drive_connection_id ?? ''),
           slot_id: String(r.drive_connection_id ?? ''),

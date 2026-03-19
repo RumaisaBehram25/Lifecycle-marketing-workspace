@@ -1,4 +1,9 @@
-project_id = "qypwftqzbikkdcbzkzqn"
+# Match the project in .env (VITE_SUPABASE_URL) so `supabase functions deploy` targets the same app.
+project_id = "zxeajrdcjqfravlkpqhm"
 
 [functions.customerio-proxy]
+verify_jwt = false
+
+# Gateway JWT checks can reject valid user sessions with publishable keys; we verify in validateAuth (JWKS).
+[functions.ops-chat]
 verify_jwt = false
