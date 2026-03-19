@@ -29,6 +29,10 @@ import {
   Bar,
   ComposedChart,
   Line,
+  PieChart,
+  Pie,
+  Cell,
+  ReferenceLine,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -37,7 +41,7 @@ import {
 } from 'recharts';
 import {
   Send, Workflow, UserPlus, Search, DollarSign, Users, ChevronDown, ChevronUp,
-  Eye, RefreshCw, Sparkles, Target, BarChart2, Info, UploadCloud, ArrowRight,
+  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -101,6 +105,7 @@ export default function Analytics() {
   const [campaignSearch, setCampaignSearch] = useState('');
   const [campaignChannelFilter, setCampaignChannelFilter] = useState('All');
   const [period, setPeriod] = useState('default');
+  const [siteRevenueInput, setSiteRevenueInput] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('revenue');
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -205,61 +210,6 @@ export default function Analytics() {
     return sortAsc ? <ChevronUp className="inline h-3 w-3 ml-0.5" /> : <ChevronDown className="inline h-3 w-3 ml-0.5" />;
   };
 
-  const totalCampaignRevenue = campaignTableRows.reduce((s, c) => s + c.revenue, 0);
-  const topCampaignShare = totalCampaignRevenue > 0 && campaignTableRows.length > 0
-    ? Math.max(...campaignTableRows.map((c) => (c.revenue / totalCampaignRevenue) * 100))
-    : 0;
-  const hasNoFlowData = revenueMonthly.length > 0 && revenueMonthly.every((m) => (m.flowRev ?? 0) === 0);
-
-  const bestMonth = revenueMonthly.length > 0
-    ? revenueMonthly.reduce((best, m) => (m.campaignRev > (best?.campaignRev ?? 0) ? m : best), revenueMonthly[0])
-    : null;
-
-  const insights: { title: string; body: string; tag: string; tagColor: string }[] = [];
-
-  if (revenueMonthly.length > 0) {
-    insights.push({
-      title: 'How to read the chart: Campaign Revenue vs 25% Benchmark',
-      body: `In the chart above: Campaign Revenue (blue bars) = money from Braze campaigns each month. CRM % (teal line) = that month’s share of your total campaign revenue. The 25% Benchmark (dashed line) = industry target — top brands get ~25% of total site revenue from CRM. You’re viewing campaign data only; add flow or site revenue to see how you compare to 25%.${bestMonth ? ` Your strongest month was ${bestMonth.monthLabel} with $${Number(bestMonth.campaignRev).toLocaleString()} campaign revenue.` : ''}`,
-      tag: 'Chart guide',
-      tagColor: 'bg-blue-500/10 text-blue-600',
-    });
-  }
-
-  if (hasNoFlowData) {
-    insights.push({
-      title: 'Comparing to the 25% benchmark',
-      body: 'The dashed line at 25% is where you want to be: 25% of your total business revenue should come from CRM (campaigns + flows). Your chart currently shows only campaign revenue, so we can’t compare you to that benchmark yet. Once you add flow or total site revenue data, you’ll see whether you’re above or below 25% and by how much.',
-      tag: 'Benchmark',
-      tagColor: 'bg-purple-500/10 text-purple-600',
-    });
-  }
-  if (topCampaignShare > 50 && campaignTableRows.length > 0) {
-    const top = campaignTableRows.find((c) => (c.revenue / totalCampaignRevenue) * 100 === topCampaignShare);
-    insights.push({
-      title: 'Revenue concentration',
-      body: `One campaign is doing most of the work: "${top?.name ?? 'One campaign'}" is ${topCampaignShare.toFixed(0)}% of your total campaign revenue. That’s a risk if that campaign stops. Consider spreading revenue across more campaigns.`,
-      tag: 'High Priority',
-      tagColor: 'bg-red-500/10 text-red-600',
-    });
-  }
-  if (metrics.conversionRate < 3 && metrics.conversionRate >= 0) {
-    insights.push({
-      title: 'Conversion rate vs target',
-      body: `Your conversion rate is ${metrics.conversionRate.toFixed(2)}%. The common target is 3% or higher. You’re ${(3 - metrics.conversionRate).toFixed(2)}% below that — improving emails and segments could help close the gap.`,
-      tag: 'Opportunity',
-      tagColor: 'bg-green-500/10 text-green-600',
-    });
-  }
-  if (insights.length === 0) {
-    insights.push({
-      title: 'No insights yet',
-      body: 'Upload Braze CSVs (campaign, segment, usage) to see chart comparisons and benchmark insights here.',
-      tag: 'Info',
-      tagColor: 'bg-muted text-muted-foreground',
-    });
-  }
-
   const filteredCampaigns = campaignTableRows
     .filter((c) => {
       const matchesSearch = c.name.toLowerCase().includes(campaignSearch.toLowerCase());
@@ -277,6 +227,94 @@ export default function Analytics() {
       if (sortKey === 'segment') return mul * (a.segment ?? '').localeCompare(b.segment ?? '');
       return 0;
     });
+
+  const totalCampaignRevenue = revenueMonthly.reduce((s, m) => s + (m.campaignRev ?? 0), 0);
+  const bestMonth = revenueMonthly.length > 0
+    ? revenueMonthly.reduce((best, m) => (m.campaignRev > (best?.campaignRev ?? 0) ? m : best), revenueMonthly[0])
+    : null;
+  const parsedSiteRevenue = Number(siteRevenueInput.replace(/[^0-9.]/g, ''));
+  const hasSiteRevenue = Number.isFinite(parsedSiteRevenue) && parsedSiteRevenue > 0;
+  const overallCrmPct = hasSiteRevenue ? (totalCampaignRevenue / parsedSiteRevenue) * 100 : null;
+  const overallGapToBenchmark = overallCrmPct != null ? overallCrmPct - 25 : null;
+  const benchmarkStatText =
+    overallGapToBenchmark == null
+      ? 'Enter site revenue to compare'
+      : `${overallGapToBenchmark >= 0 ? '+' : ''}${overallGapToBenchmark.toFixed(1)} pts vs 25%`;
+
+  const benchmarkChartData = revenueMonthly.map((m) => ({
+    monthLabel: m.monthLabel,
+    campaignRev: Number(m.campaignRev ?? 0),
+    crmPct: hasSiteRevenue ? (Number(m.campaignRev ?? 0) / parsedSiteRevenue) * 100 : null,
+    benchmark: 25,
+  }));
+  const renderBenchmarkTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const row = payload[0]?.payload as { campaignRev?: number; crmPct?: number | null };
+    const revenue = Number(row?.campaignRev ?? 0);
+    const crm = row?.crmPct == null ? null : Number(row.crmPct);
+    const gap = crm == null ? null : crm - 25;
+    return (
+      <div className="rounded-lg border border-border bg-card p-2.5 text-xs shadow-sm">
+        <p className="font-medium text-foreground mb-1">Month: {label}</p>
+        <p className="text-muted-foreground">Revenue: <span className="text-foreground">${revenue.toLocaleString()}</span></p>
+        <p className="text-muted-foreground">CRM %: <span className="text-foreground">{crm == null ? '—' : `${crm.toFixed(2)}%`}</span></p>
+        <p className="text-muted-foreground">Gap to benchmark: <span className="text-foreground">{gap == null ? '—' : `${gap >= 0 ? '+' : ''}${gap.toFixed(2)} pts`}</span></p>
+      </div>
+    );
+  };
+
+  const dailyEmailEngagementData = usageChartData.map((r) => ({
+    date: r.date,
+    emails_opened: Number((r as any).emails_opened ?? 0),
+    email_clicks: Number((r as any).email_clicks ?? 0),
+    email_bounces: Number((r as any).email_bounces ?? 0),
+  }));
+
+  const campaignComparisonData = [...campaignTableRows]
+    .map((r) => ({
+      campaign_name: r.name || 'Untitled Campaign',
+      revenue: Number(r.revenue ?? 0),
+      conversions: Number(r.orders ?? 0),
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 12);
+
+  const latestSegmentDate =
+    segmentChartDataByDate.length > 0
+      ? String((segmentChartDataByDate[segmentChartDataByDate.length - 1] as any).date ?? '')
+      : '';
+  const latestSegmentRow = segmentChartDataByDate.length > 0
+    ? (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>)
+    : null;
+
+  const findSegmentValue = (keys: string[]) => {
+    if (!latestSegmentRow) return 0;
+    const lower = keys.map((k) => k.toLowerCase());
+    for (const [k, v] of Object.entries(latestSegmentRow)) {
+      if (k === 'date') continue;
+      if (lower.includes(k.toLowerCase())) return Number(v ?? 0);
+    }
+    return 0;
+  };
+
+  const segmentDonutData = [
+    {
+      name: 'All Email Subscribers',
+      value: findSegmentValue(['All Email Subscribers']),
+      color: 'hsl(217 91% 60%)',
+    },
+    {
+      name: 'Active Subscribers',
+      value: findSegmentValue(['Active Subscribers']),
+      color: 'hsl(142 71% 45%)',
+    },
+    {
+      name: 'Churned',
+      value: findSegmentValue(['Churned']),
+      color: 'hsl(0 72% 51%)',
+    },
+  ];
+  const segmentTotal = segmentDonutData.reduce((s, d) => s + d.value, 0);
 
   const chartMutedFill = 'hsl(var(--muted-foreground))';
 
@@ -321,7 +359,7 @@ export default function Analytics() {
           <StatCard icon={DollarSign} label="Conversion Rate" value={formatPct(metrics.conversionRate)} color="bg-rose-500/10 text-rose-600" />
         </div>
 
-        {/* Campaign revenue vs benchmark — easy comparison for non-tech */}
+        {/* Campaign revenue vs benchmark — combined chart */}
         <Card className="shadow-sm border-border/80 overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold text-foreground/95 flex items-center gap-2">
@@ -332,72 +370,56 @@ export default function Analytics() {
             </CardTitle>
             <p className="text-xs text-muted-foreground">Your revenue from campaigns and what “good” looks like (25% of total site revenue from CRM).</p>
           </CardHeader>
-          <CardContent className="pt-2 space-y-5">
-            {revenueMonthly.length > 0 && (() => {
-              const totalRev = revenueMonthly.reduce((s, m) => s + (m.campaignRev ?? 0), 0);
-              const monthCount = revenueMonthly.length;
-              const bestMonth = monthCount > 0 ? revenueMonthly.reduce((best, m) => (m.campaignRev > (best?.campaignRev ?? 0) ? m : best), revenueMonthly[0]) : null;
-              return (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
-                          <DollarSign className="h-5 w-5 text-emerald-600" />
-                        </div>
-                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Your campaign revenue</p>
-                      </div>
-                      <p className="text-2xl font-bold text-foreground">${totalRev.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {monthCount === 1 && bestMonth
-                          ? `${bestMonth.monthLabel} · from your Braze campaign CSV`
-                          : `Across ${monthCount} months · ${metrics.totalDelivered.toLocaleString()} delivered`}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-                          <Target className="h-5 w-5 text-amber-600" />
-                        </div>
-                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Industry benchmark</p>
-                      </div>
-                      <p className="text-xl font-bold text-foreground/95">25% of total site revenue</p>
-                      <p className="text-xs text-muted-foreground">
-                        Top brands get about 25% of their total website revenue from CRM (email + campaigns). Add your total site revenue to see if you’re above or below this.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2.5">
-                    <Info className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-muted-foreground">
-                      <strong className="text-foreground/90">Bottom line:</strong> You have ${totalRev.toLocaleString(undefined, { maximumFractionDigits: 0 })} from campaigns. To compare yourself to the 25% benchmark, we need your total site revenue — then we can show “your CRM share: X%” vs 25%.
-                    </p>
-                  </div>
-                </>
-              );
-            })()}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <BarChart2 className="h-3.5 w-3.5 text-muted-foreground" />
-                <p className="text-xs font-medium text-muted-foreground">Campaign revenue by month</p>
+          <CardContent className="pt-2 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-lg border border-border/80 bg-card p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">Total Campaign Revenue</p>
+                <p className="text-xl font-semibold text-foreground">${totalCampaignRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
-              <div className="h-[220px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={revenueMonthly.length ? revenueMonthly : [{ monthLabel: '—', campaignRev: 0 }]}
-                    margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="monthLabel" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatDollar} width={48} />
-                    <Tooltip
-                      contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }}
-                      formatter={(v: number) => [`$${Number(v).toLocaleString()}`, 'Revenue']}
-                      labelFormatter={(label) => label}
-                    />
-                    <Bar dataKey="campaignRev" name="Revenue" fill="hsl(217 91% 60% / 0.85)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="rounded-lg border border-border/80 bg-card p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">Best Month</p>
+                <p className="text-base font-semibold text-foreground">
+                  {bestMonth ? `${bestMonth.monthLabel} · $${Number(bestMonth.campaignRev ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/80 bg-card p-3">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">vs 25% Benchmark</p>
+                <p className="text-base font-semibold text-foreground">{benchmarkStatText}</p>
+              </div>
+            </div>
+
+            <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={benchmarkChartData.length ? benchmarkChartData : [{ monthLabel: '—', campaignRev: 0, crmPct: null, benchmark: 25 }]}
+                  margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis dataKey="monthLabel" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="revenue" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={formatDollar} width={50} />
+                  <YAxis yAxisId="pct" orientation="right" domain={[0, 'auto']} tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `${Number(v).toFixed(0)}%`} width={42} />
+                  <Tooltip content={renderBenchmarkTooltip} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
+                  <ReferenceLine yAxisId="pct" y={25} stroke="hsl(24 95% 53%)" strokeDasharray="6 4" ifOverflow="extendDomain" label={{ value: '25% benchmark', fill: chartMutedFill, fontSize: 10, position: 'insideTopRight' }} />
+                  <Bar yAxisId="revenue" dataKey="campaignRev" name="Revenue" fill="hsl(217 91% 60% / 0.85)" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="pct" type="monotone" dataKey="crmPct" name="CRM %" stroke="hsl(173 58% 39%)" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-muted-foreground">
+              <span>
+                Top brands average 25% of total site revenue from CRM. Enter your site revenue above to see where you stand.
+              </span>
+              <div className="inline-flex items-center gap-1.5 shrink-0">
+                <span>Site revenue</span>
+                <Input
+                  inputMode="decimal"
+                  placeholder="$____"
+                  value={siteRevenueInput}
+                  onChange={(e) => setSiteRevenueInput(e.target.value)}
+                  className="h-7 w-[130px] text-xs"
+                />
               </div>
             </div>
           </CardContent>
@@ -547,28 +569,110 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        {/* AI Insights */}
-        <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              AI Insights
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {insights.map((insight, i) => (
-              <div key={i} className="p-3 rounded-lg border bg-card/50">
-                <div className="flex items-center gap-2 mb-1">
-                  <Badge variant="secondary" className={cn('text-[10px]', insight.tagColor)}>
-                    {insight.tag}
-                  </Badge>
-                  <span className="text-sm font-semibold">{insight.title}</span>
+        {/* Performance Overview */}
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-foreground">Performance Overview</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="shadow-sm border-border/80">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold text-foreground/95">Daily Email Engagement</CardTitle>
+                <p className="text-xs text-muted-foreground">Opens, clicks, and bounces from Braze usage analytics by day.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={dailyEmailEngagementData} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+                      <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
+                      <Line type="monotone" dataKey="emails_opened" name="Opens" stroke="hsl(142 71% 45%)" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="email_clicks" name="Clicks" stroke="hsl(217 91% 60%)" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="email_bounces" name="Bounces" stroke="hsl(0 72% 51%)" strokeWidth={2} dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 </div>
-                <p className="text-sm text-muted-foreground">{insight.body}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm border-border/80">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold text-foreground/95">Campaign Comparison</CardTitle>
+                <p className="text-xs text-muted-foreground">Revenue and conversions by campaign, sorted by revenue.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={campaignComparisonData} layout="vertical" margin={{ top: 8, right: 12, bottom: 8, left: 90 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                      <XAxis type="number" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <YAxis type="category" dataKey="campaign_name" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
+                      <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
+                      <Bar dataKey="revenue" name="Revenue" fill="hsl(262 83% 58% / 0.9)" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="conversions" name="Conversions" fill="hsl(199 89% 48% / 0.9)" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm border-border/80">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base font-semibold text-foreground/95">Subscriber Segments</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Latest segment mix from Braze segment analytics{latestSegmentDate ? ` (${latestSegmentDate})` : ''}.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={segmentDonutData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={82}
+                        paddingAngle={2}
+                      >
+                        {segmentDonutData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }}
+                        formatter={(v: number, n: string) => {
+                          const pct = segmentTotal > 0 ? ((Number(v) / segmentTotal) * 100).toFixed(1) : '0.0';
+                          return [`${Number(v).toLocaleString()} (${pct}%)`, n];
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-2">
+                  {segmentDonutData.map((s) => {
+                    const pct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
+                    return (
+                      <div key={s.name} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                          <span className="text-muted-foreground truncate">{s.name}</span>
+                        </div>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {s.value.toLocaleString()} ({pct.toFixed(1)}%)
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         {/* Device and channel placeholder */}
         <Card className="bg-muted/20 border-border/60 shadow-sm">

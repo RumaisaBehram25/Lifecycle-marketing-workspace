@@ -159,6 +159,9 @@ export function useAnalyticsData() {
     mau: num(r.mau),
     emails_sent: num(r.emails_sent),
     emails_delivered: num(r.emails_delivered),
+    emails_opened: num(r.emails_opened),
+    email_clicks: num(r.email_clicks),
+    email_bounces: num(r.email_bounces),
   }));
 
   const campaignChartData = canvases

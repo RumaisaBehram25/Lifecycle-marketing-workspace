@@ -17,7 +17,7 @@ import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 import { EmbeddedChat } from '@/components/dashboard/EmbeddedChat';
 import { useDriveBriefs } from '@/hooks/useDriveBriefs';
-import { DriveBriefCard } from '@/components/briefs/DriveBriefCard';
+import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
 
@@ -300,7 +300,7 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
 
 export default function Dashboard() {
   const { data: client } = useDoubleGoodClient();
-  const { data: driveBriefs = [] } = useDriveBriefs();
+  const { data: driveBriefs = [], isFetching: driveBriefsLoading } = useDriveBriefs(client?.id);
   
   const { data: briefs } = useQuery({
     queryKey: ['dashboard-briefs', client?.id],
@@ -357,43 +357,15 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard icon={Send} label="Campaigns Sent" value={10} trend="Last 30 days" color="bg-blue-500/10 text-blue-600" />
           <MetricCard icon={Workflow} label="Lifecycle Flows Updated" value={4} trend="Last 30 days" color="bg-purple-500/10 text-purple-600" />
-          <MetricCard icon={FileText} label="Google Drive Briefs" value={driveBriefs.length} color="bg-blue-500/10 text-blue-600" />
+          <MetricCard icon={FileText} label="Google Drive Briefs" value="—" color="bg-blue-500/10 text-blue-600" />
           <MetricCard icon={CheckCircle2} label="Closed Briefs" value={briefCounts?.completed ?? 0} trend="Last 30 days" color="bg-green-500/10 text-green-600" />
         </div>
 
-        {/* Google Drive Briefs */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center border border-blue-500/10">
-              <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <h2 className="text-lg font-semibold text-foreground">Google Drive Briefs</h2>
-            <Badge className="rounded-full h-6 min-w-[1.5rem] justify-center bg-blue-500/15 text-blue-700 dark:text-blue-300 border-0 font-medium">
-              {driveBriefs.length}
-            </Badge>
-          </div>
-          {driveBriefs.length === 0 ? (
-            <Card className="border border-dashed border-blue-500/20 bg-blue-500/[0.02] dark:bg-blue-500/5">
-              <CardContent className="py-12 text-center">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-blue-500/40" />
-                <h3 className="font-semibold mb-2">No Drive briefs</h3>
-                <p className="text-sm text-muted-foreground">
-                  Briefs from your Google Drive folder will appear here.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card className="border border-border/80 bg-card shadow-sm overflow-hidden rounded-xl border-blue-500/10">
-              <div className="max-h-[320px] overflow-y-auto overflow-x-hidden bg-muted/20 dark:bg-muted/10">
-                <div className="p-3 space-y-2">
-                  {driveBriefs.map(brief => (
-                    <DriveBriefCard key={brief.id} brief={brief} />
-                  ))}
-                </div>
-              </div>
-            </Card>
-          )}
-        </div>
+        <GoogleDriveBriefsPanel
+          clientId={client?.id}
+          driveBriefs={driveBriefs}
+          isFetching={driveBriefsLoading}
+        />
 
         {/* Open Briefs Tracker — with folders */}
         <OpenBriefsTracker
