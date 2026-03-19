@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, FolderOpen, Loader2, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,15 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import {
-  addDriveSlot,
-  clearAllDriveSessionConnections,
   extractGoogleDriveFolderId,
-  getDriveSlots,
-  getResolvedDriveFolders,
-  purgeLegacyDriveLocalStorage,
-  removeDriveSlot,
-  type DriveSlot,
 } from '@/lib/driveFolderLinks';
+import { supabase } from '@/integrations/supabase/client';
 import { DriveBriefCard } from '@/components/briefs/DriveBriefCard';
 import type { DriveBrief } from '@/hooks/useDriveBriefs';
 import { cn } from '@/lib/utils';
@@ -26,14 +20,31 @@ interface GoogleDriveBriefsPanelProps {
   isFetching: boolean;
 }
 
-function slotFolderTitle(slot: DriveSlot, namesBySlotId: Map<string, string>): string {
-  const fromDrive = namesBySlotId.get(slot.id);
-  if (fromDrive) return fromDrive;
-  const raw = slot.folders[0]?.trim();
-  if (!raw) return 'Folder';
-  const id = extractGoogleDriveFolderId(raw);
-  if (id) return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-4)}` : id;
-  return raw.length > 32 ? `${raw.slice(0, 32)}…` : raw;
+type DriveConnectionRow = { id: string; folder_id: string; folder_name: string | null; folder_url: string | null };
+
+async function fetchFolderName(apiKey: string, folderId: string): Promise<string | null> {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=name&key=${encodeURIComponent(apiKey)}`);
+  const data = await res.json();
+  if (data?.error) return null;
+  const name = data?.name;
+  return typeof name === 'string' && name.trim() ? name.trim() : null;
+}
+
+async function fetchFilesFromFolder(apiKey: string, folderId: string) {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${encodeURIComponent(apiKey)}&fields=files(id,name,mimeType,thumbnailLink,webViewLink,createdTime,modifiedTime)&orderBy=createdTime+desc`
+  );
+  const data = await res.json();
+  if (data?.error) throw new Error(data.error.message || 'Google Drive API error');
+  return (data.files ?? []) as Array<{
+    id: string;
+    name: string;
+    mimeType?: string;
+    thumbnailLink?: string;
+    webViewLink?: string;
+    createdTime?: string;
+    modifiedTime?: string;
+  }>;
 }
 
 export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: GoogleDriveBriefsPanelProps) {
@@ -41,9 +52,21 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState('');
   const [folderId, setFolderId] = useState('');
-  const [slots, setSlots] = useState<DriveSlot[]>(() => getDriveSlots(clientId));
+  const { data: connections = [], refetch: refetchConnections } = useQuery({
+    queryKey: ['drive-connections', clientId ?? ''],
+    enabled: !!clientId,
+    queryFn: async () => {
+      if (!clientId) return [] as DriveConnectionRow[];
+      const { data, error } = await (supabase as any)
+        .from('client_google_drive')
+        .select('id, folder_id, folder_name, folder_url, connected_at')
+        .eq('client_id', clientId)
+        .order('connected_at', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as DriveConnectionRow[];
+    },
+  });
 
-  const resolved = getResolvedDriveFolders(clientId);
   const hasBriefs = driveBriefs.length > 0;
 
   const folderIdToDisplayName = useMemo(() => {
@@ -67,17 +90,16 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
   }, [driveBriefs]);
 
   useEffect(() => {
-    purgeLegacyDriveLocalStorage();
-    queryClient.invalidateQueries({ queryKey: ['drive-briefs'] });
-  }, [queryClient]);
-
-  useEffect(() => {
-    setSlots(getDriveSlots(clientId));
     setApiKey('');
     setFolderId('');
   }, [clientId]);
 
   const handleSave = () => {
+    const run = async () => {
+      if (!clientId) {
+        toast({ title: 'No client selected', variant: 'destructive' });
+        return;
+      }
     const key = apiKey.trim();
     if (!key) {
       toast({ title: 'Google Drive API key is required', variant: 'destructive' });
@@ -92,33 +114,99 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
       toast({ title: 'Invalid folder ID or URL', variant: 'destructive' });
       return;
     }
-    addDriveSlot(clientId, key, [folder]);
-    setSlots(getDriveSlots(clientId));
+      const parsedFolderId = extractGoogleDriveFolderId(folder)!;
+      const realFolderName = await fetchFolderName(key, parsedFolderId);
+
+      const { data: conn, error: connErr } = await (supabase as any)
+        .from('client_google_drive')
+        .insert({
+          client_id: clientId,
+          folder_id: parsedFolderId,
+          folder_name: realFolderName ?? null,
+          folder_url: folder,
+          status: 'connected',
+          last_synced_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (connErr) throw connErr;
+
+      const files = await fetchFilesFromFolder(key, parsedFolderId);
+      if (files.length > 0) {
+        const payload = files.map((f) => ({
+          client_id: clientId,
+          drive_connection_id: conn.id,
+          file_id: f.id,
+          file_name: f.name,
+          file_type: (f.mimeType || '').includes('folder') ? 'folder' : 'file',
+          mime_type: f.mimeType ?? null,
+          thumbnail_url: f.thumbnailLink ?? null,
+          web_view_link: f.webViewLink ?? null,
+          created_time: f.createdTime ?? null,
+          modified_time: f.modifiedTime ?? null,
+          synced_at: new Date().toISOString(),
+        }));
+        const { error: upErr } = await (supabase as any)
+          .from('client_drive_files')
+          .upsert(payload, { onConflict: 'client_id,file_id' });
+        if (upErr) throw upErr;
+      }
+
+      await (supabase as any)
+        .from('client_google_drive')
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq('id', conn.id);
+
+      await refetchConnections();
     setApiKey('');
     setFolderId('');
     queryClient.invalidateQueries({ queryKey: ['drive-briefs', clientId ?? ''] });
     toast({ title: 'Saved' });
+    };
+    run().catch((e: any) => {
+      toast({ title: 'Could not sync Drive folder', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    });
   };
 
   const handleRemoveSlot = (slotId: string) => {
-    removeDriveSlot(clientId, slotId);
-    setSlots(getDriveSlots(clientId));
-    queryClient.invalidateQueries({ queryKey: ['drive-briefs', clientId ?? ''] });
-    toast({ title: 'Connection removed' });
+    const run = async () => {
+      if (!clientId) return;
+      const { error } = await (supabase as any)
+        .from('client_google_drive')
+        .delete()
+        .eq('client_id', clientId)
+        .eq('id', slotId);
+      if (error) throw error;
+      await refetchConnections();
+      queryClient.invalidateQueries({ queryKey: ['drive-briefs', clientId ?? ''] });
+      toast({ title: 'Connection removed' });
+    };
+    run().catch((e: any) => {
+      toast({ title: 'Could not remove connection', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    });
   };
 
   const handleClearAll = () => {
-    clearAllDriveSessionConnections();
-    purgeLegacyDriveLocalStorage();
-    setSlots(getDriveSlots(clientId));
-    setApiKey('');
-    setFolderId('');
-    queryClient.setQueryData(['drive-briefs', clientId ?? ''], []);
-    queryClient.invalidateQueries({ queryKey: ['drive-briefs', clientId ?? ''] });
-    toast({ title: 'All Drive connections cleared' });
+    const run = async () => {
+      if (!clientId) return;
+      const { error } = await (supabase as any)
+        .from('client_google_drive')
+        .delete()
+        .eq('client_id', clientId);
+      if (error) throw error;
+      await refetchConnections();
+      setApiKey('');
+      setFolderId('');
+      queryClient.setQueryData(['drive-briefs', clientId ?? ''], []);
+      queryClient.invalidateQueries({ queryKey: ['drive-briefs', clientId ?? ''] });
+      toast({ title: 'All Drive connections cleared' });
+    };
+    run().catch((e: any) => {
+      toast({ title: 'Could not clear connections', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    });
   };
 
-  const configured = resolved.length > 0;
+  const configured = connections.length > 0;
 
   return (
     <Card
@@ -159,10 +247,10 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
               </div>
               {configured && (
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
-                  {resolved.map((r, i) => {
-                    const displayName = folderIdToDisplayName.get(r.folderId) ?? r.folderName;
+                  {connections.map((r, i) => {
+                    const displayName = folderIdToDisplayName.get(r.folder_id) ?? r.folder_name ?? r.folder_id;
                     return (
-                      <span key={r.key} className="inline-flex items-center gap-1.5">
+                      <span key={r.id} className="inline-flex items-center gap-1.5">
                         {i > 0 && <span className="text-muted-foreground/50">·</span>}
                         <span
                           className="inline-flex items-center gap-1 rounded-md bg-muted/80 px-2 py-0.5 text-foreground font-medium ring-1 ring-border/60 max-w-[220px] sm:max-w-xs truncate"
@@ -222,12 +310,12 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
             </Button>
           </div>
 
-          {slots.length > 0 && (
+          {connections.length > 0 && (
             <div className="pt-4 border-t border-border/60 space-y-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Connected</p>
               <div className="flex flex-wrap gap-2.5">
-                {slots.map(slot => {
-                  const title = slotFolderTitle(slot, folderNameBySlotId);
+                {connections.map((slot) => {
+                  const title = folderNameBySlotId.get(slot.id) ?? slot.folder_name ?? slot.folder_id;
                   return (
                     <div
                       key={slot.id}

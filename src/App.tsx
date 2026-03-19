@@ -6,7 +6,6 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { LoadingPage } from "@/components/ui/loading-spinner";
 import Auth from "./pages/Auth";
-import PendingApproval from "./pages/PendingApproval";
 import Dashboard from "./pages/Dashboard";
 import Briefs from "./pages/Briefs";
 import Campaigns from "./pages/Campaigns";
@@ -21,26 +20,24 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, isApproved } = useAuth();
+  const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingPage />;
   if (!user) return <Navigate to="/auth" replace />;
-  if (!isApproved) return <Navigate to="/pending-approval" replace />;
   return <>{children}</>;
 }
 
-function ApprovalRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, isApproved } = useAuth();
+function ApprovalRoute() {
+  const { user, isLoading } = useAuth();
   if (isLoading) return <LoadingPage />;
   if (!user) return <Navigate to="/auth" replace />;
-  if (isApproved) return <Navigate to="/dashboard" replace />;
-  return <>{children}</>;
+  return <Navigate to="/dashboard" replace />;
 }
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
-      <Route path="/pending-approval" element={<ApprovalRoute><PendingApproval /></ApprovalRoute>} />
+      <Route path="/pending-approval" element={<ApprovalRoute />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/briefs" element={<ProtectedRoute><Briefs /></ProtectedRoute>} />

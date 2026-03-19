@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getResolvedDriveFolders } from '@/lib/driveFolderLinks';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface DriveBrief {
   id: string;
@@ -16,78 +16,54 @@ export interface DriveBrief {
   slot_id?: string;
 }
 
-async function fetchDriveFolderDisplayName(apiKey: string, folderId: string): Promise<string | null> {
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=name&key=${encodeURIComponent(apiKey)}`
-  );
-  const data = await res.json();
-  if (data.error) {
-    console.error('Drive folder metadata error:', data.error);
-    return null;
-  }
-  const name = data.name;
-  return typeof name === 'string' && name.trim() ? name.trim() : null;
-}
-
-async function fetchFolderFiles(
-  apiKey: string,
-  folderId: string,
-  folderName: string,
-  slotId: string
-): Promise<DriveBrief[]> {
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&key=${encodeURIComponent(apiKey)}&fields=files(id,name,createdTime,webViewLink,mimeType)&orderBy=createdTime+desc`
-  );
-  const data = await res.json();
-
-  if (data.error) {
-    console.error('Drive API error:', data.error);
-    return [];
-  }
-
-  return (data.files || []).map((file: { id: string; name: string; createdTime?: string; webViewLink?: string }) => ({
-    id: `${slotId}_${folderId}_${file.id}`,
-    title: file.name
-      .replace(/\.(docx|pdf|gdoc|doc)$/i, '')
-      .replace(/[-_]/g, ' '),
-    summary: `Synced from Google Drive · ${folderName}`,
-    file_name: file.name,
-    file_url: file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`,
-    brief_date: file.createdTime?.split('T')[0] || '',
-    source: 'google_drive' as const,
-    content_type: 'campaign' as const,
-    status: 'draft' as const,
-    folder_name: folderName,
-    folder_id: folderId,
-    slot_id: slotId,
-  }));
-}
-
 export function useDriveBriefs(clientId: string | undefined) {
   return useQuery({
     queryKey: ['drive-briefs', clientId ?? ''],
     refetchInterval: 30000,
     queryFn: async () => {
-      const resolved = getResolvedDriveFolders(clientId);
-      if (resolved.length === 0) return [];
+      if (!clientId) return [];
 
-      const resolvedWithRealNames = await Promise.all(
-        resolved.map(async r => {
-          const realName = await fetchDriveFolderDisplayName(r.apiKey, r.folderId);
-          return {
-            ...r,
-            folderName: realName ?? r.folderName,
-          };
-        })
-      );
+      const { data: connections, error: connErr } = await (supabase as any)
+        .from('client_google_drive')
+        .select('id, folder_id, folder_name')
+        .eq('client_id', clientId)
+        .order('connected_at', { ascending: true });
+      if (connErr) throw connErr;
 
-      const batches = await Promise.all(
-        resolvedWithRealNames.map(r =>
-          fetchFolderFiles(r.apiKey, r.folderId, r.folderName, r.slotId)
-        )
-      );
+      const byConnectionId = new Map<string, { folder_id: string; folder_name: string | null }>();
+      for (const c of (connections ?? []) as any[]) {
+        byConnectionId.set(String(c.id), {
+          folder_id: String(c.folder_id ?? ''),
+          folder_name: c.folder_name ? String(c.folder_name) : null,
+        });
+      }
 
-      return batches.flat();
+      const { data: rows, error } = await (supabase as any)
+        .from('client_drive_files')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('created_time', { ascending: false, nullsFirst: false });
+      if (error) throw error;
+
+      return ((rows ?? []) as any[]).map((r) => {
+        const c = byConnectionId.get(String(r.drive_connection_id));
+        const folderName = c?.folder_name || 'Connected folder';
+        const fileName = String(r.file_name ?? '');
+        return {
+          id: String(r.id ?? `${r.drive_connection_id}_${r.file_id}`),
+          title: fileName.replace(/\.(docx|pdf|gdoc|doc)$/i, '').replace(/[-_]/g, ' '),
+          summary: `Synced from Google Drive · ${folderName}`,
+          file_name: fileName,
+          file_url: String(r.web_view_link ?? ''),
+          brief_date: r.created_time ? String(r.created_time).slice(0, 10) : '',
+          source: 'google_drive' as const,
+          content_type: 'campaign' as const,
+          status: 'draft' as const,
+          folder_name: folderName,
+          folder_id: c?.folder_id ?? String(r.drive_connection_id ?? ''),
+          slot_id: String(r.drive_connection_id ?? ''),
+        } satisfies DriveBrief;
+      });
     },
   });
 }
