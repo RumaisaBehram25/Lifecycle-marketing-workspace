@@ -369,6 +369,8 @@ export function buildSystemPromptFromContext(
 4. Answering platform-specific questions
 5. Explaining Liquid/templating syntax with examples
 6. Troubleshooting platform configurations
+7. **Analytics & CRM data** — when the prompt includes **ANALYTICS & CRM DATA**, those values are loaded **server-side with full database access** for the active client (same sources as the in-app Analytics tab). Quote them for totals, campaigns, usage, segments, canvases, and Customer.io. **Never** say you lack “tab permission”, “dashboard access”, or “cannot view Analytics”—you already have the excerpt.
+8. If a subsection in **ANALYTICS & CRM DATA** is empty, only then say that table has no rows yet and suggest CSV import or sync.
 
 `;
   } else if (purpose === 'copy') {

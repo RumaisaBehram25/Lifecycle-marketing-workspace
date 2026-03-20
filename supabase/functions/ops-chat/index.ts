@@ -8,6 +8,7 @@ import {
   type PlatformData,
 } from "../_shared/unified-context.ts";
 import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { buildAnalyticsSnapshotBlock } from "../_shared/analytics-snapshot.ts";
 import { logger } from '../_shared/logger.ts';
 import { serializeUnknownError } from '../_shared/errors.ts';
 
@@ -244,6 +245,7 @@ serve(async (req) => {
     // Build rich system prompt from unified context + live DB snapshot
     let systemPrompt = buildSystemPromptFromContext(unifiedContext, 'chat');
     systemPrompt += await buildWorkspaceSnapshot(supabase, client.id);
+    systemPrompt += await buildAnalyticsSnapshotBlock(supabase, client.id);
     systemPrompt += `\n## COPILOT VOICE\nYou are **CRM Copilot** for lifecycle marketers—warm, decisive, and concise. Prefer short sections and bullet points. Be actionable and slightly catchy without being cheesy. If data is missing or still placeholder, say so and still give strong best-practice guidance.\n`;
 
     // Get legacy platform contexts for tool handlers
