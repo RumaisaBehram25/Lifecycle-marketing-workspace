@@ -16,21 +16,24 @@ import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
 import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
+import PendingApproval from "./pages/PendingApproval";
 
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isApproved } = useAuth();
   if (isLoading) return <LoadingPage />;
   if (!user) return <Navigate to="/auth" replace />;
+  if (!isApproved) return <Navigate to="/pending-approval" replace />;
   return <>{children}</>;
 }
 
 function ApprovalRoute() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isApproved } = useAuth();
   if (isLoading) return <LoadingPage />;
   if (!user) return <Navigate to="/auth" replace />;
-  return <Navigate to="/dashboard" replace />;
+  if (isApproved) return <Navigate to="/dashboard" replace />;
+  return <PendingApproval />;
 }
 
 function AppRoutes() {

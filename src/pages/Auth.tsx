@@ -11,12 +11,13 @@ import { Mail, Lock, User } from 'lucide-react';
 import { BRCGIcon } from '@/components/BRCGLogo';
 
 export default function Auth() {
-  const { user, isLoading, signIn, signUp } = useAuth();
+  const { user, isLoading, isApproved, signIn, signUp } = useAuth();
   const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
+  const [signupInfo, setSignupInfo] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (isLoading) {
@@ -28,12 +29,16 @@ export default function Auth() {
   }
 
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    if (isApproved) {
+      return <Navigate to="/dashboard" replace />;
+    }
+    return <Navigate to="/pending-approval" replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSignupInfo('');
     setLoading(true);
 
     try {
@@ -41,8 +46,15 @@ export default function Auth() {
         const { error } = await signIn(email, password);
         if (error) setError(error.message);
       } else {
-        const { error } = await signUp(email, password, fullName);
-        if (error) setError(error.message);
+        const { error, needsEmailConfirmation } = await signUp(email, password, fullName);
+        if (error) {
+          setError(error.message);
+        } else if (needsEmailConfirmation) {
+          setSignupInfo(
+            'Check your email to confirm your account, then sign in. Until an administrator approves your profile, you will see a waiting screen after login.'
+          );
+          setActiveTab('signin');
+        }
       }
     } finally {
       setLoading(false);
@@ -178,6 +190,11 @@ export default function Auth() {
 
                 {error && (
                   <p className="text-sm text-destructive mt-4">{error}</p>
+                )}
+                {signupInfo && (
+                  <p className="text-sm text-muted-foreground mt-4 rounded-md border border-border bg-muted/50 p-3">
+                    {signupInfo}
+                  </p>
                 )}
 
                 <Button type="submit" className="w-full mt-6 font-semibold" disabled={loading}>

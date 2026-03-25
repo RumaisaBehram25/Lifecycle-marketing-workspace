@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -92,6 +93,7 @@ export function BrazeDataViewer({
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [detailType, setDetailType] = useState<string>('');
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const handleSync = async () => {
     setSyncing(true);
@@ -103,6 +105,9 @@ export function BrazeDataViewer({
       if (error) throw error;
       
       toast({ title: 'Braze data synced successfully' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       onSyncComplete?.();
     } catch (error: unknown) {
       logger.error('Sync error:', error);

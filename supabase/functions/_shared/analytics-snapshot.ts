@@ -105,7 +105,7 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
   let block =
     `\n## ANALYTICS & CRM DATA (client_id: \`${clientId}\`)\n` +
     `**Access:** Loaded server-side with Supabase **service role** (full read for this client). ` +
-    `This is the same underlying data as the **Analytics** tab and related tables—not a browser tab preview. ` +
+    `This matches **Analytics**, **Dashboard** (Braze tiles), **Campaigns** (braze_campaigns), and CSV/API imports into Supabase. ` +
     `**Never** tell the user you lack “Analytics tab permission”, “UI access”, or “cannot see their dashboard”; ` +
     `when this section contains numbers, those are authoritative. If a subsection is empty, say that table has no rows yet (import/sync).\n`;
 
@@ -135,6 +135,46 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
   block += formatJsonRows("customerio_broadcasts", bundle.customerio_broadcasts as unknown[], 20);
   block += formatJsonRows("braze_canvases (lifecycle)", bundle.braze_canvases as unknown[], 25);
 
+  const kpiSum = bundle.braze_kpi_summary as Record<string, unknown> | undefined;
+  if (kpiSum != null) {
+    if (Number(kpiSum.kpi_row_count ?? 0) > 0) {
+      block += `\n### braze_kpi_series (summary — same source as Analytics KPI cards)\n`;
+      block += `- Rows in KPI series: **${Number(kpiSum.kpi_row_count ?? 0).toLocaleString()}**\n`;
+      block += `- Latest **DAU** (most recent dau point): **${Number(kpiSum.latest_dau ?? 0).toLocaleString()}**\n`;
+      block += `- Latest **MAU** (most recent mau point): **${Number(kpiSum.latest_mau ?? 0).toLocaleString()}**\n`;
+      block += `- **New users (30d)** sum from KPI series: **${Number(kpiSum.new_users_sum_30d ?? 0).toLocaleString()}**\n`;
+    } else {
+      block += `\n### braze_kpi_series (summary)\n- No KPI series rows (sync Braze KPIs or import CSV).\n`;
+    }
+  }
+
+  if (Array.isArray(bundle.braze_kpi_series)) {
+    block += formatJsonRows("braze_kpi_series (recent points)", bundle.braze_kpi_series as unknown[], 40);
+  }
+
+  if (Array.isArray(bundle.braze_campaigns)) {
+    block += formatJsonRows("braze_campaigns (Campaigns tab / API sync)", bundle.braze_campaigns as unknown[], 35);
+  }
+
+  if (bundle.braze_segments_sync_count != null) {
+    const segN = Number(bundle.braze_segments_sync_count);
+    block += `\n### braze_segments_sync (segment directory)\n- Count: **${segN.toLocaleString()}**\n`;
+  }
+  if (Array.isArray(bundle.braze_segments_sync)) {
+    block += formatJsonRows("braze_segments_sync (sample rows)", bundle.braze_segments_sync as unknown[], 25);
+  }
+
+  if (Array.isArray(bundle.braze_scheduled_broadcasts)) {
+    block += formatJsonRows("braze_scheduled_broadcasts", bundle.braze_scheduled_broadcasts as unknown[], 20);
+  }
+
+  const em = bundle.braze_email_events_30d as Record<string, unknown> | undefined;
+  if (em != null) {
+    block += `\n### braze_email_events (last 30 days)\n`;
+    block += `- **Hard bounces**: **${Number(em.hard_bounces ?? 0).toLocaleString()}**\n`;
+    block += `- **Unsubscribes**: **${Number(em.unsubscribes ?? 0).toLocaleString()}**\n`;
+  }
+
   const cio = (bundle.customerio_campaigns as Record<string, unknown>[]) || [];
   if (cio.length) {
     const dr = avgRate(cio, "delivery_rate");
@@ -148,8 +188,9 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
   }
 
   block +=
-    "\nFor **Overview** questions, prefer **braze_campaign_totals** and **braze_usage** above. " +
-    "For journeys, also use **braze_canvases**.\n";
+    "\nFor **Overview** / email performance, prefer **braze_campaign_totals** and **braze_usage**. " +
+    "For **DAU/MAU/new users**, prefer **braze_kpi_summary** and **braze_usage**. " +
+    "For **named one-off campaigns**, use **braze_campaigns**. For journeys, use **braze_canvases**.\n";
 
   return block;
 }
@@ -190,6 +231,30 @@ async function buildAnalyticsSnapshotFallback(
     block += formatJsonRows("customerio_campaigns", (data ?? []) as unknown[], 35);
   } catch {
     block += "\n### customerio_campaigns\n- Error.\n";
+  }
+
+  try {
+    const { data: kpi } = await supabase
+      .from("braze_kpi_series")
+      .select("metric,series_date,value")
+      .eq("client_id", clientId)
+      .order("series_date", { ascending: false })
+      .limit(120);
+    block += formatJsonRows("braze_kpi_series (fallback)", (kpi ?? []) as unknown[], 40);
+  } catch {
+    block += "\n### braze_kpi_series\n- Error or table missing.\n";
+  }
+
+  try {
+    const { data: camps } = await supabase
+      .from("braze_campaigns")
+      .select("name,channel,status,sent_date,opens,clicks,deliveries,open_rate,click_rate")
+      .eq("client_id", clientId)
+      .order("sent_date", { ascending: false, nullsFirst: false })
+      .limit(40);
+    block += formatJsonRows("braze_campaigns (fallback)", (camps ?? []) as unknown[], 30);
+  } catch {
+    block += "\n### braze_campaigns\n- Error or table missing.\n";
   }
 
   return block;

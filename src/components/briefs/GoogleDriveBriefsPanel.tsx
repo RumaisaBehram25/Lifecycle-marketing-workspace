@@ -14,6 +14,15 @@ import { DriveBriefCard } from '@/components/briefs/DriveBriefCard';
 import type { DriveBrief } from '@/hooks/useDriveBriefs';
 import { countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { cn } from '@/lib/utils';
+import {
+  dashIconChip,
+  dashRingInsetSoft,
+  dashSectionTitleBorder,
+  dashShadowSm,
+  dashWashHeaderDown,
+  dashboardSurfaceCard,
+  dashboardTopAccentClass,
+} from '@/lib/dashboard-surface';
 
 interface GoogleDriveBriefsPanelProps {
   clientId: string | undefined;
@@ -216,14 +225,15 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
   const totalSyncedRows = driveBriefs.length;
 
   return (
-    <Card
-      className={cn(
-        'w-full overflow-hidden rounded-xl border border-border/70 bg-card',
-        'shadow-sm shadow-black/5 dark:shadow-black/20',
-        'ring-1 ring-blue-500/[0.07] dark:ring-blue-400/10'
-      )}
-    >
-      <CardHeader className="relative space-y-0 px-5 sm:px-6 pt-5 pb-4 pr-12 sm:pr-14 border-b border-border/60 bg-gradient-to-b from-blue-500/[0.06] to-transparent dark:from-blue-500/[0.08]">
+    <Card className={cn('w-full', dashboardSurfaceCard)}>
+      <div className={dashboardTopAccentClass} aria-hidden />
+      <CardHeader
+        className={cn(
+          'relative space-y-0 px-5 sm:px-6 pt-5 pb-4 pr-12 sm:pr-14',
+          dashSectionTitleBorder,
+          dashWashHeaderDown,
+        )}
+      >
         <Button
           type="button"
           variant="ghost"
@@ -237,7 +247,7 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
         </Button>
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3 min-w-0">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20">
+            <div className={cn(dashIconChip, 'h-11 w-11 shrink-0 rounded-xl')}>
               <FileText className="h-5 w-5" strokeWidth={2} />
             </div>
             <div className="min-w-0 space-y-2">
@@ -273,7 +283,7 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
                           className="inline-flex items-center gap-1 rounded-md bg-muted/80 px-2 py-0.5 text-foreground font-medium ring-1 ring-border/60 max-w-[220px] sm:max-w-xs truncate"
                           title={displayName}
                         >
-                          <FolderOpen className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                          <FolderOpen className="h-3.5 w-3.5 text-primary shrink-0" />
                           {displayName}
                         </span>
                       </span>
@@ -286,8 +296,8 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
         </div>
       </CardHeader>
 
-      <div className="px-5 sm:px-6 py-5 border-b border-border/50 bg-muted/25 dark:bg-muted/15">
-        <div className="rounded-xl border border-border/70 bg-background/80 dark:bg-background/40 p-4 shadow-sm space-y-4">
+      <div className={cn('px-5 sm:px-6 py-5 border-b bg-muted/20 dark:bg-muted/10', dashSectionTitleBorder)}>
+        <div className={cn('rounded-xl border border-border/60 bg-card/90 p-4 space-y-4', dashRingInsetSoft, dashShadowSm)}>
           <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-3">
             <div className="min-w-0 flex-1 basis-[200px] space-y-2">
               <Label htmlFor="google-drive-api-key" className="text-xs font-medium text-muted-foreground">
@@ -341,10 +351,10 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
                         'bg-gradient-to-b from-card to-muted/20 px-3.5 py-3 pr-11',
                         'shadow-sm shadow-black/[0.04] dark:shadow-black/20',
                         'ring-1 ring-black/[0.03] dark:ring-white/[0.06]',
-                        'transition-colors hover:border-blue-500/25 hover:ring-blue-500/10'
+                        'transition-colors hover:border-primary/35 hover:ring-primary/10'
                       )}
                     >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/[0.12] text-blue-600 dark:bg-blue-500/15 dark:text-blue-400">
+                      <div className={cn(dashIconChip, 'h-9 w-9 shrink-0 rounded-lg')}>
                         <FolderOpen className="h-[18px] w-[18px]" strokeWidth={2} />
                       </div>
                       <div className="min-w-0 flex-1 py-0.5">
@@ -374,7 +384,7 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
       <CardContent className="p-0">
         {!configured ? (
           <div className="py-14 px-5 sm:px-6 text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-500/50">
+            <div className={cn(dashIconChip, 'mx-auto mb-4 h-14 w-14 rounded-2xl text-primary/50')}>
               <FileText className="h-7 w-7" />
             </div>
             <h3 className="font-semibold text-foreground">Nothing to load yet</h3>
@@ -384,7 +394,7 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
           </div>
         ) : !hasBriefs && isFetching ? (
           <div className="py-14 px-5 sm:px-6 flex flex-col items-center gap-3 text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-500/60" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary/60" />
             <p className="text-sm">Loading…</p>
           </div>
         ) : !hasBriefs ? (

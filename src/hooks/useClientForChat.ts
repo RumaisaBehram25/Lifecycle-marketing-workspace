@@ -1,7 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Client, ClientPlatform } from '@/lib/types';
-import { useDoubleGoodClient, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import {
+  useDoubleGoodClient,
+  useResolvedClientId,
+  queryStillResolving,
+} from '@/hooks/useDoubleGoodClient';
 import { buildCrmPlatformContexts, type CrmChatPlatformContext } from '@/lib/crmChatContext';
 
 /**
@@ -10,7 +14,7 @@ import { buildCrmPlatformContexts, type CrmChatPlatformContext } from '@/lib/crm
  */
 export function useClientForChat() {
   const dgQuery = useDoubleGoodClient();
-  const { clientId, isClientLoading } = useResolvedClientId();
+  const { clientId, isClientLoading, resolveError } = useResolvedClientId();
 
   const fallbackQuery = useQuery({
     queryKey: ['client-for-chat-fallback', clientId],
@@ -24,6 +28,9 @@ export function useClientForChat() {
   });
 
   const client = (dgQuery.data ?? fallbackQuery.data ?? null) as Client | null;
+
+  /** Once we can render a row from `fallbackQuery`, do not block the whole page on DoubleGood still fetching. */
+  const hasRenderableClient = client != null;
 
   const platformsQuery = useQuery({
     queryKey: ['client-platforms-public', clientId],
@@ -47,11 +54,25 @@ export function useClientForChat() {
     (p: { is_connected?: boolean }) => p.is_connected
   );
 
+  // Do not block the Chat UI on `client_platforms_public` — that adds a full extra round-trip
+  // and platform chips/context populate when the query resolves (same as dashboards).
+  const fullRowResolving =
+    !!clientId &&
+    !dgQuery.data &&
+    !fallbackQuery.isSuccess &&
+    queryStillResolving(fallbackQuery);
+
   const isLoading =
-    dgQuery.isLoading ||
-    isClientLoading ||
-    (!!clientId && !dgQuery.data && fallbackQuery.isLoading) ||
-    (!!clientId && platformsQuery.isLoading);
+    !hasRenderableClient &&
+    (queryStillResolving(dgQuery) || isClientLoading || fullRowResolving);
+
+  const loadError =
+    !client && !isLoading
+      ? (resolveError ??
+          (clientId && !dgQuery.data && fallbackQuery.isError ? fallbackQuery.error : null) ??
+          (clientId && platformsQuery.isError ? platformsQuery.error : null) ??
+          null)
+      : null;
 
   return {
     client,
@@ -59,6 +80,7 @@ export function useClientForChat() {
     platformContexts,
     hasPlatformConnections,
     isLoading,
+    loadError,
     refetch: () => {
       dgQuery.refetch();
       fallbackQuery.refetch();

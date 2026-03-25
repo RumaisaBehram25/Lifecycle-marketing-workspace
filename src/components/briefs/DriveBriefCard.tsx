@@ -2,13 +2,14 @@ import { Badge } from '@/components/ui/badge';
 import { FileText, ExternalLink, Calendar, Cloud, File, FolderOpen } from 'lucide-react';
 import { DriveBrief } from '@/hooks/useDriveBriefs';
 import { cn } from '@/lib/utils';
+import { dashIconChip, dashRingInset, dashRowHover, dashShadowSm } from '@/lib/dashboard-surface';
 
 function FileIcon({ fileName }: { fileName?: string }) {
   const isPdf = /\.pdf$/i.test(fileName || '');
   return isPdf ? (
     <File className="h-4 w-4 text-red-600/90 dark:text-red-400/90 shrink-0" />
   ) : (
-    <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+    <FileText className="h-4 w-4 text-primary shrink-0" />
   );
 }
 
@@ -18,17 +19,21 @@ export function DriveBriefCard({ brief }: { brief: DriveBrief }) {
   return (
     <div
       className={cn(
-        'group relative flex w-full flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-stretch sm:justify-between sm:gap-5',
-        'border-border/70 bg-card shadow-sm',
-        'transition-all duration-200',
-        'hover:border-blue-500/30 hover:shadow-md hover:shadow-blue-500/5'
+        'group relative flex w-full flex-col gap-4 rounded-xl border border-border/60 bg-card/95 p-4 sm:flex-row sm:items-stretch sm:justify-between sm:gap-5',
+        'duration-200',
+        dashShadowSm,
+        dashRingInset,
+        dashRowHover,
       )}
     >
-      <div className="absolute inset-y-3 left-0 w-1 rounded-full bg-gradient-to-b from-blue-500 to-blue-500/40 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
+      <div
+        className="absolute inset-y-3 left-0 w-1 rounded-full bg-gradient-to-b from-primary to-primary/40 opacity-0 transition-opacity group-hover:opacity-100"
+        aria-hidden
+      />
 
       <div className="relative min-w-0 flex-1 space-y-3 pl-0 sm:pl-1">
         <div className="flex gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 ring-1 ring-blue-500/15">
+          <div className={cn(dashIconChip, 'h-11 w-11 shrink-0 rounded-xl')}>
             <FileIcon fileName={brief.file_name} />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
@@ -38,7 +43,7 @@ export function DriveBriefCard({ brief }: { brief: DriveBrief }) {
             <div className="flex flex-wrap items-center gap-2">
               <Badge
                 variant="outline"
-                className="rounded-md border-blue-500/20 bg-blue-500/[0.06] px-2 py-0.5 text-[11px] font-medium text-blue-800 dark:text-blue-200"
+                className="rounded-md border border-primary/10 bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary"
               >
                 {folderLabel}
               </Badge>
@@ -67,7 +72,7 @@ export function DriveBriefCard({ brief }: { brief: DriveBrief }) {
         </div>
 
         <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground sm:ml-14">
-          <Cloud className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500/70" />
+          <Cloud className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/80" />
           <span>
             Synced from Google Drive · <span className="text-foreground/80">{folderLabel}</span>
           </span>
@@ -97,9 +102,9 @@ export function DriveBriefCard({ brief }: { brief: DriveBrief }) {
             rel="noopener noreferrer"
             className={cn(
               'inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
-              'bg-blue-600 text-white shadow-sm',
-              'hover:bg-blue-600/90 dark:bg-blue-600 dark:hover:bg-blue-500',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2'
+              'bg-primary text-primary-foreground shadow-md shadow-primary/[0.06]',
+              'hover:bg-primary/90',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
             )}
             onClick={e => e.stopPropagation()}
           >

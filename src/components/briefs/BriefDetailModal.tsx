@@ -27,7 +27,7 @@ import {
   FileText, Mail, Bell, Smartphone, Clock, Sparkles,
   Zap, Workflow, Calendar, Save, Trash2, ExternalLink,
   Palette, Upload, Paperclip, CheckCircle2, Image, X, Plus, Copy,
-  Type, AlignLeft, Heading1, MousePointer,
+  Type, AlignLeft, Heading1, MousePointer, MessageSquare,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -46,6 +46,7 @@ interface Brief {
   deadline: string | null;
   about: string | null;
   created_at: string;
+  updated_at?: string | null;
   conversation_id: string | null;
   ai_generated_copy?: EmailCopy | null;
 }
@@ -105,12 +106,6 @@ const PROGRESS_STEPS = [
   { id: 'in_development', label: 'Dev' },
   { id: 'qa_ready', label: 'QA' },
   { id: 'live', label: 'Live' },
-];
-
-const PLACEHOLDER_ATTACHMENTS: Attachment[] = [
-  { id: 'a1', name: 'campaign-brief-v2.pdf', size: '2.4 MB', type: 'pdf' },
-  { id: 'a2', name: 'brand-guidelines.docx', size: '1.8 MB', type: 'docx' },
-  { id: 'a3', name: 'hero-mockup.png', size: '540 KB', type: 'image' },
 ];
 
 const BLOCK_TYPES = [
@@ -242,10 +237,14 @@ function DetailsTab({ brief, onChange, attachments, onAddAttachment, onRemoveAtt
         onRemove={onRemoveAttachment} 
       />
 
-      <div className="grid grid-cols-2 gap-4 pt-3 border-t">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-3 border-t">
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Created</p>
           <p className="text-sm">{brief.created_at ? format(new Date(brief.created_at), 'PPP') : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Updated</p>
+          <p className="text-sm">{brief.updated_at ? format(new Date(brief.updated_at), 'PPP') : '—'}</p>
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Type</p>
@@ -475,7 +474,7 @@ function EmailCopyTab({ emailCopy, onChange, onGenerate, loading, briefName, con
 }
 
 function CreativeReferencesTab({ clientId }: { clientId: string }) {
-  const { data: templates } = useQuery({
+  const { data: templates, isPending: templatesLoading } = useQuery({
     queryKey: ['template-library', clientId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -490,17 +489,6 @@ function CreativeReferencesTab({ clientId }: { clientId: string }) {
     enabled: !!clientId,
   });
 
-  const PLACEHOLDER_TEMPLATES = [
-    { id: 't1', name: 'Welcome Series - Hero', category: 'Welcome', channel: 'email', gradient: 'from-primary/10 to-primary/5' },
-    { id: 't2', name: 'Pro Upgrade Nudge', category: 'Conversion', channel: 'email', gradient: 'from-blue-500/10 to-blue-500/5' },
-    { id: 't3', name: 'Feature Announcement', category: 'Education', channel: 'email', gradient: 'from-emerald-500/10 to-emerald-500/5' },
-    { id: 't4', name: 'Win-Back Series', category: 'Retention', channel: 'email', gradient: 'from-amber-500/10 to-amber-500/5' },
-    { id: 't5', name: 'Post-Purchase Thank You', category: 'Transactional', channel: 'email', gradient: 'from-violet-500/10 to-violet-500/5' },
-    { id: 't6', name: 'Cart Abandonment', category: 'Recovery', channel: 'email', gradient: 'from-rose-500/10 to-rose-500/5' },
-  ];
-
-  const displayTemplates = templates && templates.length > 0 ? templates : PLACEHOLDER_TEMPLATES;
-
   return (
     <div className="space-y-4">
       <Card>
@@ -509,26 +497,38 @@ function CreativeReferencesTab({ clientId }: { clientId: string }) {
             <Palette className="h-4 w-4 text-violet-500" />
             <CardTitle className="text-sm">Template Library</CardTitle>
           </div>
-          <p className="text-xs text-muted-foreground">Select templates for design inspiration and reference</p>
+          <p className="text-xs text-muted-foreground">Templates from your workspace and global library</p>
         </CardHeader>
         <CardContent>
+          {templatesLoading ? (
+            <div className="flex justify-center py-10">
+              <LoadingSpinner />
+            </div>
+          ) : !templates?.length ? (
+            <p className="text-sm text-muted-foreground py-6 text-center border border-dashed rounded-lg">
+              No templates yet. Add them in Brand or ask your team to publish global templates.
+            </p>
+          ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {displayTemplates.map((tpl: any) => (
+            {templates.map((tpl: { id: string; name: string; category: string | null; channel: string }) => (
               <div
                 key={tpl.id}
                 className="border rounded-lg p-3 hover:border-primary/50 cursor-pointer transition-all group hover:shadow-sm"
               >
                 <div className={cn(
                   "h-20 rounded-lg mb-2 flex items-center justify-center transition-colors",
-                  `bg-gradient-to-br ${tpl.gradient || 'from-muted to-muted/50'}`
+                  "bg-gradient-to-br from-muted to-muted/50"
                 )}>
                   <Image className="h-6 w-6 text-muted-foreground/40 group-hover:text-primary/40 transition-colors" />
                 </div>
                 <p className="font-medium text-xs">{tpl.name}</p>
-                <p className="text-[10px] text-muted-foreground">{tpl.category || 'General'}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {[tpl.category || 'General', tpl.channel].filter(Boolean).join(' · ')}
+                </p>
               </div>
             ))}
           </div>
+          )}
           <div className="mt-4 pt-3 border-t">
             <Button variant="outline" size="sm" className="w-full" asChild>
               <Link to="/brand">
@@ -543,6 +543,101 @@ function CreativeReferencesTab({ clientId }: { clientId: string }) {
   );
 }
 
+function BriefChatTab({ conversationId }: { conversationId: string | null }) {
+  const { data: messages, isPending, isError, error } = useQuery({
+    queryKey: ['brief-chat-messages', conversationId],
+    queryFn: async () => {
+      const { data, error: qErr } = await supabase
+        .from('chat_messages')
+        .select('id, role, content, created_at')
+        .eq('conversation_id', conversationId!)
+        .order('created_at', { ascending: true })
+        .limit(500);
+      if (qErr) throw qErr;
+      return data || [];
+    },
+    enabled: !!conversationId,
+  });
+
+  if (!conversationId) {
+    return (
+      <div className="rounded-lg border border-dashed p-8 text-center space-y-2">
+        <MessageSquare className="h-8 w-8 mx-auto text-muted-foreground/50" />
+        <p className="text-sm text-muted-foreground">
+          This brief is not linked to a chat conversation. When a brief is created from chat or linked to a thread, messages will appear here.
+        </p>
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/chat">
+            <ExternalLink className="h-3.5 w-3.5 mr-2" />
+            Open AI Chat
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (isPending) {
+    return (
+      <div className="flex justify-center py-12">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load messages{error instanceof Error ? `: ${error.message}` : ''}.
+      </p>
+    );
+  }
+
+  const list = messages ?? [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {list.length} message{list.length === 1 ? '' : 's'} in this conversation
+        </p>
+        <Button variant="outline" size="sm" asChild>
+          <Link to={`/chat?conversation=${encodeURIComponent(conversationId)}`}>
+            <ExternalLink className="h-3.5 w-3.5 mr-2" />
+            Open in Chat
+          </Link>
+        </Button>
+      </div>
+      {list.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-6 text-center border border-dashed rounded-lg">
+          No messages in this thread yet.
+        </p>
+      ) : (
+        <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+          {list.map((m: { id: string; role: string; content: string; created_at: string }) => (
+            <div
+              key={m.id}
+              className={cn(
+                'rounded-lg border px-3 py-2 text-sm',
+                m.role === 'user'
+                  ? 'border-primary/25 bg-primary/[0.06] ml-4'
+                  : m.role === 'assistant'
+                    ? 'border-border bg-muted/40 mr-4'
+                    : 'border-border bg-background'
+              )}
+            >
+              <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground mb-1">
+                <span className="font-medium capitalize">{m.role}</span>
+                <span>{format(new Date(m.created_at), 'MMM d, h:mm a')}</span>
+              </div>
+              <p className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─────── Main Modal ─────── */
 
 export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate }: BriefDetailModalProps) {
@@ -552,7 +647,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
   const [emailCopy, setEmailCopy] = useState<EmailCopy>({});
   const [aiLoading, setAiLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
-  const [attachments, setAttachments] = useState<Attachment[]>(PLACEHOLDER_ATTACHMENTS);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
 
   useEffect(() => {
@@ -561,6 +656,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
       setEmailCopy((brief.ai_generated_copy as EmailCopy) || {});
       setActiveTab('details');
       setContentBlocks([]);
+      setAttachments([]);
     }
   }, [brief?.id]);
 
@@ -725,6 +821,7 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
           <TabsList className="w-full justify-start">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="copy">Email Copy</TabsTrigger>
+            <TabsTrigger value="chat">Brief chat</TabsTrigger>
             <TabsTrigger value="creative">Creative References</TabsTrigger>
           </TabsList>
 
@@ -749,6 +846,10 @@ export function BriefDetailModal({ brief, open, onOpenChange, clientId, onUpdate
                 contentBlocks={contentBlocks}
                 onBlocksChange={setContentBlocks}
               />
+            </TabsContent>
+
+            <TabsContent value="chat" className="mt-0">
+              <BriefChatTab conversationId={editedBrief.conversation_id} />
             </TabsContent>
 
             <TabsContent value="creative" className="mt-0">

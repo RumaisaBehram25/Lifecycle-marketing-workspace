@@ -1,16 +1,19 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
+import { useDashboardBrazeMetrics } from '@/hooks/useDashboardBrazeMetrics';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  ArrowRight, CheckCircle2, ListTodo, Send,
+import {
+  ArrowRight, CheckCircle2,
   Workflow, Clock, Zap, Sparkles, ChevronDown, ChevronRight,
-  FolderOpen, FileText,
+  FolderOpen, FileText, MessageSquare, Layers, Radio,
+  TrendingUp, TrendingDown, Minus, MailWarning, UserMinus,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
@@ -19,25 +22,106 @@ import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
+import {
+  dashBadgeSoft,
+  dashIconChip,
+  dashIconChipAccent,
+  dashIconChipDestructive,
+  dashIconChipSuccess,
+  dashIconChipWarning,
+  dashPill,
+  dashRailAccent,
+  dashRailDestructive,
+  dashRailPrimary,
+  dashRailWarning,
+  dashRingInset,
+  dashRowHover,
+  dashSectionTitleBorder,
+  dashShadowSm,
+  dashSubtitleRule,
+  dashWashBrand,
+  dashWashPromo,
+  dashboardMetricTile,
+  dashboardSectionDotClass,
+  dashboardSectionHeadingClass,
+  dashboardSurfaceCard,
+  dashboardSurfaceCardInteractive,
+  dashboardTopAccentClass,
+} from '@/lib/dashboard-surface';
+import { UserGrowthHeroCard } from '@/components/dashboard/UserGrowthHeroCard';
 
-function MetricCard({ icon: Icon, label, value, trend, color }: {
+function trendIconFromLabel(trend: string) {
+  if (/\+[\d.]+%?/.test(trend)) return TrendingUp;
+  if (/-[\d.]+%/.test(trend)) return TrendingDown;
+  return Minus;
+}
+
+/** Large client-facing KPI tile with optional trend line (matches User Growth tile language). */
+function ClientProminentMetric({
+  icon: Icon,
+  label,
+  value,
+  trendText,
+  footnote,
+  accentClass,
+  railClass = dashRailPrimary,
+  warnZero,
+}: {
   icon: React.ElementType;
   label: string;
   value: string | number;
-  trend?: string;
-  color: string;
+  trendText?: string;
+  footnote?: string;
+  accentClass: string;
+  /** Left accent rail color (Tailwind border-l-*). */
+  railClass?: string;
+  warnZero?: boolean;
 }) {
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : value === '—'
+        ? null
+        : Number(String(value).replace(/,/g, ''));
+  const showWarn = warnZero && numeric === 0;
+  const TrendIc = trendText ? trendIconFromLabel(trendText) : null;
+
   return (
-    <Card>
-      <CardContent className="p-4 flex items-center gap-4">
-        <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0", color)}>
-          <Icon className="h-5 w-5" />
+    <Card className={cn(dashboardMetricTile, railClass)}>
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className={accentClass}>
+            <Icon className="h-5 w-5" />
+          </div>
+          {showWarn ? (
+            <span
+              className="shrink-0 rounded-md border border-warning/35 bg-warning/12 px-1.5 py-0.5 text-xs font-semibold text-warning-foreground"
+              title="Zero — may indicate missing sync or pipeline issue"
+            >
+              ⚠️
+            </span>
+          ) : null}
         </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-2xl font-bold tracking-tight">{value}</p>
-          {trend && <p className="text-xs text-muted-foreground">{trend}</p>}
-        </div>
+        <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground sm:text-4xl">{value}</p>
+        {trendText ? (
+          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            {TrendIc ? (
+              <TrendIc
+                className={cn(
+                  'h-4 w-4 shrink-0',
+                  /\+[\d.]+%?/.test(trendText)
+                    ? 'text-success'
+                    : /-[\d.]+%/.test(trendText)
+                      ? 'text-destructive'
+                      : 'text-muted-foreground',
+                )}
+              />
+            ) : null}
+            <span className="leading-snug">{trendText}</span>
+          </p>
+        ) : null}
+        {footnote ? <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">{footnote}</p> : null}
       </CardContent>
     </Card>
   );
@@ -68,21 +152,6 @@ const PROGRESS_STEPS = [
   { id: 'live', label: 'Live' },
 ];
 
-export const PLACEHOLDER_BRIEFS = [
-  { id: 'p1', name: 'Welcome Series Revamp', content_type: 'lifecycle', status: 'pending_copy', deadline: '2026-03-15', channels: ['email', 'push'], created_at: '2026-02-01', about: 'Revamp the welcome series with updated brand voice', stage: 'Onboarding' },
-  { id: 'p2', name: 'Spring Sale Campaign', content_type: 'campaign', status: 'to_brief', deadline: '2026-03-20', channels: ['email'], created_at: '2026-02-10', about: 'Q1 spring sale push', quarter: 'Q1 2026' },
-  { id: 'p3', name: 'Post-Purchase Flow', content_type: 'lifecycle', status: 'in_development', deadline: '2026-03-10', channels: ['email', 'inapp'], created_at: '2026-01-20', about: 'Post-purchase thank you and cross-sell flow', stage: 'Post-Purchase' },
-  { id: 'p4', name: 'Q2 Content Calendar', content_type: 'task', status: 'in_progress', deadline: '2026-04-01', channels: [], created_at: '2026-02-15', about: 'Plan Q2 content calendar and briefs' },
-  { id: 'p5', name: 'Memorial Day Blast', content_type: 'campaign', status: 'pending_design', deadline: '2026-05-20', channels: ['email'], created_at: '2026-02-20', about: 'Memorial Day sale campaign', quarter: 'Q2 2026' },
-  { id: 'p6', name: 'Cart Abandonment V2', content_type: 'lifecycle', status: 'to_brief', deadline: '2026-04-15', channels: ['email', 'push'], created_at: '2026-02-18', about: 'Update cart abandonment flow with new incentives', stage: 'Recovery' },
-  { id: 'p7', name: 'Upload UTM Tracking Doc', content_type: 'task', status: 'to_brief', deadline: '2026-03-05', channels: [], created_at: '2026-02-22', about: 'Upload UTM tracking documentation' },
-  { id: 'p8', name: 'Summer Sale Campaign', content_type: 'campaign', status: 'to_brief', deadline: '2026-06-15', channels: ['email', 'push'], created_at: '2026-02-25', about: 'Summer sale kickoff', quarter: 'Q2 2026' },
-  { id: 'p9', name: 'Valentine\'s Day Campaign', content_type: 'campaign', status: 'complete', deadline: '2026-02-14', channels: ['email'], created_at: '2026-01-10', about: 'Valentine\'s Day promo email blast', quarter: 'Q1 2026' },
-  { id: 'p10', name: 'New Year Welcome Flow', content_type: 'lifecycle', status: 'live', deadline: '2026-01-05', channels: ['email', 'push'], created_at: '2025-12-15', about: 'New Year welcome series for Jan subscribers', stage: 'Onboarding' },
-  { id: 'p11', name: 'Black Friday Series', content_type: 'campaign', status: 'complete', deadline: '2025-11-29', channels: ['email', 'push'], created_at: '2025-10-15', about: 'Black Friday email and push series', quarter: 'Q4 2025' },
-  { id: 'p12', name: 'Holiday Win-Back', content_type: 'lifecycle', status: 'complete', deadline: '2025-12-20', channels: ['email'], created_at: '2025-11-01', about: 'Holiday re-engagement for lapsed users', stage: 'Win-Back' },
-];
-
 function getQuarter(deadline?: string | null): string {
   if (!deadline) return 'Unscheduled';
   const d = new Date(deadline);
@@ -108,7 +177,12 @@ function BriefRow({ brief, onClick }: { brief: any; onClick: () => void }) {
 
   return (
     <div
-      className="p-3 rounded-lg border bg-card hover:border-primary/30 transition-colors cursor-pointer"
+      className={cn(
+        'p-3 rounded-xl border border-border/60 bg-card/95 cursor-pointer',
+        dashShadowSm,
+        dashRingInset,
+        dashRowHover,
+      )}
       onClick={onClick}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -128,14 +202,19 @@ function BriefRow({ brief, onClick }: { brief: any; onClick: () => void }) {
           />
         ))}
       </div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{brief.about ? brief.about.slice(0, 40) + (brief.about.length > 40 ? '...' : '') : ''}</span>
-        {brief.deadline && (
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            Due {format(new Date(brief.deadline), 'MMM d')}
-          </span>
-        )}
+      <div className="flex items-center justify-between text-xs text-muted-foreground gap-2">
+        <span className="min-w-0 truncate">{brief.about ? brief.about.slice(0, 48) + (brief.about.length > 48 ? '…' : '') : '—'}</span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          {brief.conversation_id && (
+            <MessageSquare className="h-3 w-3 text-primary/80" aria-label="Linked chat" />
+          )}
+          {brief.deadline && (
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              Due {format(new Date(brief.deadline), 'MMM d')}
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );
@@ -167,7 +246,12 @@ function BriefFolder({ type, briefs, onSelectBrief }: { type: FolderType; briefs
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 rounded-lg hover:bg-muted/50 transition-colors">
+      <CollapsibleTrigger
+        className={cn(
+          'flex items-center gap-2 w-full p-2.5 rounded-xl border border-transparent',
+          'hover:bg-muted/40 hover:border-border/50 transition-all',
+        )}
+      >
         {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
         <FolderOpen className={cn("h-4 w-4", config.color)} />
         <span className="text-sm font-semibold">{config.label}</span>
@@ -193,61 +277,10 @@ function BriefFolder({ type, briefs, onSelectBrief }: { type: FolderType; briefs
   );
 }
 
-export function OpenBriefsTracker({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
-  const [selectedBrief, setSelectedBrief] = useState<any>(null);
-  const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
-  const openBriefs = displayBriefs.filter(b => !['complete', 'live'].includes(b.status));
-
-  const campaignBriefs = openBriefs.filter(b => b.content_type === 'campaign');
-  const lifecycleBriefs = openBriefs.filter(b => b.content_type === 'lifecycle');
-  const taskBriefs = openBriefs.filter(b => b.content_type === 'task');
-
-  return (
-    <>
-      <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <ListTodo className="h-4 w-4 text-primary" />
-            Open Briefs
-          </CardTitle>
-          <Link to="/briefs">
-            <Button variant="ghost" size="sm" className="text-xs">
-              View All <ArrowRight className="ml-1 h-3 w-3" />
-            </Button>
-          </Link>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {campaignBriefs.length > 0 && (
-            <BriefFolder type="campaign" briefs={campaignBriefs} onSelectBrief={setSelectedBrief} />
-          )}
-          {lifecycleBriefs.length > 0 && (
-            <BriefFolder type="lifecycle" briefs={lifecycleBriefs} onSelectBrief={setSelectedBrief} />
-          )}
-          {taskBriefs.length > 0 && (
-            <BriefFolder type="task" briefs={taskBriefs} onSelectBrief={setSelectedBrief} />
-          )}
-          {openBriefs.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">No open briefs</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <BriefDetailModal
-        brief={selectedBrief}
-        open={!!selectedBrief}
-        onOpenChange={(open) => { if (!open) setSelectedBrief(null); }}
-        clientId={clientId}
-        onUpdate={onRefresh}
-      />
-    </>
-  );
-}
-
 export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: any[]; clientId: string; onRefresh: () => void }) {
   const [selectedBrief, setSelectedBrief] = useState<any>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const displayBriefs = briefs.length > 0 ? briefs : PLACEHOLDER_BRIEFS;
-  const closedBriefs = displayBriefs.filter(b => ['complete', 'live'].includes(b.status));
+  const closedBriefs = briefs.filter(b => ['complete', 'live'].includes(b.status));
 
   if (closedBriefs.length === 0) return null;
 
@@ -259,11 +292,19 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
   return (
     <>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        <Card>
+        <Card className={dashboardSurfaceCard}>
+          <div className={dashboardTopAccentClass} aria-hidden />
           <CollapsibleTrigger asChild>
-            <CardHeader className="pb-3 cursor-pointer flex flex-row items-center justify-between hover:bg-muted/30 transition-colors rounded-t-lg">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <CardHeader
+              className={cn(
+                'pb-3 cursor-pointer flex flex-row items-center justify-between hover:bg-primary/[0.03] transition-colors rounded-t-none',
+                dashSectionTitleBorder,
+              )}
+            >
+              <CardTitle className="text-base font-semibold font-heading flex items-center gap-2">
+                <span className={cn(dashIconChipSuccess, 'h-8 w-8 shrink-0 rounded-lg')}>
+                  <CheckCircle2 className="h-4 w-4" />
+                </span>
                 Closed Briefs
                 <Badge variant="secondary" className="text-[10px] ml-1">{closedBriefs.length}</Badge>
               </CardTitle>
@@ -271,7 +312,7 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
             </CardHeader>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <CardContent className="space-y-2 pt-0">
+            <CardContent className="space-y-2 pt-4 pb-5 px-6">
               {campaignBriefs.length > 0 && (
                 <BriefFolder type="campaign" briefs={campaignBriefs} onSelectBrief={setSelectedBrief} />
               )}
@@ -299,6 +340,20 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
 
 export default function Dashboard() {
   const { clientId } = useResolvedClientId();
+  const { clientId: brazeDataClientId } = useBrazeDashboardClientId();
+  const queryClient = useQueryClient();
+  const refreshBriefs = () => {
+    queryClient.invalidateQueries({ queryKey: ['dashboard-briefs', clientId] });
+    queryClient.invalidateQueries({ queryKey: ['brief-counts', clientId] });
+  };
+  const {
+    canvasStats: brazeCanvas,
+    segmentCount: brazeSegmentCount,
+    scheduled: brazeScheduled,
+    scheduledError: brazeScheduledError,
+    scheduledIsError: brazeScheduledIsError,
+    emailHealth: brazeEmail,
+  } = useDashboardBrazeMetrics();
   const { data: driveBriefs = [], isFetching: driveBriefsLoading } = useDriveBriefs(clientId);
   const driveFileCount = useMemo(() => countSyncedDriveFiles(driveBriefs), [driveBriefs]);
 
@@ -317,54 +372,172 @@ export default function Dashboard() {
     enabled: !!clientId,
   });
 
-  const { data: briefCounts } = useQuery({
-    queryKey: ['brief-counts', clientId],
+  const pillarItems = useMemo(() => {
+    const p = brazeCanvas.pillars;
+    if (!p || p === '—') return [];
+    return p.split(' · ').map((s) => s.trim()).filter(Boolean);
+  }, [brazeCanvas.pillars]);
+
+  const { data: lifecycleFlowsUpdated = 0 } = useQuery({
+    queryKey: ['dashboard-lifecycle-updated-30d', brazeDataClientId],
     queryFn: async () => {
-      if (!clientId) return { open: 0, completed: 0 };
-      const { data: allBriefs, error } = await supabase
-        .from('briefs')
-        .select('status')
-        .eq('client_id', clientId);
+      const cid = brazeDataClientId;
+      if (!cid) return 0;
+      const cutoffIso = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000)).toISOString();
+      const { count, error } = await supabase
+        .from('braze_canvases')
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', cid)
+        .gte('updated_at', cutoffIso);
       if (error) throw error;
-      const open = (allBriefs || []).filter(b => !['complete', 'live'].includes(b.status)).length;
-      const completed = (allBriefs || []).filter(b => ['complete', 'live'].includes(b.status)).length;
-      return { open, completed };
+      return count ?? 0;
     },
-    enabled: !!clientId,
+    enabled: !!brazeDataClientId,
   });
 
   return (
     <AppLayout>
       <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
         {/* Brand Header */}
-        <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
-          <CardContent className="p-6">
+        <Card className={dashboardSurfaceCardInteractive}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardContent className={cn('p-6', dashWashBrand)}>
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="h-14 w-14 rounded-2xl bg-primary flex items-center justify-center">
+              <div className="h-14 w-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25 ring-2 ring-primary/15">
                 <BRCGIcon className="h-8 w-8 text-primary-foreground" />
               </div>
               <div className="flex-1">
                 <BRCGLogo className="h-7 w-auto text-foreground" />
-                <p className="text-sm text-muted-foreground mt-1">
-                  CRM Copilot — Lifecycle marketing command center
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className={dashPill}>Live</span>
+                  <p className="text-sm text-muted-foreground">CRM Copilot — Lifecycle marketing command center</p>
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Metrics Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard icon={Send} label="Campaigns Sent" value={10} trend="Last 30 days" color="bg-blue-500/10 text-blue-600" />
-          <MetricCard icon={Workflow} label="Lifecycle Flows Updated" value={4} trend="Last 30 days" color="bg-purple-500/10 text-purple-600" />
-          <MetricCard
-            icon={FileText}
-            label="Google Drive files"
-            value={driveFileCount}
-            trend={driveBriefsLoading ? 'Refreshing…' : 'Synced from Drive'}
-            color="bg-blue-500/10 text-blue-600"
-          />
-          <MetricCard icon={CheckCircle2} label="Closed Briefs" value={briefCounts?.completed ?? 0} trend="Last 30 days" color="bg-green-500/10 text-green-600" />
+        <UserGrowthHeroCard />
+
+        {/* Client-facing metrics */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className={dashboardSectionHeadingClass}>
+                <span className={dashboardSectionDotClass} aria-hidden />
+                Performance &amp; connections
+              </h2>
+              <p className={cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule)}>
+                Key health metrics your team sees at a glance
+              </p>
+            </div>
+            <Badge variant="secondary" className={cn(dashPill, 'border-0')}>
+              Live data
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <ClientProminentMetric
+              icon={MailWarning}
+              label="Hard bounces (30d)"
+              value={brazeEmail.bounces.toLocaleString()}
+              footnote="From Braze email/hard_bounces sync"
+              railClass={dashRailWarning}
+              accentClass={cn(dashIconChipWarning, 'h-10 w-10 rounded-xl')}
+            />
+            <ClientProminentMetric
+              icon={UserMinus}
+              label="Unsubscribes (30d)"
+              value={brazeEmail.unsubs.toLocaleString()}
+              footnote="From Braze email/unsubscribes sync"
+              railClass={dashRailDestructive}
+              accentClass={cn(dashIconChipDestructive, 'h-10 w-10 rounded-xl')}
+            />
+            <ClientProminentMetric
+              icon={Radio}
+              label="Scheduled broadcasts"
+              value={
+                brazeScheduledIsError
+                  ? '—'
+                  : brazeScheduled.count.toLocaleString()
+              }
+              trendText={
+                brazeScheduledIsError
+                  ? undefined
+                  : brazeScheduled.nextSendTimeLabel
+                    ? brazeScheduled.nextSendTimeLabel
+                    : brazeScheduled.count > 0
+                      ? 'No upcoming next_send_time on synced rows'
+                      : undefined
+              }
+              footnote={
+                brazeScheduledIsError
+                  ? `Could not read braze_scheduled_broadcasts (RLS/network).`
+                  : 'From Braze scheduled_broadcasts sync'
+              }
+              railClass={dashRailPrimary}
+              accentClass={cn(dashIconChip, 'h-10 w-10 rounded-xl')}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <ClientProminentMetric
+              icon={Workflow}
+              label="Enabled canvases"
+              value={brazeCanvas.enabledInBraze.toLocaleString()}
+              footnote={`${brazeCanvas.syncedTotal.toLocaleString()} total synced (non-archived) · ${lifecycleFlowsUpdated} updated in last 30d`}
+              railClass={dashRailAccent}
+              accentClass={cn(dashIconChipAccent, 'h-10 w-10 rounded-xl')}
+              warnZero={!!brazeDataClientId && brazeCanvas.enabledInBraze === 0 && brazeCanvas.syncedTotal > 0}
+            />
+            <ClientProminentMetric
+              icon={Layers}
+              label="Braze segments"
+              value={brazeSegmentCount.toLocaleString()}
+              footnote="Directory from segments/list sync"
+              railClass={dashRailWarning}
+              accentClass={cn(dashIconChipWarning, 'h-10 w-10 rounded-xl')}
+              warnZero={!!brazeDataClientId && brazeSegmentCount === 0}
+            />
+            <ClientProminentMetric
+              icon={FileText}
+              label="Google Drive files"
+              value={driveBriefsLoading ? '…' : driveFileCount.toLocaleString()}
+              footnote={driveBriefsLoading ? 'Refreshing…' : 'Files linked from Drive brief sync'}
+              railClass={dashRailPrimary}
+              accentClass={cn(dashIconChip, 'h-10 w-10 rounded-xl')}
+            />
+          </div>
+
+          <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
+            <div className={dashboardTopAccentClass} aria-hidden />
+            <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
+              <CardTitle className="flex items-center gap-2 text-base font-semibold font-heading">
+                <span className={cn(dashIconChip, 'h-8 w-8 shrink-0 rounded-lg')}>
+                  <Layers className="h-4 w-4" />
+                </span>
+                Canvas pillar breakdown
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Counts by lifecycle pillar (name/tags match: Retention, Reactivation, Activation, Upsell)
+              </p>
+            </CardHeader>
+            <CardContent className="pb-4 pt-4 bg-muted/10">
+              {pillarItems.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {pillarItems.map((item) => (
+                    <Badge key={item} variant="secondary" className={cn('px-3 py-1.5 text-sm font-semibold tabular-nums', dashBadgeSoft)}>
+                      {item}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  No pillar matches yet — sync canvases or tag names in Braze.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         <GoogleDriveBriefsPanel
@@ -373,24 +546,18 @@ export default function Dashboard() {
           isFetching={driveBriefsLoading}
         />
 
-        {/* Open Briefs Tracker — with folders */}
-        <OpenBriefsTracker
-          briefs={briefs || []}
-          clientId={clientId || ''}
-          onRefresh={() => {}}
-        />
-
         {/* Closed Briefs — now grouped by type */}
         <ClosedBriefsSection
           briefs={briefs || []}
           clientId={clientId || ''}
-          onRefresh={() => {}}
+          onRefresh={refreshBriefs}
         />
 
         {/* CRM Copilot — full experience lives on AI Chat tab (single place for history + Grok) */}
-        <Card className="border-primary/25 bg-gradient-to-br from-primary/[0.06] via-card to-violet-500/[0.05] shadow-md shadow-primary/10 ring-1 ring-primary/10 overflow-hidden">
-          <CardContent className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-violet-600 text-primary-foreground shadow-lg shadow-primary/25">
+        <Card className={dashboardSurfaceCardInteractive}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardContent className={cn('p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center gap-4', dashWashPromo)}>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/25 ring-2 ring-primary/15">
               <Sparkles className="h-6 w-6" />
             </div>
             <div className="flex-1 min-w-0 space-y-1">

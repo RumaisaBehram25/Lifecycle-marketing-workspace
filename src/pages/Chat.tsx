@@ -3,8 +3,38 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ClientChat } from '@/components/chat/ClientChat';
 import { useClientForChat } from '@/hooks/useClientForChat';
 import { LoadingPage } from '@/components/ui/loading-spinner';
-import { Sparkles } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Sparkles, AlertCircle } from 'lucide-react';
 import { BRCGIcon } from '@/components/BRCGLogo';
+import { getChatClientLoadHelp } from '@/lib/chatClientLoadError';
+
+function ChatClientLoadAlert({
+  loadError,
+  onRetry,
+}: {
+  loadError: unknown;
+  onRetry: () => void;
+}) {
+  const { detail, hints } = getChatClientLoadHelp(loadError);
+  return (
+    <Alert variant="destructive" className="text-left">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>Could not load client</AlertTitle>
+      <AlertDescription className="space-y-3">
+        <p className="text-sm">{detail}</p>
+        <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-2 text-left">
+          {hints.map((hint, i) => (
+            <li key={i}>{hint}</li>
+          ))}
+        </ul>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 export default function Chat() {
   const [searchParams] = useSearchParams();
@@ -14,6 +44,8 @@ export default function Chat() {
     isLoading: clientLoading,
     platformContexts,
     hasPlatformConnections,
+    loadError,
+    refetch,
   } = useClientForChat();
 
   if (clientLoading) {
@@ -73,10 +105,14 @@ export default function Chat() {
                     <h1 className="text-2xl sm:text-3xl font-heading font-bold tracking-tight">
                       How can we help today?
                     </h1>
-                    <p className="text-muted-foreground leading-relaxed px-2">
-                      Connect a client workspace to unlock CRM Copilot — on-brand copy, journeys, and lifecycle
-                      answers grounded in your data.
-                    </p>
+                    {loadError ? (
+                      <ChatClientLoadAlert loadError={loadError} onRetry={() => refetch()} />
+                    ) : (
+                      <p className="text-muted-foreground leading-relaxed px-2">
+                        Connect a client workspace to unlock CRM Copilot — on-brand copy, journeys, and lifecycle
+                        answers grounded in your data.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

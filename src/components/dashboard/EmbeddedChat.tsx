@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sparkles, Send, ArrowRight, Loader2 } from 'lucide-react';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -26,6 +27,7 @@ export function EmbeddedChat() {
   
   const { data: client } = useDoubleGoodClient();
   const { data: platforms } = useDoubleGoodPlatforms();
+  const { clientId: brazeAnalyticsClientId } = useBrazeDashboardClientId();
 
   // Fetch briefs for context
   const { data: briefs } = useQuery({
@@ -124,6 +126,7 @@ export function EmbeddedChat() {
               tone_presets: Array.isArray(client.tone_presets) ? client.tone_presets : [],
               legal_requirements: client.legal_requirements,
             },
+            analyticsClientId: brazeAnalyticsClientId ?? client.id,
             platformContext: platformContexts,
             briefsContext: briefs || [],
           }),

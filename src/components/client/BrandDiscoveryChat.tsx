@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ReactMarkdown from 'react-markdown';
 import { logger } from '@/lib/logger';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -49,6 +50,7 @@ export function BrandDiscoveryChat({ client, onRefreshClient }: BrandDiscoveryCh
   const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { clientId: brazeAnalyticsClientId } = useBrazeDashboardClientId();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -170,6 +172,7 @@ ${client.dont_rules ? `Don'ts: ${JSON.stringify(client.dont_rules)}` : ''}
               name: client.name,
               brand_voice: client.brand_voice,
             },
+            analyticsClientId: brazeAnalyticsClientId ?? client.id,
             systemContext: `You are a helpful brand assistant for ${client.name}. Answer questions about the brand based on this context:\n\n${clientContext}\n\nBe concise and helpful. If information isn't available, say so clearly.`,
           }),
         }

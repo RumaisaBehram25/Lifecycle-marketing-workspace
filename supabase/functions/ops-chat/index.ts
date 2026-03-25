@@ -13,7 +13,7 @@ import { logger } from '../_shared/logger.ts';
 import { serializeUnknownError } from '../_shared/errors.ts';
 
 type ChatProvider = {
-  kind: 'xai' | 'groq' | 'lovable';
+  kind: 'xai' | 'groq' | 'anthropic' | 'lovable';
   url: string;
   apiKey: string;
   defaultModel: string;
@@ -25,6 +25,16 @@ function isGroqApiKey(key: string): boolean {
 }
 
 function getChatProvider(): ChatProvider | null {
+  const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')?.trim();
+  if (anthropicKey) {
+    return {
+      kind: 'anthropic',
+      url: 'https://api.anthropic.com/v1/messages',
+      apiKey: anthropicKey,
+      defaultModel: Deno.env.get('ANTHROPIC_MODEL')?.trim() || 'claude-3-5-sonnet-latest',
+    };
+  }
+
   const groqExplicit = Deno.env.get('GROQ_API_KEY')?.trim();
   if (groqExplicit) {
     return {
@@ -84,9 +94,102 @@ async function aiChat(provider: ChatProvider, payload: Record<string, unknown>):
   });
 }
 
+function openAiCompatibleSseStreamFromText(text: string): ReadableStream<Uint8Array> {
+  // The frontend `ClientChat` parses `data: ...` lines and expects an OpenAI-style
+  // shape: { choices: [{ delta: { content: "..." } }] } plus a final [DONE].
+  const encoder = new TextEncoder();
+  const maxChunkSize = 80; // small chunks for a nicer typing effect
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    chunks.push(text.slice(i, i + maxChunkSize));
+    i += maxChunkSize;
+  }
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      try {
+        for (const chunk of chunks) {
+          if (!chunk) continue;
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                choices: [{ delta: { content: chunk } }],
+              })}\n`
+            )
+          );
+        }
+        controller.enqueue(encoder.encode(`data: [DONE]\n`));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
+function toAnthropicMessages(openAiMessages: Array<{ role: string; content?: unknown }>) {
+  const out: Array<{ role: 'user' | 'assistant'; content: Array<{ type: 'text'; text: string }> }> = [];
+  for (const m of openAiMessages) {
+    if (m.role === 'system') continue;
+    if (m.role !== 'user' && m.role !== 'assistant') continue;
+    out.push({
+      role: m.role,
+      content: [{ type: 'text', text: String(m.content ?? '') }],
+    });
+  }
+  return out;
+}
+
+async function anthropicComplete(provider: ChatProvider, payload: Record<string, unknown>): Promise<string> {
+  const model = (payload.model as string | undefined) || provider.defaultModel;
+  const messages = (payload.messages as Array<{ role: string; content?: unknown }>) || [];
+
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => String(m.content ?? ''))
+    .filter(Boolean)
+    .join('\n\n');
+
+  const anthropicMessages = toAnthropicMessages(messages);
+
+  const maxTokens = (payload.max_tokens as number | undefined) ?? 1024;
+  const temperature = (payload.temperature as number | undefined) ?? 0.4;
+
+  const resp = await fetch(provider.url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': provider.apiKey,
+      'anthropic-version': Deno.env.get('ANTHROPIC_VERSION')?.trim() || '2023-06-01',
+    },
+    body: JSON.stringify({
+      model,
+      system: system || undefined,
+      messages: anthropicMessages,
+      max_tokens: maxTokens,
+      temperature,
+    }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return `Anthropic error (${resp.status}): ${errText.slice(0, 800)}`;
+  }
+
+  const json = (await resp.json()) as {
+    content?: Array<{ type?: string; text?: string }>;
+  };
+
+  const blocks = json.content ?? [];
+  return blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text ?? '')
+    .join('');
+}
+
 async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>, clientId: string): Promise<string> {
   try {
-    const [briefsRes, driveRes, templatesRes] = await Promise.all([
+    const settled = await Promise.allSettled([
       supabase
         .from('briefs')
         .select('name, status, content_type, deadline')
@@ -105,9 +208,21 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
         .limit(8),
     ]);
 
-    const briefs = briefsRes.data || [];
-    const files = driveRes.data || [];
-    const templates = templatesRes.data || [];
+    type Pg = { data: unknown; error: { message?: string } | null };
+    const take = (i: number, label: string): unknown[] => {
+      const out = settled[i];
+      if (out.status === 'rejected') {
+        logger.error(`workspace snapshot ${label} rejected:`, out.reason);
+        return [];
+      }
+      const r = out.value as Pg;
+      if (r?.error) logger.error(`workspace snapshot ${label}:`, r.error.message ?? r.error);
+      return (r?.data as unknown[]) || [];
+    };
+
+    const briefs = take(0, 'briefs');
+    const files = take(1, 'client_drive_files');
+    const templates = take(2, 'template_library');
 
     let block =
       '\n## LIVE WORKSPACE SNAPSHOT (this account)\nGround answers in this data when relevant. If something is empty, say so clearly.\n';
@@ -138,7 +253,7 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
     }
 
     block +=
-      '\nNote: Some dashboard tiles may still show placeholder KPIs until integrations sync—mention that if the user asks about numbers not listed here.\n';
+      '\nIf a subsection is empty, the workspace has no rows there yet. Analytics/KPI numbers for Braze live in the **ANALYTICS & CRM DATA** section below when synced.\n';
     return block;
   } catch (e) {
     logger.error('workspace snapshot error:', e);
@@ -192,6 +307,8 @@ serve(async (req) => {
       messages: ChatMessage[];
       client: LegacyClientContext;
       platformContext?: LegacyPlatformContext | LegacyPlatformContext[];
+      /** Optional: Braze/analytics `client_id` when it must match Dashboard (defaults to client.id). */
+      analyticsClientId?: string;
     };
     try {
       body = await req.json();
@@ -203,7 +320,7 @@ serve(async (req) => {
       });
     }
 
-    const { messages, client, platformContext } = body;
+    const { messages, client, platformContext, analyticsClientId: analyticsClientIdRaw } = body;
 
     // Validate user has access to this client
     const accessResult = await validateClientAccess(authResult.userClient!, client.id);
@@ -211,12 +328,24 @@ serve(async (req) => {
       return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
     }
 
+    const analyticsClientId =
+      typeof analyticsClientIdRaw === 'string' && analyticsClientIdRaw.trim().length > 0
+        ? analyticsClientIdRaw.trim()
+        : client.id;
+
+    if (analyticsClientId !== client.id) {
+      const analyticsAccess = await validateClientAccess(authResult.userClient!, analyticsClientId);
+      if (!analyticsAccess.success) {
+        return authErrorResponse(analyticsAccess.error!, analyticsAccess.status!, corsHeaders);
+      }
+    }
+
     const provider = getChatProvider();
     if (!provider) {
       return new Response(
         JSON.stringify({
           error:
-            'No AI provider configured. Set GROQ_API_KEY (Groq, console.groq.com), XAI_API_KEY (xAI, console.x.ai), grok_key, or LOVABLE_API_KEY in Edge Function secrets, then redeploy ops-chat.',
+            'No AI provider configured. Set GROQ_API_KEY (Groq, console.groq.com), ANTHROPIC_API_KEY (Anthropic/Claude), XAI_API_KEY (xAI, console.x.ai), grok_key, or LOVABLE_API_KEY in Edge Function secrets, then redeploy ops-chat.',
         }),
         { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -245,8 +374,8 @@ serve(async (req) => {
     // Build rich system prompt from unified context + live DB snapshot
     let systemPrompt = buildSystemPromptFromContext(unifiedContext, 'chat');
     systemPrompt += await buildWorkspaceSnapshot(supabase, client.id);
-    systemPrompt += await buildAnalyticsSnapshotBlock(supabase, client.id);
-    systemPrompt += `\n## COPILOT VOICE\nYou are **CRM Copilot** for lifecycle marketers—warm, decisive, and concise. Prefer short sections and bullet points. Be actionable and slightly catchy without being cheesy. If data is missing or still placeholder, say so and still give strong best-practice guidance.\n`;
+    systemPrompt += await buildAnalyticsSnapshotBlock(supabase, analyticsClientId);
+    systemPrompt += `\n## COPILOT VOICE\nYou are **CRM Copilot** for lifecycle marketers—warm, decisive, and concise. Prefer short sections and bullet points. Be actionable and slightly catchy without being cheesy. If a metric is missing from the snapshots above, say it is not synced or not in the database yet—do not invent numbers—and still give strong best-practice guidance.\n`;
 
     // Get legacy platform contexts for tool handlers
     const legacyPlatformContexts = toLegacyPlatformContext(unifiedContext.platforms);
@@ -292,6 +421,19 @@ serve(async (req) => {
       }
 
       return new Response(streamResponse.body, {
+        headers: { ...corsHeaders, 'Content-Type': 'text/event-stream' },
+      });
+    }
+
+    // Anthropic Claude: call non-streaming, then adapt into OpenAI-compatible SSE.
+    // Note: we currently skip OpenAI-style tool calling for Anthropic (prompt-only).
+    if (provider.kind === 'anthropic') {
+      const completionText = await anthropicComplete(provider, {
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        stream: false,
+      });
+
+      return new Response(openAiCompatibleSseStreamFromText(completionText), {
         headers: { ...corsHeaders, 'Content-Type': 'text/event-stream' },
       });
     }

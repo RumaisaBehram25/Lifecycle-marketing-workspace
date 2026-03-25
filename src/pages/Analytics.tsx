@@ -270,6 +270,8 @@ export default function Analytics() {
     email_bounces: Number((r as any).email_bounces ?? 0),
   }));
 
+  const engagementRatio = metrics.mau > 0 ? (metrics.dau / metrics.mau) * 100 : 0;
+
   const campaignComparisonData = [...campaignTableRows]
     .map((r) => ({
       campaign_name: r.name || 'Untitled Campaign',
@@ -346,17 +348,72 @@ export default function Analytics() {
           <StatCard icon={Send} label="Total Sent" value={metrics.totalSent.toLocaleString()} color="bg-primary/10 text-primary" />
           <StatCard icon={Send} label="Total Delivered" value={metrics.totalDelivered.toLocaleString()} color="bg-blue-500/10 text-blue-600" />
           <StatCard icon={Eye} label="Total Opens" value={metrics.totalOpens.toLocaleString()} color="bg-amber-500/10 text-amber-600" />
-          <StatCard icon={Send} label="Total Clicks" value={metrics.totalClicks.toLocaleString()} color="bg-cyan-500/10 text-cyan-600" />
+          <StatCard
+            icon={Send}
+            label="Total Clicks"
+            value={metrics.totalClicks.toLocaleString()}
+            color="bg-cyan-500/10 text-cyan-600"
+            trend={{ direction: 'flat', value: `${metrics.totalConversions.toLocaleString()} conversions` }}
+          />
         </div>
 
-        {/* DAU/MAU and rates — from braze_usage_analytics + customerio_campaigns */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          <StatCard icon={Users} label="DAU" value={metrics.dau.toLocaleString()} color="bg-emerald-500/10 text-emerald-600" />
-          <StatCard icon={Users} label="MAU" value={metrics.mau.toLocaleString()} color="bg-green-500/10 text-green-600" />
-          <StatCard icon={Eye} label="Delivery Rate" value={formatPct(metrics.deliveryRate)} color="bg-purple-500/10 text-purple-600" />
+        {/* DAU / MAU / new users — braze_kpi_series when synced; else braze_usage_analytics CSV */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
+          <StatCard
+            icon={Users}
+            label="DAU"
+            value={metrics.dau.toLocaleString()}
+            color="bg-emerald-500/10 text-emerald-600"
+            trend={{
+              direction: 'flat',
+              value: metrics.kpiSource ? 'Latest day · Braze KPI API' : `${formatPct(engagementRatio)} of MAU`,
+            }}
+          />
+          <StatCard
+            icon={Users}
+            label="MAU"
+            value={metrics.mau.toLocaleString()}
+            color="bg-green-500/10 text-green-600"
+            trend={{
+              direction: 'flat',
+              value: metrics.kpiSource ? 'Latest day · Braze KPI API' : 'Usage CSV',
+            }}
+          />
+          <StatCard
+            icon={UserPlus}
+            label="New users (30d)"
+            value={metrics.newUsers30.toLocaleString()}
+            color="bg-teal-500/10 text-teal-600"
+            trend={{
+              direction: 'flat',
+              value: metrics.kpiSource ? 'Sum of daily new_users · KPI' : 'Sum from usage rows',
+            }}
+          />
+          <StatCard
+            icon={Eye}
+            label="Delivery Rate"
+            value={formatPct(metrics.deliveryRate)}
+            color="bg-purple-500/10 text-purple-600"
+            trend={{ direction: 'flat', value: `Bounce ${formatPct(metrics.bounceRate)}` }}
+          />
           <StatCard icon={Eye} label="Open Rate" value={formatPct(metrics.openRate)} color="bg-amber-500/10 text-amber-600" />
-          <StatCard icon={Send} label="Click Rate" value={formatPct(metrics.clickRate)} color="bg-cyan-500/10 text-cyan-600" />
-          <StatCard icon={DollarSign} label="Conversion Rate" value={formatPct(metrics.conversionRate)} color="bg-rose-500/10 text-rose-600" />
+          <StatCard
+            icon={Send}
+            label="Click Rate"
+            value={formatPct(metrics.clickRate)}
+            color="bg-cyan-500/10 text-cyan-600"
+            trend={{ direction: 'flat', value: `Unsub ${formatPct(metrics.unsubscribeRate)}` }}
+          />
+          <StatCard
+            icon={DollarSign}
+            label="Conversion Rate"
+            value={formatPct(metrics.conversionRate)}
+            color="bg-rose-500/10 text-rose-600"
+            trend={{
+              direction: 'flat',
+              value: `Scheduled active ${formatPct(metrics.schedulingPerformanceRate)}`,
+            }}
+          />
         </div>
 
         {/* Campaign revenue vs benchmark — combined chart */}

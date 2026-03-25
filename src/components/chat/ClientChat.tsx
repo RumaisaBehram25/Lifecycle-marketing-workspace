@@ -26,6 +26,7 @@ import {
   useUpdateConversationTitle,
   generateConversationTitle,
 } from '@/hooks/useChatHistory';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
@@ -122,6 +123,7 @@ export function ClientChat({
   const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { clientId: brazeAnalyticsClientId } = useBrazeDashboardClientId();
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639px)');
@@ -279,6 +281,8 @@ export function ClientChat({
             tone_presets: client.tone_presets,
             legal_requirements: client.legal_requirements,
           },
+          /** Aligns Copilot analytics bundle with Analytics / Dashboard Braze tables */
+          analyticsClientId: brazeAnalyticsClientId ?? client.id,
           platformContext: platformContexts,
         },
       });
@@ -421,7 +425,7 @@ export function ClientChat({
       } else {
         toast({
           title: 'No reply text',
-          description: 'The model streamed an empty message. Check Edge Function secrets (XAI_API_KEY) and redeploy ops-chat.',
+          description: 'The model streamed an empty message. Check Edge Function secrets (XAI_API_KEY / ANTHROPIC_API_KEY / GROQ_API_KEY) and redeploy ops-chat.',
           variant: 'destructive',
         });
         setMessages(newMessages);

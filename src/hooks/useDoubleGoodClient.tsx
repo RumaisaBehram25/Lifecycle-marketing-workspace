@@ -70,10 +70,27 @@ const DOUBLEGOOD_BRAND_DEFAULTS = {
   ]),
 };
 
+/** True while a query has not settled (success/error) and is not paused — avoids infinite spin on `paused` fetches. */
+export function queryStillResolving(q: {
+  isSuccess: boolean;
+  isError: boolean;
+  isPaused: boolean;
+  isPending: boolean;
+  isFetching: boolean;
+}): boolean {
+  // `isPending` stays true when fetchStatus is `paused` (offline / networkMode) — that would spin forever.
+  return (
+    !q.isSuccess &&
+    !q.isError &&
+    !q.isPaused &&
+    (q.isPending || q.isFetching)
+  );
+}
+
 /** DoubleGood client row + fallback to oldest `clients` row when slug row is missing (matches analytics). */
 export function useResolvedClientId() {
   const clientQuery = useDoubleGoodClient();
-  const { data: fallbackClient, isLoading: fallbackLoading } = useQuery({
+  const onboardingFallback = useQuery({
     queryKey: ['onboarding-fallback-client'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -89,22 +106,35 @@ export function useResolvedClientId() {
     staleTime: 1000 * 60 * 5,
   });
 
+  const fallbackClient = onboardingFallback.data;
+
   const clientId = clientQuery.data?.id ?? fallbackClient?.id ?? undefined;
+
   const isClientLoading =
     !clientId &&
-    (clientQuery.isLoading || (!clientQuery.data?.id && fallbackLoading && !fallbackClient));
+    (queryStillResolving(clientQuery) ||
+      (!clientQuery.data?.id &&
+        fallbackClient == null &&
+        !onboardingFallback.isSuccess &&
+        queryStillResolving(onboardingFallback)));
+
+  const resolveError =
+    !clientId &&
+    !isClientLoading &&
+    (clientQuery.isError || onboardingFallback.isError)
+      ? (clientQuery.error ?? onboardingFallback.error)
+      : null;
 
   return {
     ...clientQuery,
     clientId,
     isClientLoading,
+    resolveError,
   };
 }
 
 // Hook to get or create the single DoubleGood client
 export function useDoubleGoodClient() {
-  const { toast } = useToast();
-  
   return useQuery({
     queryKey: ['doublegood-client'],
     queryFn: async () => {
@@ -199,16 +229,19 @@ export function useConnectPlatform() {
   return useMutation({
     mutationFn: async ({ platform, apiKey, apiSecret, additionalConfig }: { platform: PlatformType; apiKey: string; apiSecret?: string; additionalConfig?: Record<string, unknown> }) => {
       if (!client?.id) throw new Error('Client not found');
+      const row: Record<string, unknown> = {
+        client_id: client.id,
+        platform,
+        api_key: apiKey,
+        api_secret: apiSecret || null,
+        is_connected: true,
+      };
+      if (additionalConfig && Object.keys(additionalConfig).length > 0) {
+        row.additional_config = additionalConfig;
+      }
       const { data, error } = await supabase
         .from('client_platforms')
-        .insert({
-          client_id: client.id,
-          platform,
-          api_key: apiKey,
-          api_secret: apiSecret || null,
-          is_connected: true,
-          ...(additionalConfig ? { additional_config: additionalConfig } : {}),
-        })
+        .upsert(row, { onConflict: 'client_id,platform' })
         .select()
         .single();
       if (error) throw error;

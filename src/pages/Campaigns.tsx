@@ -29,6 +29,7 @@ import { Link } from 'react-router-dom';
 import { format, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, isAfter, subQuarters, startOfQuarter, endOfQuarter, startOfYear } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -223,6 +224,7 @@ export default function Campaigns() {
 
   const { data: client } = useDoubleGoodClient();
   const { data: platforms } = useDoubleGoodPlatforms();
+  const { clientId: brazeDataClientId } = useBrazeDashboardClientId();
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
 
   const handleSyncFromBraze = async () => {
@@ -236,7 +238,9 @@ export default function Campaigns() {
       if (error) throw error;
 
       toast({ title: 'Campaigns synced from Braze' });
-      queryClient.invalidateQueries({ queryKey: ['braze_campaigns', client.id] });
+      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
     } catch (error: unknown) {
       logger.error('Sync error:', error);
       toast({
@@ -250,17 +254,19 @@ export default function Campaigns() {
   };
 
   const { data: dbCampaigns, isLoading } = useQuery({
-    queryKey: ['braze_campaigns', client?.id],
+    queryKey: ['braze_campaigns', brazeDataClientId],
     queryFn: async () => {
+      const cid = brazeDataClientId;
+      if (!cid) return [];
       const { data, error } = await supabase
         .from('braze_campaigns')
         .select('*')
-        .eq('client_id', client!.id)
+        .eq('client_id', cid)
         .order('sent_date', { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!client?.id,
+    enabled: !!brazeDataClientId,
   });
 
   // Map database records to the PlaceholderCampaign shape the UI expects

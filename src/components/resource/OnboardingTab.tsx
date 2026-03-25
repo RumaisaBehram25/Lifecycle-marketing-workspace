@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,8 @@ import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/components/ui/use-toast';
 
+const DEFAULT_BRAZE_REST = 'https://rest.iad-01.braze.com';
+
 interface OnboardingData {
   companyName: string;
   industry: string;
@@ -50,6 +52,7 @@ interface OnboardingData {
   // Tech Stack
   techTools: string[];
   apiKeys: Record<string, string>;
+  brazeRestEndpoint: string;
   // Competitors
   competitors: string[];
   competitorInput: string;
@@ -80,6 +83,7 @@ const INITIAL_DATA: OnboardingData = {
   primaryAudience: '', audienceAge: '', audienceInterests: '',
   primaryGoal: '', currentChannels: [], monthlyEmailVolume: '',
   techTools: [], apiKeys: {},
+  brazeRestEndpoint: '',
   competitors: [], competitorInput: '',
   uploadedFiles: [],
 };
@@ -93,15 +97,23 @@ type FileProgressItem = {
 };
 
 function formatError(error: unknown): string {
-  if (error == null) return 'Unknown error';
-  if (typeof error === 'object' && 'message' in error && typeof (error as { message: unknown }).message === 'string')
-    return (error as { message: string }).message;
-  if (typeof error === 'string') return error;
-  try {
-    return JSON.stringify(error) || 'Unknown error';
-  } catch {
-    return 'Unknown error';
+  let msg: string;
+  if (error == null) msg = 'Unknown error';
+  else if (typeof error === 'object' && 'message' in error && typeof (error as { message: unknown }).message === 'string')
+    msg = (error as { message: string }).message;
+  else if (typeof error === 'string') msg = error;
+  else {
+    try {
+      msg = JSON.stringify(error) || 'Unknown error';
+    } catch {
+      msg = 'Unknown error';
+    }
   }
+  // Network / config: unrelated to profiles.is_approved or RLS (those affect Postgres, not this fetch).
+  if (msg.includes('Failed to send a request to the Edge Function')) {
+    return `${msg} Use the Supabase anon JWT in VITE_SUPABASE_PUBLISHABLE_KEY (Dashboard → Settings → API; starts with eyJ), not sb_publishable_… keys. Deploy sync-braze to the same project and ensure *.supabase.co is reachable.`;
+  }
+  return msg;
 }
 
 type AnalyticsTable =
@@ -253,6 +265,7 @@ export function OnboardingTab() {
   const [activeSection, setActiveSection] = useState('company');
   const [data, setData] = useState<OnboardingData>(INITIAL_DATA);
   const [submitted, setSubmitted] = useState(false);
+  const [isCompletingSetup, setIsCompletingSetup] = useState(false);
   const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
   const { data: fallbackClient, isLoading: fallbackLoading } = useQuery({
     queryKey: ['onboarding-fallback-client'],
@@ -272,6 +285,7 @@ export function OnboardingTab() {
   const clientId = client?.id ?? fallbackClient?.id ?? undefined;
   const clientStillLoading = clientLoading || (!client?.id && fallbackLoading);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileProgressList, setFileProgressList] = useState<FileProgressItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -422,8 +436,106 @@ export function OnboardingTab() {
     });
   };
 
-  const handleSubmit = () => {
-    setSubmitted(true);
+  const handleSubmit = async () => {
+    setIsCompletingSetup(true);
+    try {
+      const brazeClientId = client?.id ?? fallbackClient?.id;
+      const restOpt = data.brazeRestEndpoint.trim() || undefined;
+
+      const startBrazeSync = (platformId: string, cid: string) => {
+        void (async () => {
+          const { error: syncError } = await supabase.functions.invoke('sync-braze', {
+            body: {
+              clientId: cid,
+              platformId,
+              restEndpoint: restOpt,
+            },
+          });
+          if (syncError) {
+            toast({
+              title: 'Braze sync failed',
+              description: formatError(syncError),
+              variant: 'destructive',
+            });
+            return;
+          }
+          queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+          toast({
+            title: 'Braze sync complete',
+            description: 'Dashboard data has been refreshed.',
+          });
+        })();
+      };
+
+      if (brazeClientId && data.techTools.includes('Braze')) {
+        try {
+          const { data: existingBraze } = await supabase
+            .from('client_platforms_public')
+            .select('id')
+            .eq('client_id', brazeClientId)
+            .eq('platform', 'braze')
+            .maybeSingle();
+
+          const platformId = existingBraze?.id ?? null;
+
+          if (platformId) {
+            toast({
+              title: 'Starting Braze sync',
+              description: 'This can take a minute. You can leave this page.',
+            });
+            startBrazeSync(platformId, brazeClientId);
+          } else {
+            const brazeKey = data.apiKeys.Braze?.trim();
+            if (brazeKey) {
+              const rest =
+                data.brazeRestEndpoint.trim() || DEFAULT_BRAZE_REST;
+              const { data: upserted, error: upsertErr } = await supabase
+                .from('client_platforms')
+                .upsert(
+                  {
+                    client_id: brazeClientId,
+                    platform: 'braze' as const,
+                    api_key: brazeKey,
+                    api_secret: null,
+                    is_connected: true,
+                    additional_config: { rest_endpoint: rest },
+                  },
+                  { onConflict: 'client_id,platform' }
+                )
+                .select('id')
+                .single();
+              if (upsertErr) throw upsertErr;
+              const newPlatformId = upserted?.id;
+              if (newPlatformId) {
+                queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
+                queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+                toast({
+                  title: 'Braze connected',
+                  description: 'Credentials saved. Sync is running in the background.',
+                });
+                startBrazeSync(newPlatformId, brazeClientId);
+              }
+            } else if (data.brazeRestEndpoint.trim()) {
+              toast({
+                title: 'Braze setup note',
+                description: 'Add your Braze REST API key above (or connect from Platforms) to save credentials and sync.',
+              });
+            }
+          }
+        } catch (error) {
+          toast({
+            title: 'Braze setup incomplete',
+            description: formatError(error),
+            variant: 'destructive',
+          });
+        }
+      }
+
+      setSubmitted(true);
+    } finally {
+      setIsCompletingSetup(false);
+    }
   };
 
   if (submitted) {
@@ -479,9 +591,18 @@ export function OnboardingTab() {
           );
         })}
         <div className="pt-4">
-          <Button onClick={handleSubmit} className="w-full">
-            <Check className="h-4 w-4 mr-2" />
-            Complete Setup
+          <Button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={isCompletingSetup}
+            className="w-full"
+          >
+            {isCompletingSetup ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Check className="h-4 w-4 mr-2" />
+            )}
+            {isCompletingSetup ? 'Saving…' : 'Complete Setup'}
           </Button>
         </div>
       </div>
@@ -706,6 +827,20 @@ export function OnboardingTab() {
                       </div>
                     ))}
                     <p className="text-xs text-muted-foreground">Keys are optional and can be configured later in Settings.</p>
+                    {data.techTools.includes('Braze') && (
+                      <div className="space-y-2">
+                        <Label>Braze REST API URL (optional)</Label>
+                        <Input
+                          type="text"
+                          placeholder="https://rest.iad-06.braze.com"
+                          value={data.brazeRestEndpoint}
+                          onChange={e => updateField('brazeRestEndpoint', e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          If Braze API Key is provided, onboarding will connect Braze and run an initial sync.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </>
@@ -847,9 +982,18 @@ export function OnboardingTab() {
 
         {/* Mobile submit */}
         <div className="md:hidden pt-4">
-          <Button onClick={handleSubmit} className="w-full">
-            <Check className="h-4 w-4 mr-2" />
-            Complete Setup
+          <Button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={isCompletingSetup}
+            className="w-full"
+          >
+            {isCompletingSetup ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Check className="h-4 w-4 mr-2" />
+            )}
+            {isCompletingSetup ? 'Saving…' : 'Complete Setup'}
           </Button>
         </div>
       </div>
