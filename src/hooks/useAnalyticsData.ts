@@ -112,16 +112,114 @@ export function useAnalyticsData() {
     retry: false,
   });
 
+  const segmentsSync = useQuery({
+    queryKey: ['analytics', 'braze_segments_sync', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await (supabase as any)
+        .from('braze_segments_sync')
+        .select('name,raw')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return (data ?? []) as Row[];
+    },
+    enabled: !!clientId,
+    retry: false,
+  });
+
+  const emailEvents = useQuery({
+    queryKey: ['analytics', 'braze_email_events', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await (supabase as any)
+        .from('braze_email_events')
+        .select('event_type,email,occurred_at')
+        .eq('client_id', clientId)
+        .order('occurred_at', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Row[];
+    },
+    enabled: !!clientId,
+    retry: false,
+  });
+
+  const emailHealth30d = useQuery({
+    queryKey: ['analytics', 'braze_email_health_30d', clientId],
+    queryFn: async () => {
+      if (!clientId) return { bounces: 0, unsubs: 0 };
+      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      const [{ count: bounces, error: e1 }, { count: unsubs, error: e2 }] = await Promise.all([
+        (supabase as any)
+          .from('braze_email_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', clientId)
+          .eq('event_type', 'hard_bounce')
+          .gte('occurred_at', since),
+        (supabase as any)
+          .from('braze_email_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', clientId)
+          .eq('event_type', 'unsubscribe')
+          .gte('occurred_at', since),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      return { bounces: bounces ?? 0, unsubs: unsubs ?? 0 };
+    },
+    enabled: !!clientId,
+    retry: false,
+  });
+
+  const scheduledBroadcasts = useQuery({
+    queryKey: ['analytics', 'braze_scheduled_broadcasts', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await (supabase as any)
+        .from('braze_scheduled_broadcasts')
+        .select('name,broadcast_type,next_send_time,schedule_type')
+        .eq('client_id', clientId)
+        .order('next_send_time', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Row[];
+    },
+    enabled: !!clientId,
+    retry: false,
+  });
+
+  const campaignDirectory = useQuery({
+    queryKey: ['analytics', 'braze_campaigns_directory', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await (supabase as any)
+        .from('braze_campaigns')
+        .select('name,status,tags,updated_at,created_at,sent_date')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return (data ?? []) as Row[];
+    },
+    enabled: !!clientId,
+    retry: false,
+  });
+
   const isLoading =
     isClientLoading ||
     (!!clientId && (
       brazeCampaignAnalytics.isLoading ||
       customerioCampaigns.isLoading ||
       brazeCanvases.isLoading ||
-      brazeKpiSeries.isLoading
+      brazeKpiSeries.isLoading ||
+      segmentsSync.isLoading ||
+      emailEvents.isLoading ||
+      emailHealth30d.isLoading ||
+      scheduledBroadcasts.isLoading ||
+      campaignDirectory.isLoading
     ));
 
-  const error = brazeCampaignAnalytics.error || customerioCampaigns.error;
+  const error =
+    brazeCampaignAnalytics.error ||
+    customerioCampaigns.error ||
+    emailEvents.error ||
+    emailHealth30d.error;
 
   const refetch = () => {
     brazeCampaignAnalytics.refetch();
@@ -130,6 +228,11 @@ export function useAnalyticsData() {
     usageAnalytics.refetch();
     brazeKpiSeries.refetch();
     brazeCanvases.refetch();
+    segmentsSync.refetch();
+    emailEvents.refetch();
+    emailHealth30d.refetch();
+    scheduledBroadcasts.refetch();
+    campaignDirectory.refetch();
   };
 
   const canvases = brazeCampaignAnalytics.data ?? [];
@@ -138,6 +241,10 @@ export function useAnalyticsData() {
   const usageRows = usageAnalytics.data ?? [];
   const canvasRows = brazeCanvases.data ?? [];
   const kpiRows = brazeKpiSeries.data ?? [];
+  const segmentSyncRows = segmentsSync.data ?? [];
+  const emailEventRows = emailEvents.data ?? [];
+  const scheduledRows = scheduledBroadcasts.data ?? [];
+  const campaignDirectoryRows = campaignDirectory.data ?? [];
 
   const latestKpi = (metric: string): number => {
     const rows = kpiRows.filter((r) => r.metric === metric);
@@ -214,7 +321,50 @@ export function useAnalyticsData() {
     segmentRows.length > 0 ||
     usageRows.length > 0 ||
     canvasRows.length > 0 ||
-    kpiRows.length > 0;
+    kpiRows.length > 0 ||
+    segmentSyncRows.length > 0 ||
+    emailEventRows.length > 0 ||
+    scheduledRows.length > 0 ||
+    campaignDirectoryRows.length > 0;
+
+  const hardBounces = emailEventRows.filter((r) => String(r.event_type) === 'hard_bounce');
+  const unsubscribes = emailEventRows.filter((r) => String(r.event_type) === 'unsubscribe');
+
+  const bounceTimelineByDate: Record<string, number> = {};
+  for (const r of hardBounces) {
+    const d = String(r.occurred_at ?? '').slice(0, 10);
+    if (!d) continue;
+    bounceTimelineByDate[d] = (bounceTimelineByDate[d] ?? 0) + 1;
+  }
+  const bounceTimeline = Object.entries(bounceTimelineByDate)
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const domainCounts = new Map<string, number>();
+  for (const r of hardBounces) {
+    const email = String(r.email ?? '').trim().toLowerCase();
+    const domain = email.includes('@') ? email.split('@')[1] : '';
+    if (!domain) continue;
+    domainCounts.set(domain, (domainCounts.get(domain) ?? 0) + 1);
+  }
+  const bounceDomains = [...domainCounts.entries()]
+    .map(([domain, count]) => ({ domain, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+
+  const trackingSummary = segmentSyncRows.reduce(
+    (acc, r) => {
+      const raw = (r.raw ?? {}) as Record<string, unknown>;
+      const enabled = Boolean(raw.analytics_tracking_enabled);
+      if (enabled) acc.enabled += 1;
+      else acc.disabled += 1;
+      return acc;
+    },
+    { enabled: 0, disabled: 0 }
+  );
+
+  const cleanupRegex = /(test|warming|ip warm)/i;
+  const cleanupFlagged = campaignDirectoryRows.filter((r) => cleanupRegex.test(String(r.name ?? ''))).length;
 
   const usageChartDataFromKpi = (): Row[] => {
     const byDate: Record<string, { date: string; dau: number; mau: number; new_users: number }> = {};
@@ -390,6 +540,14 @@ export function useAnalyticsData() {
     segmentChartDataByDate,
     segmentNames,
     flowRevenueByCampaign: campaignTableRows.map((r) => ({ name: r.name, revenue: r.revenue })),
+    scheduledRows,
+    bounceTimeline,
+    bounceDomains,
+    hardBounceCount: emailHealth30d.data?.bounces ?? hardBounces.length,
+    unsubCount30d: emailHealth30d.data?.unsubs ?? unsubscribes.length,
+    trackingSummary,
+    cleanupFlagged,
+    campaignDirectoryRows,
   };
 }
 

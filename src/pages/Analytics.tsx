@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,7 +42,7 @@ import {
 } from 'recharts';
 import {
   Send, Workflow, UserPlus, Search, DollarSign, Users, ChevronDown, ChevronUp,
-  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight,
+  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -100,6 +101,12 @@ export default function Analytics() {
     segmentChartDataByDate,
     segmentNames,
     flowRevenueByCampaign,
+    bounceTimeline,
+    bounceDomains,
+    hardBounceCount,
+    unsubCount30d,
+    trackingSummary,
+    cleanupFlagged,
   } = useAnalyticsData();
 
   const [campaignSearch, setCampaignSearch] = useState('');
@@ -343,78 +350,64 @@ export default function Analytics() {
           </Select>
         </div>
 
-        {/* KPI Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Send} label="Total Sent" value={metrics.totalSent.toLocaleString()} color="bg-primary/10 text-primary" />
-          <StatCard icon={Send} label="Total Delivered" value={metrics.totalDelivered.toLocaleString()} color="bg-blue-500/10 text-blue-600" />
-          <StatCard icon={Eye} label="Total Opens" value={metrics.totalOpens.toLocaleString()} color="bg-amber-500/10 text-amber-600" />
-          <StatCard
-            icon={Send}
-            label="Total Clicks"
-            value={metrics.totalClicks.toLocaleString()}
-            color="bg-cyan-500/10 text-cyan-600"
-            trend={{ direction: 'flat', value: `${metrics.totalConversions.toLocaleString()} conversions` }}
-          />
-        </div>
+        <Card className="shadow-sm border-border/80">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-foreground/95 flex items-center gap-2">
+              <Send className="h-4 w-4 text-primary" />
+              Performance Snapshot
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Delivery, engagement, list health, and campaign hygiene KPIs.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard icon={Send} label="Total Sent" value={metrics.totalSent.toLocaleString()} color="bg-primary/10 text-primary" />
+              <StatCard icon={Send} label="Total Delivered" value={metrics.totalDelivered.toLocaleString()} color="bg-blue-500/10 text-blue-600" />
+              <StatCard icon={Eye} label="Total Opens" value={metrics.totalOpens.toLocaleString()} color="bg-amber-500/10 text-amber-600" />
+              <StatCard
+                icon={Send}
+                label="Total Clicks"
+                value={metrics.totalClicks.toLocaleString()}
+                color="bg-cyan-500/10 text-cyan-600"
+                trend={{ direction: 'flat', value: `${metrics.totalConversions.toLocaleString()} conversions` }}
+              />
+            </div>
 
-        {/* DAU / MAU / new users — braze_kpi_series when synced; else braze_usage_analytics CSV */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
-          <StatCard
-            icon={Users}
-            label="DAU"
-            value={metrics.dau.toLocaleString()}
-            color="bg-emerald-500/10 text-emerald-600"
-            trend={{
-              direction: 'flat',
-              value: metrics.kpiSource ? 'Latest day · Braze KPI API' : `${formatPct(engagementRatio)} of MAU`,
-            }}
-          />
-          <StatCard
-            icon={Users}
-            label="MAU"
-            value={metrics.mau.toLocaleString()}
-            color="bg-green-500/10 text-green-600"
-            trend={{
-              direction: 'flat',
-              value: metrics.kpiSource ? 'Latest day · Braze KPI API' : 'Usage CSV',
-            }}
-          />
-          <StatCard
-            icon={UserPlus}
-            label="New users (30d)"
-            value={metrics.newUsers30.toLocaleString()}
-            color="bg-teal-500/10 text-teal-600"
-            trend={{
-              direction: 'flat',
-              value: metrics.kpiSource ? 'Sum of daily new_users · KPI' : 'Sum from usage rows',
-            }}
-          />
-          <StatCard
-            icon={Eye}
-            label="Delivery Rate"
-            value={formatPct(metrics.deliveryRate)}
-            color="bg-purple-500/10 text-purple-600"
-            trend={{ direction: 'flat', value: `Bounce ${formatPct(metrics.bounceRate)}` }}
-          />
-          <StatCard icon={Eye} label="Open Rate" value={formatPct(metrics.openRate)} color="bg-amber-500/10 text-amber-600" />
-          <StatCard
-            icon={Send}
-            label="Click Rate"
-            value={formatPct(metrics.clickRate)}
-            color="bg-cyan-500/10 text-cyan-600"
-            trend={{ direction: 'flat', value: `Unsub ${formatPct(metrics.unsubscribeRate)}` }}
-          />
-          <StatCard
-            icon={DollarSign}
-            label="Conversion Rate"
-            value={formatPct(metrics.conversionRate)}
-            color="bg-rose-500/10 text-rose-600"
-            trend={{
-              direction: 'flat',
-              value: `Scheduled active ${formatPct(metrics.schedulingPerformanceRate)}`,
-            }}
-          />
-        </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/10 text-rose-600" />
+              <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/10 text-orange-600" />
+              <StatCard icon={Layers} label="Segments tracking ON" value={trackingSummary.enabled.toLocaleString()} color="bg-emerald-500/10 text-emerald-600" />
+              <StatCard icon={Workflow} label="Campaigns flagged" value={cleanupFlagged.toLocaleString()} color="bg-amber-500/10 text-amber-600" trend={{ direction: cleanupFlagged > 0 ? 'down' : 'flat', value: 'test/IP warming cleanup' }} />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              <StatCard
+                icon={Eye}
+                label="Delivery Rate"
+                value={formatPct(metrics.deliveryRate)}
+                color="bg-purple-500/10 text-purple-600"
+                trend={{ direction: 'flat', value: `Bounce ${formatPct(metrics.bounceRate)}` }}
+              />
+              <StatCard icon={Eye} label="Open Rate" value={formatPct(metrics.openRate)} color="bg-amber-500/10 text-amber-600" />
+              <StatCard
+                icon={Send}
+                label="Click Rate"
+                value={formatPct(metrics.clickRate)}
+                color="bg-cyan-500/10 text-cyan-600"
+                trend={{ direction: 'flat', value: `Unsub ${formatPct(metrics.unsubscribeRate)}` }}
+              />
+              <StatCard
+                icon={DollarSign}
+                label="Conversion Rate"
+                value={formatPct(metrics.conversionRate)}
+                color="bg-rose-500/10 text-rose-600"
+                trend={{
+                  direction: 'flat',
+                  value: `Scheduled active ${formatPct(metrics.schedulingPerformanceRate)}`,
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Campaign revenue vs benchmark — combined chart */}
         <Card className="shadow-sm border-border/80 overflow-hidden">
@@ -731,14 +724,47 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Device and channel placeholder */}
-        <Card className="bg-muted/20 border-border/60 shadow-sm">
-          <CardContent className="flex items-center justify-center py-12">
-            <p className="text-sm text-muted-foreground text-center max-w-md">
-              Device and channel breakdown not available in current CSV export.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Card className="shadow-sm border-border/80 lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold text-foreground/95">Hard Bounce Timeline</CardTitle>
+              <p className="text-xs text-muted-foreground">From Braze email/hard_bounces, grouped by day.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={bounceTimeline}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <Tooltip />
+                    <ReferenceLine x="2026-02-24" stroke="hsl(24 95% 53%)" label={{ value: 'Spike', fill: chartMutedFill, fontSize: 10 }} />
+                    <Bar dataKey="count" fill="hsl(0 72% 51% / 0.85)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm border-border/80">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold text-foreground/95">Top Bounce Domains</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {bounceDomains.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hard bounce domain data yet.</p>
+              ) : (
+                bounceDomains.map((d) => (
+                  <div key={d.domain} className="flex items-center justify-between text-xs border-b border-border/50 pb-1">
+                    <span className="text-muted-foreground">{d.domain}</span>
+                    <span className="font-semibold tabular-nums text-foreground">{d.count.toLocaleString()}</span>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
       </div>
     </AppLayout>
   );

@@ -65,6 +65,39 @@ import {
   type UsageRow,
 } from './userGrowthMetrics';
 
+type KpiRow = { metric: string; series_date: string; value: number | string | null };
+
+function n(v: unknown): number {
+  if (v == null || v === '') return 0;
+  const x = Number(v);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function latestKpiValue(rows: KpiRow[], metric: 'dau' | 'mau' | 'new_users'): number {
+  const filtered = rows.filter((r) => r.metric === metric);
+  if (!filtered.length) return 0;
+  let bestDate = '';
+  let bestValue = 0;
+  for (const r of filtered) {
+    const d = String(r.series_date ?? '').slice(0, 10);
+    const v = n(r.value);
+    if (d > bestDate || (d === bestDate && v > bestValue)) {
+      bestDate = d;
+      bestValue = v;
+    }
+  }
+  return bestValue;
+}
+
+function sumKpiNewUsers30(rows: KpiRow[]): number {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return rows
+    .filter((r) => r.metric === 'new_users' && String(r.series_date ?? '').slice(0, 10) >= cutoffStr)
+    .reduce((sum, r) => sum + n(r.value), 0);
+}
+
 function SparklineDau({ data }: { data: { i: number; v: number }[] }) {
   const gradId = useId().replace(/:/g, '');
   if (!data.length) {
@@ -167,9 +200,48 @@ export function UserGrowthHeroCard() {
     staleTime: 60_000,
   });
 
-  const sorted = useMemo(() => normalizeUsageRows(rawRows), [rawRows]);
+  const { data: kpiRows = [], isLoading: kpiLoading } = useQuery({
+    queryKey: ['analytics', 'braze_kpi_series', clientId],
+    queryFn: async () => {
+      if (!clientId) return [] as KpiRow[];
+      const { data, error } = await (supabase as any)
+        .from('braze_kpi_series')
+        .select('metric,series_date,value')
+        .eq('client_id', clientId)
+        .order('series_date', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as KpiRow[];
+    },
+    enabled: !!clientId,
+    staleTime: 60_000,
+  });
+
+  const mergedRows = useMemo(() => {
+    const hasAnyKpi =
+      kpiRows.some((r) => r.metric === 'dau') ||
+      kpiRows.some((r) => r.metric === 'mau') ||
+      kpiRows.some((r) => r.metric === 'new_users');
+    if (!hasAnyKpi) return rawRows;
+
+    const byDate = new Map<string, UsageRow>();
+    for (const r of kpiRows) {
+      const date = String(r.series_date ?? '').slice(0, 10);
+      if (!date) continue;
+      const row = byDate.get(date) ?? { date, dau: 0, mau: 0, new_users: 0 };
+      if (r.metric === 'dau') row.dau = n(r.value);
+      if (r.metric === 'mau') row.mau = n(r.value);
+      if (r.metric === 'new_users') row.new_users = n(r.value);
+      byDate.set(date, row);
+    }
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }, [kpiRows, rawRows]);
+  const hasDauKpi = kpiRows.some((r) => r.metric === 'dau');
+  const hasMauKpi = kpiRows.some((r) => r.metric === 'mau');
+  const hasNewUsersKpi = kpiRows.some((r) => r.metric === 'new_users');
+
+  const sorted = useMemo(() => normalizeUsageRows(mergedRows), [mergedRows]);
   const anchor = latestDayRow(sorted)?.date ?? '';
-  const loading = clientLoading || rowsLoading;
+  const loading = clientLoading || rowsLoading || kpiLoading;
 
   const derived = useMemo(() => {
     if (!anchor || !sorted.length) {
@@ -199,10 +271,10 @@ export function UserGrowthHeroCard() {
       };
     }
 
-    const newUsers30 = sumNewUsers30d(sorted, anchor);
+    const newUsers30 = hasNewUsersKpi ? sumKpiNewUsers30(kpiRows) : sumNewUsers30d(sorted, anchor);
     const latest = sorted.find((r) => r.date === anchor) ?? sorted[sorted.length - 1];
-    const mauLatest = latest.mau;
-    const dauLatest = latest.dau;
+    const mauLatest = hasMauKpi ? latestKpiValue(kpiRows, 'mau') : latest.mau;
+    const dauLatest = hasDauKpi ? latestKpiValue(kpiRows, 'dau') : latest.dau;
     const mauPct = trendPercent(sorted, anchor, 'mau');
     const dauPct = trendPercent(sorted, anchor, 'dau');
     const tone = trendTone(dauPct, mauPct);
@@ -375,7 +447,7 @@ export function UserGrowthHeroCard() {
       stickiness,
       takeaways: takeaways.slice(0, 5),
     };
-  }, [sorted, anchor]);
+  }, [sorted, anchor, kpiRows, hasDauKpi, hasMauKpi, hasNewUsersKpi]);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -807,17 +879,6 @@ export function UserGrowthHeroCard() {
                   </div>
                 </section>
 
-                <section className="space-y-3">
-                  <SectionTitle>Key takeaways</SectionTitle>
-                  <ul className="space-y-2.5 text-sm text-muted-foreground">
-                    {derived.takeaways.map((t, i) => (
-                      <li key={i} className="flex gap-2.5 pl-0.5">
-                        <span className={cn(dashboardSectionDotClass, 'mt-1.5 h-1.5 w-1.5 shrink-0')} aria-hidden />
-                        <span className="leading-relaxed text-foreground/90">{t}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
               </div>
             </>
           )}

@@ -55,6 +55,7 @@ function AppRoutes() {
       <Route path="/audience" element={<Navigate to="/resources" replace />} />
       <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
       <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+      <Route path="/analytical" element={<Navigate to="/analytics" replace />} />
       <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
       <Route path="/users" element={<Navigate to="/settings" replace />} />
       <Route path="/clients" element={<Navigate to="/resources" replace />} />

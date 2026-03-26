@@ -252,7 +252,7 @@ export function GoogleDriveBriefsPanel({ clientId, driveBriefs, isFetching }: Go
             </div>
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2.5">
-                <CardTitle className="text-lg sm:text-xl font-semibold tracking-tight text-foreground">
+                <CardTitle className="text-2xl sm:text-3xl font-bold font-heading tracking-tight text-foreground">
                   Google Drive Briefs
                 </CardTitle>
                 {isFetching && (

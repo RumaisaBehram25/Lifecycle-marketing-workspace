@@ -9,10 +9,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   ArrowRight, CheckCircle2,
   Workflow, Clock, Zap, Sparkles, ChevronDown, ChevronRight,
-  FolderOpen, FileText, MessageSquare, Layers, Radio,
+  FolderOpen, FileText, MessageSquare, Layers, Radio, Search,
   TrendingUp, TrendingDown, Minus, MailWarning, UserMinus,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -301,7 +302,7 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
                 dashSectionTitleBorder,
               )}
             >
-              <CardTitle className="text-base font-semibold font-heading flex items-center gap-2">
+              <CardTitle className="text-2xl sm:text-3xl font-bold font-heading tracking-tight flex items-center gap-2">
                 <span className={cn(dashIconChipSuccess, 'h-8 w-8 shrink-0 rounded-lg')}>
                   <CheckCircle2 className="h-4 w-4" />
                 </span>
@@ -342,6 +343,7 @@ export default function Dashboard() {
   const { clientId } = useResolvedClientId();
   const { clientId: brazeDataClientId } = useBrazeDashboardClientId();
   const queryClient = useQueryClient();
+  const [hygieneSearch, setHygieneSearch] = useState('');
   const refreshBriefs = () => {
     queryClient.invalidateQueries({ queryKey: ['dashboard-briefs', clientId] });
     queryClient.invalidateQueries({ queryKey: ['brief-counts', clientId] });
@@ -350,12 +352,31 @@ export default function Dashboard() {
     canvasStats: brazeCanvas,
     segmentCount: brazeSegmentCount,
     scheduled: brazeScheduled,
-    scheduledError: brazeScheduledError,
     scheduledIsError: brazeScheduledIsError,
     emailHealth: brazeEmail,
+    syncHealth: brazeSyncHealth,
   } = useDashboardBrazeMetrics();
   const { data: driveBriefs = [], isFetching: driveBriefsLoading } = useDriveBriefs(clientId);
   const driveFileCount = useMemo(() => countSyncedDriveFiles(driveBriefs), [driveBriefs]);
+  const { data: driveConnections = [] } = useQuery({
+    queryKey: ['dashboard-drive-connections', clientId],
+    queryFn: async () => {
+      if (!clientId) return [];
+      const { data, error } = await (supabase as any)
+        .from('client_google_drive')
+        .select('id,last_synced_at')
+        .eq('client_id', clientId)
+        .order('connected_at', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; last_synced_at: string | null }>;
+    },
+    enabled: !!clientId,
+  });
+  const latestDriveSync = driveConnections
+    .map((c) => c.last_synced_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
 
   const { data: briefs } = useQuery({
     queryKey: ['dashboard-briefs', clientId],
@@ -395,6 +416,26 @@ export default function Dashboard() {
     enabled: !!brazeDataClientId,
   });
 
+  const { data: campaignDirectoryRows = [] } = useQuery({
+    queryKey: ['dashboard-campaign-hygiene', brazeDataClientId],
+    queryFn: async () => {
+      if (!brazeDataClientId) return [];
+      const { data, error } = await (supabase as any)
+        .from('braze_campaigns')
+        .select('name,status,updated_at')
+        .eq('client_id', brazeDataClientId)
+        .order('updated_at', { ascending: false, nullsFirst: false });
+      if (error) throw error;
+      return (data ?? []) as Array<{ name?: string | null; status?: string | null; updated_at?: string | null }>;
+    },
+    enabled: !!brazeDataClientId,
+  });
+
+  const filteredHygieneRows = campaignDirectoryRows
+    .filter((r) => String(r.name ?? '').toLowerCase().includes(hygieneSearch.trim().toLowerCase()))
+    .slice(0, 200);
+  const hygieneFlaggedCount = campaignDirectoryRows.filter((r) => /(test|warming|ip warm)/i.test(String(r.name ?? ''))).length;
+
   return (
     <AppLayout>
       <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
@@ -420,23 +461,26 @@ export default function Dashboard() {
         <UserGrowthHeroCard />
 
         {/* Client-facing metrics */}
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className={dashboardSectionHeadingClass}>
-                <span className={dashboardSectionDotClass} aria-hidden />
-                Performance &amp; connections
-              </h2>
-              <p className={cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule)}>
-                Key health metrics your team sees at a glance
-              </p>
+        <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className={cn(dashboardSectionHeadingClass, 'text-2xl sm:text-3xl font-bold tracking-tight')}>
+                  <span className={dashboardSectionDotClass} aria-hidden />
+                  Performance &amp; connections
+                </h2>
+                <p className={cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule)}>
+                  Key health metrics your team sees at a glance
+                </p>
+              </div>
+              <Badge variant="secondary" className={cn(dashPill, 'border-0')}>
+                Live data
+              </Badge>
             </div>
-            <Badge variant="secondary" className={cn(dashPill, 'border-0')}>
-              Live data
-            </Badge>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+          </CardHeader>
+          <CardContent className="pt-4 pb-5 space-y-4 bg-muted/10">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             <ClientProminentMetric
               icon={MailWarning}
               label="Hard bounces (30d)"
@@ -455,32 +499,17 @@ export default function Dashboard() {
             />
             <ClientProminentMetric
               icon={Radio}
-              label="Scheduled broadcasts"
-              value={
-                brazeScheduledIsError
-                  ? '—'
-                  : brazeScheduled.count.toLocaleString()
-              }
-              trendText={
-                brazeScheduledIsError
-                  ? undefined
-                  : brazeScheduled.nextSendTimeLabel
-                    ? brazeScheduled.nextSendTimeLabel
-                    : brazeScheduled.count > 0
-                      ? 'No upcoming next_send_time on synced rows'
-                      : undefined
-              }
+              label="Email events (30d)"
+              value={brazeSyncHealth.counts.emailEvents30d.toLocaleString()}
               footnote={
-                brazeScheduledIsError
-                  ? `Could not read braze_scheduled_broadcasts (RLS/network).`
-                  : 'From Braze scheduled_broadcasts sync'
+                'From Braze email_events sync'
               }
               railClass={dashRailPrimary}
               accentClass={cn(dashIconChip, 'h-10 w-10 rounded-xl')}
             />
-          </div>
+            </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             <ClientProminentMetric
               icon={Workflow}
               label="Enabled canvases"
@@ -503,48 +532,99 @@ export default function Dashboard() {
               icon={FileText}
               label="Google Drive files"
               value={driveBriefsLoading ? '…' : driveFileCount.toLocaleString()}
-              footnote={driveBriefsLoading ? 'Refreshing…' : 'Files linked from Drive brief sync'}
+              footnote={
+                driveBriefsLoading
+                  ? 'Refreshing…'
+                  : `${driveConnections.length} folder connection${driveConnections.length === 1 ? '' : 's'}${latestDriveSync ? ` · last sync ${format(new Date(latestDriveSync), 'MMM d, p')}` : ''}`
+              }
               railClass={dashRailPrimary}
               accentClass={cn(dashIconChip, 'h-10 w-10 rounded-xl')}
             />
-          </div>
-
-          <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
-              <CardTitle className="flex items-center gap-2 text-base font-semibold font-heading">
-                <span className={cn(dashIconChip, 'h-8 w-8 shrink-0 rounded-lg')}>
-                  <Layers className="h-4 w-4" />
-                </span>
-                Canvas pillar breakdown
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Counts by lifecycle pillar (name/tags match: Retention, Reactivation, Activation, Upsell)
-              </p>
-            </CardHeader>
-            <CardContent className="pb-4 pt-4 bg-muted/10">
-              {pillarItems.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {pillarItems.map((item) => (
-                    <Badge key={item} variant="secondary" className={cn('px-3 py-1.5 text-sm font-semibold tabular-nums', dashBadgeSoft)}>
-                      {item}
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  No pillar matches yet — sync canvases or tag names in Braze.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <GoogleDriveBriefsPanel
           clientId={clientId}
           driveBriefs={driveBriefs}
           isFetching={driveBriefsLoading}
         />
+
+        <div className="space-y-3">
+          <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
+            <div className={dashboardTopAccentClass} aria-hidden />
+            <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-2xl sm:text-3xl font-bold font-heading tracking-tight">
+                    <span className={cn(dashIconChipWarning, 'h-8 w-8 shrink-0 rounded-lg')}>
+                      <Workflow className="h-4 w-4" />
+                    </span>
+                    Campaign Hygiene
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    Braze API campaign list with flagged names (test/warming/IP warm).
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className={cn(dashPill, 'border-0')}>
+                    Flagged: {hygieneFlaggedCount.toLocaleString()}
+                  </Badge>
+                </div>
+              </div>
+              <div className="relative mt-2 max-w-sm">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={hygieneSearch}
+                  onChange={(e) => setHygieneSearch(e.target.value)}
+                  placeholder="Search campaign name..."
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="pb-4 pt-3 bg-muted/10">
+              <div className="rounded-lg border border-border/60 bg-card overflow-hidden">
+                <div className="max-h-[360px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 z-10 bg-muted/70 backdrop-blur">
+                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="px-3 py-2">Name</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Last update</th>
+                        <th className="px-3 py-2">Flag</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredHygieneRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                            No campaigns match your search.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredHygieneRows.map((row, i) => {
+                          const flagged = /(test|warming|ip warm)/i.test(String(row.name ?? ''));
+                          return (
+                            <tr key={`${String(row.name)}-${i}`} className="border-t border-border/60">
+                              <td className="px-3 py-2.5 text-sm font-medium">{String(row.name ?? 'Campaign')}</td>
+                              <td className="px-3 py-2.5 text-xs">{String(row.status ?? '—')}</td>
+                              <td className="px-3 py-2.5 text-xs">
+                                {row.updated_at ? format(new Date(String(row.updated_at)), 'MMM d, yyyy') : '—'}
+                              </td>
+                              <td className="px-3 py-2.5 text-xs">
+                                {flagged ? <Badge variant="secondary">🧹 Review</Badge> : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Closed Briefs — now grouped by type */}
         <ClosedBriefsSection
@@ -561,7 +641,7 @@ export default function Dashboard() {
               <Sparkles className="h-6 w-6" />
             </div>
             <div className="flex-1 min-w-0 space-y-1">
-              <p className="font-semibold text-foreground">AI Chat — CRM Copilot</p>
+              <p className="text-2xl sm:text-3xl font-bold font-heading tracking-tight text-foreground">AI Chat — CRM Copilot</p>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Conversations, Grok-powered replies, and saved history are all in the{' '}
                 <span className="text-foreground font-medium">AI Chat</span> tab. Use the sidebar or the button below — nothing runs inline on the dashboard anymore.

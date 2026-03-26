@@ -251,6 +251,82 @@ export function useDashboardBrazeMetrics() {
     refetchInterval: 120_000,
   });
 
+  const syncHealth = useQuery({
+    queryKey: ['dashboard-braze', 'sync-health', clientId],
+    queryFn: async () => {
+      if (!clientId) {
+        return {
+          counts: { canvases: 0, segments: 0, emailEvents30d: 0, scheduledBroadcasts: 0 },
+          lastRunAt: null as string | null,
+          lastRunStatus: null as string | null,
+          lastError: null as string | null,
+        };
+      }
+      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      const [
+        canvasesRes,
+        segmentsRes,
+        emailEventsRes,
+        scheduledRes,
+        latestRunRes,
+        latestFailedRes,
+      ] = await Promise.all([
+        (supabase as any).from('braze_canvases').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+        (supabase as any).from('braze_segments_sync').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+        (supabase as any)
+          .from('braze_email_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', clientId)
+          .gte('occurred_at', since),
+        (supabase as any).from('braze_scheduled_broadcasts').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+        (supabase as any)
+          .from('braze_sync_runs')
+          .select('status,started_at,completed_at,error_message')
+          .eq('client_id', clientId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        (supabase as any)
+          .from('braze_sync_runs')
+          .select('error_message,completed_at,started_at')
+          .eq('client_id', clientId)
+          .eq('status', 'failed')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (canvasesRes.error) throw canvasesRes.error;
+      if (segmentsRes.error) throw segmentsRes.error;
+      if (emailEventsRes.error) throw emailEventsRes.error;
+      if (scheduledRes.error) throw scheduledRes.error;
+      if (latestRunRes.error) throw latestRunRes.error;
+      if (latestFailedRes.error) throw latestFailedRes.error;
+
+      const lastRun = (latestRunRes.data ?? null) as
+        | { status?: string | null; started_at?: string | null; completed_at?: string | null; error_message?: string | null }
+        | null;
+      const lastFailed = (latestFailedRes.data ?? null) as
+        | { error_message?: string | null; started_at?: string | null; completed_at?: string | null }
+        | null;
+
+      return {
+        counts: {
+          canvases: canvasesRes.count ?? 0,
+          segments: segmentsRes.count ?? 0,
+          emailEvents30d: emailEventsRes.count ?? 0,
+          scheduledBroadcasts: scheduledRes.count ?? 0,
+        },
+        lastRunAt: lastRun?.completed_at ?? lastRun?.started_at ?? null,
+        lastRunStatus: lastRun?.status ?? null,
+        lastError: lastFailed?.error_message ?? lastRun?.error_message ?? null,
+      };
+    },
+    enabled: !!clientId,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
   const derived = useMemo(() => {
     const kpi = kpiQuery.data ?? [];
     const camp = campaignsAgg.data;
@@ -294,7 +370,8 @@ export function useDashboardBrazeMetrics() {
         canvasStats.isLoading ||
         segmentCount.isLoading ||
         scheduledPeek.isLoading ||
-        emailHealth.isLoading));
+        emailHealth.isLoading ||
+        syncHealth.isLoading));
 
   return {
     clientId,
@@ -306,6 +383,7 @@ export function useDashboardBrazeMetrics() {
       segmentCount.refetch();
       scheduledPeek.refetch();
       emailHealth.refetch();
+      syncHealth.refetch();
     },
     canvasStats: canvasStats.data ?? {
       syncedTotal: 0,
@@ -321,6 +399,12 @@ export function useDashboardBrazeMetrics() {
     scheduledError: scheduledPeek.error ?? null,
     scheduledIsError: scheduledPeek.isError,
     emailHealth: emailHealth.data ?? { bounces: 0, unsubs: 0 },
+    syncHealth: syncHealth.data ?? {
+      counts: { canvases: 0, segments: 0, emailEvents30d: 0, scheduledBroadcasts: 0 },
+      lastRunAt: null,
+      lastRunStatus: null,
+      lastError: null,
+    },
     kpiRows: kpiQuery.data ?? [],
     derived,
   };
