@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Client, ClientPlatform, PlatformType } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 const DOUBLEGOOD_SLUG = 'doublegood';
 const DOUBLEGOOD_NAME = 'BRCG';
@@ -87,9 +88,24 @@ export function queryStillResolving(q: {
   );
 }
 
-/** DoubleGood client row + fallback to oldest `clients` row when slug row is missing (matches analytics). */
+/**
+ * Workspace `clients.id` for the current session.
+ * - Admins: shared DoubleGood (`slug = doublegood`) + legacy fallback to oldest client.
+ * - Members: personal workspace from `ensure_personal_workspace_client` (own Braze/CSV/Drive data).
+ */
 export function useResolvedClientId() {
+  const { isAdmin, isApproved, isLoading: authLoading } = useAuth();
   const clientQuery = useDoubleGoodClient();
+  const personalWorkspace = useQuery({
+    queryKey: ['personal-workspace-client-id'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('ensure_personal_workspace_client');
+      if (error) throw error;
+      return data as string;
+    },
+    enabled: !authLoading && !isAdmin && isApproved,
+    staleTime: 5 * 60 * 1000,
+  });
   const onboardingFallback = useQuery({
     queryKey: ['onboarding-fallback-client'],
     queryFn: async () => {
@@ -102,27 +118,36 @@ export function useResolvedClientId() {
       if (error) throw error;
       return data as { id: string } | null;
     },
-    enabled: !clientQuery.data?.id,
+    enabled: !authLoading && isAdmin && !clientQuery.data?.id,
     staleTime: 1000 * 60 * 5,
   });
 
   const fallbackClient = onboardingFallback.data;
 
-  const clientId = clientQuery.data?.id ?? fallbackClient?.id ?? undefined;
+  const clientId = isAdmin
+    ? (clientQuery.data?.id ?? fallbackClient?.id ?? undefined)
+    : (personalWorkspace.data ?? undefined);
 
   const isClientLoading =
-    !clientId &&
-    (queryStillResolving(clientQuery) ||
-      (!clientQuery.data?.id &&
-        fallbackClient == null &&
-        !onboardingFallback.isSuccess &&
-        queryStillResolving(onboardingFallback)));
+    authLoading ||
+    (isAdmin
+      ? !clientId &&
+        (queryStillResolving(clientQuery) ||
+          (!clientQuery.data?.id &&
+            fallbackClient == null &&
+            !onboardingFallback.isSuccess &&
+            queryStillResolving(onboardingFallback)))
+      : isApproved &&
+        !clientId &&
+        (personalWorkspace.isLoading || personalWorkspace.isFetching));
 
   const resolveError =
     !clientId &&
     !isClientLoading &&
-    (clientQuery.isError || onboardingFallback.isError)
-      ? (clientQuery.error ?? onboardingFallback.error)
+    (isAdmin ? clientQuery.isError || onboardingFallback.isError : personalWorkspace.isError)
+      ? isAdmin
+        ? (clientQuery.error ?? onboardingFallback.error)
+        : personalWorkspace.error
       : null;
 
   return {
@@ -133,7 +158,31 @@ export function useResolvedClientId() {
   };
 }
 
-// Hook to get or create the single DoubleGood client
+/**
+ * Full `clients` row for the active workspace (same `client_id` as CSV / Braze / Drive).
+ * Prefer this over `useDoubleGoodClient()` in UI — members see their personal workspace, not the shared BRCG row.
+ */
+export function useActiveClientRow() {
+  const { clientId, isClientLoading, resolveError } = useResolvedClientId();
+  const q = useQuery({
+    queryKey: ['active-client-row', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('clients').select('*').eq('id', clientId!).single();
+      if (error) throw error;
+      return data as Client;
+    },
+    enabled: !!clientId,
+    staleTime: 5 * 60 * 1000,
+  });
+  return {
+    data: q.data ?? null,
+    isLoading: isClientLoading || (!!clientId && queryStillResolving(q)),
+    error: resolveError ?? q.error,
+    refetch: q.refetch,
+  };
+}
+
+// Hook to get or create the single DoubleGood client (admin shared workspace; also used internally by useResolvedClientId for admins)
 export function useDoubleGoodClient() {
   return useQuery({
     queryKey: ['doublegood-client'],
@@ -176,36 +225,35 @@ export function useDoubleGoodClient() {
 }
 
 export function useDoubleGoodPlatforms() {
-  const { data: client } = useDoubleGoodClient();
-  
+  const { clientId } = useResolvedClientId();
+
   return useQuery({
-    queryKey: ['doublegood-platforms', client?.id],
+    queryKey: ['doublegood-platforms', clientId],
     queryFn: async () => {
-      if (!client?.id) return [];
-      // Use the public view which excludes sensitive API credentials
+      if (!clientId) return [];
       const { data, error } = await supabase
         .from('client_platforms_public')
         .select('*')
-        .eq('client_id', client.id);
+        .eq('client_id', clientId);
       if (error) throw error;
       return data as ClientPlatform[];
     },
-    enabled: !!client?.id,
+    enabled: !!clientId,
   });
 }
 
 export function useUpdateDoubleGoodClient() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: client } = useDoubleGoodClient();
-  
+  const { clientId } = useResolvedClientId();
+
   return useMutation({
     mutationFn: async (updates: Partial<Client>) => {
-      if (!client?.id) throw new Error('Client not found');
+      if (!clientId) throw new Error('Client not found');
       const { data, error } = await supabase
         .from('clients')
         .update(updates)
-        .eq('id', client.id)
+        .eq('id', clientId)
         .select()
         .single();
       if (error) throw error;
@@ -213,6 +261,7 @@ export function useUpdateDoubleGoodClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['doublegood-client'] });
+      queryClient.invalidateQueries({ queryKey: ['personal-workspace-client-id'] });
       toast({ title: 'Brand updated' });
     },
     onError: (error: Error) => {
@@ -224,13 +273,13 @@ export function useUpdateDoubleGoodClient() {
 export function useConnectPlatform() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: client } = useDoubleGoodClient();
-  
+  const { clientId } = useResolvedClientId();
+
   return useMutation({
     mutationFn: async ({ platform, apiKey, apiSecret, additionalConfig }: { platform: PlatformType; apiKey: string; apiSecret?: string; additionalConfig?: Record<string, unknown> }) => {
-      if (!client?.id) throw new Error('Client not found');
+      if (!clientId) throw new Error('Client not found');
       const row: Record<string, unknown> = {
-        client_id: client.id,
+        client_id: clientId,
         platform,
         api_key: apiKey,
         api_secret: apiSecret || null,
@@ -249,6 +298,7 @@ export function useConnectPlatform() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
+      queryClient.invalidateQueries({ queryKey: ['braze-platform-client-id-for-resolved'] });
       toast({ title: 'Platform connected' });
     },
     onError: (error: Error) => {
@@ -260,20 +310,21 @@ export function useConnectPlatform() {
 export function useDisconnectPlatform() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: client } = useDoubleGoodClient();
-  
+  const { clientId } = useResolvedClientId();
+
   return useMutation({
     mutationFn: async (platform: PlatformType) => {
-      if (!client?.id) throw new Error('Client not found');
+      if (!clientId) throw new Error('Client not found');
       const { error } = await supabase
         .from('client_platforms')
         .delete()
-        .eq('client_id', client.id)
+        .eq('client_id', clientId)
         .eq('platform', platform);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
+      queryClient.invalidateQueries({ queryKey: ['braze-platform-client-id-for-resolved'] });
       toast({ title: 'Platform disconnected' });
     },
     onError: (error: Error) => {

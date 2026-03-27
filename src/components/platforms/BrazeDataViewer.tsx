@@ -7,6 +7,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { RefreshCw, Mail, Workflow, Users, FileText, ChevronRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  brazeSyncPartialDescription,
+  formatBrazeSyncInvokeError,
+} from '@/lib/brazeSyncInvoke';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/lib/logger';
 import {
@@ -111,10 +115,10 @@ export function BrazeDataViewer({
       onSyncComplete?.();
     } catch (error: unknown) {
       logger.error('Sync error:', error);
-      toast({ 
-        title: 'Sync failed', 
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: 'destructive' 
+      toast({
+        title: 'Sync failed',
+        description: formatBrazeSyncInvokeError(error),
+        variant: 'destructive',
       });
     } finally {
       setSyncing(false);

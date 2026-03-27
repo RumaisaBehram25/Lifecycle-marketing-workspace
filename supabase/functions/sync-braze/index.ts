@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.89.0";
-import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { validateAuth, validateClientAccessForEdge, authErrorResponse } from "../_shared/auth.ts";
 import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
@@ -12,8 +12,34 @@ const corsHeaders = {
 // Reduced batch size and limits for memory safety
 const BATCH_SIZE = 3;
 const MAX_HTML_SIZE = 50000;
-const MAX_CANVASES_TO_PROCESS = 100;
-const MAX_CAMPAIGNS_TO_PROCESS = 100;
+
+function clampIntEnv(key: string, fallback: number, min: number, max: number): number {
+  const raw = Deno.env.get(key);
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+/** Full detail + analytics fetch for top N canvases (list still syncs all). Default lowered to avoid ~150s Edge HTTP limit. */
+const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 50, 1, 300);
+const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 35, 1, 200);
+const MAX_SEGMENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_PAGES", 40, 1, 200);
+const MAX_EMAIL_EVENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EMAIL_PAGES", 35, 1, 120);
+
+/** Supabase Edge gateway ~150s; stop heavy work before that and return 200 with partial counts. */
+function maxSyncWallMs(): number {
+  const raw = Deno.env.get("BRAZE_SYNC_MAX_WALL_MS");
+  const n = raw ? Number(raw) : 135000;
+  if (!Number.isFinite(n)) return 135000;
+  return Math.min(145000, Math.max(60000, Math.floor(n)));
+}
+
+/** Braze kpi (dau, mau, new_users) data_series length = calendar days before ending_at (Braze max 100). */
+const KPI_LENGTH_DAU = 30;
+const KPI_LENGTH_NEW_USERS = 30;
+/** MAU series is typically compared over ~90d in Braze; CRM charts slice last 90d from DB. */
+const KPI_LENGTH_MAU = 90;
 
 // Priority scoring for lifecycle canvas detection
 function getCanvasPriority(name: string): number {
@@ -54,12 +80,12 @@ function truncateHtml(html: string | undefined): string | undefined {
   return html.slice(0, MAX_HTML_SIZE) + '<!-- truncated -->';
 }
 
-// Retry wrapper with exponential back-off
-async function withRetry<T>(
-  fn: () => Promise<T>,
+// Retry wrapper with exponential back-off (avoid angle-bracket generics on the function name for older bundlers).
+async function withRetry(
+  fn: () => Promise<unknown>,
   retries = 3,
-  baseDelay = 500
-): Promise<T> {
+  baseDelay = 500,
+): Promise<unknown> {
   let lastError: unknown;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -68,7 +94,15 @@ async function withRetry<T>(
       lastError = err;
       if (attempt < retries - 1) {
         const delay = baseDelay * Math.pow(2, attempt);
-        console.warn(`Retrying after ${delay}ms (attempt ${attempt + 1}/${retries})...`);
+        console.warn(
+          "Retrying after " +
+            String(delay) +
+            "ms (attempt " +
+            String(attempt + 1) +
+            "/" +
+            String(retries) +
+            ")...",
+        );
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -79,10 +113,10 @@ async function withRetry<T>(
 async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string) {
   return withRetry(async () => {
     const url = `${restEndpoint}/${endpoint}`;
-    console.log(`Fetching Braze: ${url}`);
+    console.log(`[Braze Sync] GET ${url}`);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    const timeout = setTimeout(() => controller.abort(), 18000);
 
     try {
       const response = await fetch(url, {
@@ -95,9 +129,19 @@ async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(
+          `[Braze Sync] HTTP ${response.status} ${url} — ${errorText.slice(0, 500)}`,
+        );
         throw new Error(`Braze API error ${response.status}: ${errorText.slice(0, 200)}`);
       }
-      return response.json();
+      const body: unknown = await response.json();
+      console.log(
+        "[API RESPONSE]",
+        endpoint,
+        response.status,
+        JSON.stringify(body).slice(0, 200),
+      );
+      return body;
     } finally {
       clearTimeout(timeout);
     }
@@ -113,6 +157,21 @@ function formatDelay(seconds: number | undefined): string {
 }
 
 const isTruthy = (v: unknown) => v === true || v === 'true' || v === 1 || v === '1';
+
+/**
+ * Braze /canvas/list rows often omit `enabled`; infer from status / draft / archived so
+ * partial syncs (minimal upsert only) still populate `enabled` for the dashboard.
+ */
+function inferCanvasEnabledFromListItem(c: CanvasListItem): boolean {
+  if (c.draft === true) return false;
+  if (c.archived === true) return false;
+  if (isTruthy(c.enabled ?? c.is_active ?? c.active)) return true;
+  const st = String(c.status ?? "").trim().toLowerCase();
+  if (st === "active" || st === "live" || st === "running" || st === "enabled") return true;
+  if (st === "stopped" || st === "not_running" || st === "paused" || st === "draft") return false;
+  // Non-draft, non-archived rows in the live list are treated as active unless status says otherwise.
+  return true;
+}
 
 const toDateMs = (v: unknown): number | null => {
   if (v === undefined || v === null) return null;
@@ -385,26 +444,131 @@ function kpiNumericFromRow(
   row: Record<string, unknown>,
   metric: "dau" | "mau" | "new_users",
 ): number {
+  const stats = row.stats as Record<string, unknown> | undefined;
+  const pick = (keys: string[]): number => {
+    for (const k of keys) {
+      const v = row[k] ?? stats?.[k];
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  };
   if (metric === "dau") {
-    const v =
-      row.dau ??
-      row.DAU ??
-      row.daily_active_users ??
-      row.unique_users;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
+    return pick([
+      "dau",
+      "DAU",
+      "daily_active_users",
+      "unique_users",
+      "daily_active",
+    ]);
   }
   if (metric === "mau") {
-    const v = row.mau ?? row.MAU ?? row.monthly_active_users;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
+    return pick(["mau", "MAU", "monthly_active_users", "monthly_active"]);
   }
-  const v =
-    row.new_users ??
-    row.new_users_count ??
-    row.daily_new_users;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return pick([
+    "new_users",
+    "new_users_count",
+    "daily_new_users",
+    "new_user_count",
+    "signups",
+  ]);
+}
+
+/**
+ * Normalizes Braze KPI `data_series` JSON into dated points. Handles:
+ * - `data: [ { time, dau|mau|new_users } ]`
+ * - Parallel arrays under `data`: time + metric arrays (some API variants)
+ */
+function normalizeBrazeKpiSeries(
+  json: Record<string, unknown>,
+  metric: "dau" | "mau" | "new_users",
+): Array<{ date: string; value: number }> {
+  const out: Array<{ date: string; value: number }> = [];
+  const rows = brazeExportDataArray(json) as Array<Record<string, unknown>>;
+  if (rows.length === 0 && json.data && typeof json.data === "object" && !Array.isArray(json.data)) {
+    const d = json.data as Record<string, unknown>;
+    const times = (d.time ?? d.times ?? d.dates ?? d.date) as unknown;
+    const valKey =
+      metric === "dau" ? "dau" : metric === "mau" ? "mau" : "new_users";
+    const vals =
+      (d[valKey] as unknown) ??
+      (d[metric] as unknown) ??
+      (d.values as unknown) ??
+      (d.series as unknown);
+    if (Array.isArray(times) && Array.isArray(vals) && times.length === vals.length) {
+      for (let i = 0; i < times.length; i++) {
+        const date = seriesDateFromBrazeKpi(times[i]);
+        const v = Number(vals[i]);
+        if (date && Number.isFinite(v)) out.push({ date, value: v });
+      }
+      if (out.length > 0) return out;
+    }
+  }
+  for (const row of rows) {
+    const date = seriesDateFromBrazeKpi(row.time ?? row.date ?? row.day);
+    if (!date) continue;
+    const value = kpiNumericFromRow(row, metric);
+    out.push({ date, value });
+  }
+  return out;
+}
+
+function extractEmailEventRecords(j: Record<string, unknown>): Array<Record<string, unknown>> {
+  const emails = j.emails;
+  if (Array.isArray(emails)) return emails as Array<Record<string, unknown>>;
+  const bounced = j.bounces ?? j.bounced_emails;
+  if (Array.isArray(bounced)) return bounced as Array<Record<string, unknown>>;
+  const unsub = j.unsubscribes ?? j.unsubscribed_emails;
+  if (Array.isArray(unsub)) return unsub as Array<Record<string, unknown>>;
+  const fromData = brazeExportDataArray(j);
+  if (fromData.length > 0) return fromData as Array<Record<string, unknown>>;
+  return [];
+}
+
+function pickEmailEventTime(
+  e: Record<string, unknown>,
+  preferred: "hard_bounce" | "unsubscribe",
+): string {
+  const keys =
+    preferred === "hard_bounce"
+      ? [
+          "hard_bounced_at",
+          "hard_bounce_at",
+          "bounced_at",
+          "bounce_date",
+          "event_time",
+          "created_at",
+          "date",
+        ]
+      : [
+          "unsubscribed_at",
+          "unsubscribe_at",
+          "opt_out_at",
+          "event_time",
+          "created_at",
+          "date",
+        ];
+  for (const k of keys) {
+    const v = e[k];
+    if (v === undefined || v === null) continue;
+    const iso = toIso(v);
+    if (iso) return iso;
+    if (typeof v === "string" && v.trim() !== "") {
+      const t = Date.parse(v);
+      if (!Number.isNaN(t)) return new Date(t).toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+function pickEmailAddress(e: Record<string, unknown>): string {
+  const raw =
+    e.email ??
+    e.address ??
+    e.user_email ??
+    e.recipient ??
+    e.email_address;
+  return String(raw ?? "").trim();
 }
 
 Deno.serve(async (req) => {
@@ -424,15 +588,23 @@ Deno.serve(async (req) => {
       throw new Error('clientId and platformId are required');
     }
 
-    const accessResult = await validateClientAccess(authResult.userClient!, clientId);
-    if (!accessResult.success) {
-      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+    if (!authResult.userId) {
+      return authErrorResponse('Unauthorized', 401, corsHeaders);
     }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
+
+    const accessResult = await validateClientAccessForEdge(
+      supabase,
+      authResult.userId,
+      clientId,
+    );
+    if (!accessResult.success) {
+      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+    }
 
     const { data: platform, error: platformError } = await supabase
       .from('client_platforms')
@@ -442,6 +614,14 @@ Deno.serve(async (req) => {
 
     if (platformError || !platform) {
       throw new Error('Platform connection not found');
+    }
+
+    if (String(platform.client_id) !== String(clientId)) {
+      return authErrorResponse(
+        'Platform connection does not belong to this client',
+        400,
+        corsHeaders,
+      );
     }
 
     if (platform.platform !== 'braze') {
@@ -463,10 +643,17 @@ Deno.serve(async (req) => {
       string,
       unknown
     >;
-    const brazeKpiAppId = String(addCfg.braze_app_id ?? addCfg.app_id ?? '').trim();
-    const kpiAppQuery = brazeKpiAppId ? `&app_id=${encodeURIComponent(brazeKpiAppId)}` : '';
+    // KPI: default to workspace aggregate (all apps). Only pass app_id when
+    // additional_config.braze_kpi_app_id is set (do not reuse braze_app_id; that often
+    // scopes KPI too low vs workspace totals the user sees in Braze).
+    const brazeKpiAppId = String(addCfg.braze_kpi_app_id ?? "").trim();
+    const kpiAppQuery = brazeKpiAppId ? `&app_id=${encodeURIComponent(brazeKpiAppId)}` : "";
 
-    console.log("Starting Braze sync for client:", clientId, "REST:", brazeRestEndpoint);
+    console.log("[Braze Sync] START — clientId=", clientId, "REST=", brazeRestEndpoint);
+    console.log(
+      "[Braze Sync] KPI scope:",
+      brazeKpiAppId ? `app_id=${brazeKpiAppId} (from additional_config.braze_kpi_app_id)` : "workspace aggregate — no app_id (omit braze_kpi_app_id for full-workspace KPI)",
+    );
 
     // === Create sync run entry ===
     const syncStart = Date.now();
@@ -476,9 +663,117 @@ Deno.serve(async (req) => {
       .select('id')
       .single();
     const syncRunId = syncRun?.id as string | undefined;
+    const nowIso = new Date().toISOString();
 
-    // === PHASE 1: Fetch ALL canvas IDs with names (lightweight) ===
-    console.log('Phase 1: Fetching all canvas IDs...');
+    const maxWallMs = maxSyncWallMs();
+    const syncOverBudget = () => Date.now() - syncStart > maxWallMs;
+    let syncPartial = false;
+    let syncStoppedReason: string | null = null;
+    let emailHardBounceRows = 0;
+    let emailUnsubRows = 0;
+    let emailEventsSynced = 0;
+    console.log("[Braze Sync] Wall time budget (ms):", maxWallMs, "max_canvas_detail:", MAX_CANVASES_TO_PROCESS);
+
+    // === PHASE KPI (early): braze_kpi_series — runs before heavy canvas/campaign work to survive ~150s Edge limit ===
+    console.log("[SYNC] Starting: kpi_metrics");
+    console.log('[START] KPI series (braze_kpi_series) — DAU / MAU / new_users');
+    let kpiSeriesPoints = 0;
+    let kpiLatestDau = 0;
+    let kpiLatestMau = 0;
+    let kpiNewUsers30Sum = 0;
+    const endingAtEncKpi = encodeURIComponent(new Date().toISOString());
+    const kpiMetricsEarly: Array<{ metric: 'dau' | 'mau' | 'new_users'; path: string }> = [
+      { metric: 'dau', path: `kpi/dau/data_series?length=${KPI_LENGTH_DAU}&ending_at=${endingAtEncKpi}${kpiAppQuery}` },
+      { metric: 'mau', path: `kpi/mau/data_series?length=${KPI_LENGTH_MAU}&ending_at=${endingAtEncKpi}${kpiAppQuery}` },
+      { metric: 'new_users', path: `kpi/new_users/data_series?length=${KPI_LENGTH_NEW_USERS}&ending_at=${endingAtEncKpi}${kpiAppQuery}` },
+    ];
+    for (const { metric, path } of kpiMetricsEarly) {
+      try {
+        console.log(`[START] KPI fetch metric=${metric}`);
+        console.log(`[Braze Sync] KPI request: ${path.split('?')[0]} params=${path.split('?')[1] ?? ''}`);
+        const kpiJson = (await brazeFetch(path, apiKey, brazeRestEndpoint)) as Record<string, unknown>;
+        const rawSnippet = JSON.stringify(kpiJson).slice(0, 300);
+        if (metric === 'new_users') {
+          console.log('[Braze Sync] New users raw response:', rawSnippet);
+        } else if (metric === 'dau') {
+          console.log('[Braze Sync] DAU raw response:', rawSnippet);
+        } else {
+          console.log('[Braze Sync] MAU raw response:', rawSnippet);
+        }
+        const msg = kpiJson.message;
+        if (msg != null && String(msg).toLowerCase() !== 'success') {
+          console.warn(`[Braze Sync] KPI ${metric} API message:`, msg);
+        }
+        const points = normalizeBrazeKpiSeries(kpiJson, metric);
+        console.log(
+          `[API] kpi_${metric} parsed_series_points:`,
+          points.length,
+          'raw_data_array_len:',
+          brazeExportDataArray(kpiJson).length,
+        );
+        console.log(
+          `[Braze Sync] KPI ${metric}: parsed_points=${points.length} response_keys=${Object.keys(kpiJson).join(',')}`,
+        );
+        if (points.length > 0) {
+          const sortedDesc = [...points].sort((a, b) => b.date.localeCompare(a.date));
+          if (metric === 'dau') kpiLatestDau = sortedDesc[0]?.value ?? 0;
+          if (metric === 'mau') kpiLatestMau = sortedDesc[0]?.value ?? 0;
+          if (metric === 'new_users') {
+            kpiNewUsers30Sum = points.reduce(
+              (s, p) => s + (Number.isFinite(p.value) ? p.value : 0),
+              0,
+            );
+          }
+          const sample = points.slice(-3);
+          console.log(`[Braze Sync] KPI ${metric}: sample_tail=`, JSON.stringify(sample));
+        }
+        const rows = points.map((p) => ({
+          client_id: clientId,
+          metric,
+          series_date: p.date,
+          value: Number.isFinite(p.value) ? p.value : 0,
+          synced_at: nowIso,
+        }));
+        if (rows.length > 0) {
+          console.log('[DB WRITE] braze_kpi_series attempting to write:', rows.length, 'rows metric=', metric);
+          const { error: kpiErr } = await supabase.from('braze_kpi_series').upsert(rows, {
+            onConflict: 'client_id,metric,series_date',
+          });
+          console.log(
+            "[DB WRITE]",
+            "braze_kpi_series",
+            "error:",
+            kpiErr?.message ?? "none",
+            "rows:",
+            rows.length,
+          );
+          console.log('[DB RESULT] braze_kpi_series error:', kpiErr?.message ?? 'none');
+          if (kpiErr) console.warn('braze_kpi_series upsert:', kpiErr.message);
+          else {
+            kpiSeriesPoints += rows.length;
+            const sortedTip = [...rows].sort((a, b) => {
+              const c = String(b.series_date).localeCompare(String(a.series_date));
+              return c !== 0 ? c : Number(b.value) - Number(a.value);
+            });
+            const tip = sortedTip[0];
+            console.log(
+              `KPI ${metric}: upserted ${rows.length} rows; latest_stored_date=${tip?.series_date} value=${tip?.value}`,
+            );
+          }
+        } else {
+          console.warn(
+            `[Braze Sync] KPI ${metric}: no rows after normalize — check kpi.${metric}.data_series permission and response shape`,
+          );
+        }
+      } catch (e) {
+        console.error(`[Braze Sync] KPI ${metric} sync failed:`, e);
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    // === PHASE 1: Fetch ALL canvas IDs with names (lightweight) — paginate until empty ===
+    console.log('[SYNC] Starting: canvases');
+    console.log('[Braze Sync] Fetching canvas list (paginated, include_archived=false)...');
     const allCanvasList: CanvasListItem[] = [];
     const seenIds = new Set<string>();
     let canvasPage = 0;
@@ -491,7 +786,16 @@ Deno.serve(async (req) => {
           brazeRestEndpoint
         );
         const canvases = canvasesData.canvases || [];
-        console.log(`Canvas page ${canvasPage}: ${canvases.length} items`);
+        console.log(
+          `[Braze Sync] Canvases page ${canvasPage} — count:`,
+          canvases.length,
+        );
+        if (canvasPage === 0) {
+          console.log(
+            '[Braze Sync] Canvases page 0 raw (truncated):',
+            JSON.stringify(canvasesData).slice(0, 300),
+          );
+        }
 
         if (canvases.length === 0) break;
 
@@ -510,7 +814,172 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`Total canvases found: ${allCanvasList.length}`);
+    console.log(
+      `Total canvases found (list API, paginated): ${allCanvasList.length}`,
+    );
+
+    // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
+    let canvasMinimalUpserted = 0;
+    const minimalChunks: CanvasListItem[][] = [];
+    for (let i = 0; i < allCanvasList.length; i += 40) {
+      minimalChunks.push(allCanvasList.slice(i, i + 40));
+    }
+    for (const chunk of minimalChunks) {
+      const minimalRows = chunk.map((c) => {
+        const enabledList = inferCanvasEnabledFromListItem(c);
+        return {
+          client_id: clientId,
+          braze_canvas_id: c.id,
+          name: c.name || "Canvas",
+          description: c.description ?? null,
+          draft: c.draft ?? false,
+          enabled: enabledList,
+          archived: c.archived ?? false,
+          tags: c.tags || [],
+          created_in_braze: c.created_at || null,
+          updated_in_braze: c.updated_at || null,
+          raw_variants: [] as unknown[],
+          raw_steps: {} as Record<string, unknown>,
+          total_steps: 0,
+          synced_at: nowIso,
+        };
+      });
+      if (minimalRows.length === 0) continue;
+      const { error: minErr } = await supabase
+        .from("braze_canvases")
+        .upsert(minimalRows, { onConflict: "client_id,braze_canvas_id" });
+      console.log(
+        "[DB WRITE]",
+        "braze_canvases",
+        "error:",
+        minErr?.message ?? "none",
+        "rows:",
+        minimalRows.length,
+      );
+      if (minErr) {
+        console.warn("Canvas minimal batch upsert failed:", minErr.message);
+      } else {
+        canvasMinimalUpserted += minimalRows.length;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    console.log(
+      `Canvas minimal upsert: attempted ${allCanvasList.length}, saved ${canvasMinimalUpserted}`,
+    );
+
+    // === PHASE EMAIL (early): hard bounces + unsubscribes — before heavy canvas/campaign/segment work ===
+    const endDateStrEmail = new Date().toISOString().slice(0, 10);
+    const startDateStrEmail = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    console.log(
+      "[START] email hard_bounces + unsubscribes (early) → braze_email_events date range:",
+      startDateStrEmail,
+      "..",
+      endDateStrEmail,
+    );
+
+    async function syncEmailEventPagesEarly(
+      eventType: "hard_bounce" | "unsubscribe",
+      apiSuffix: string,
+    ): Promise<number> {
+      console.log(
+        "[SYNC] Starting:",
+        eventType === "hard_bounce" ? "hard_bounces" : "unsubscribes",
+      );
+      console.log(`[START] fetching ${eventType} (${apiSuffix})`);
+      let insertedTotal = 0;
+      let offset = 0;
+      const limit = 500;
+      for (let p = 0; p < MAX_EMAIL_EVENT_PAGES; p++) {
+        if (syncOverBudget()) {
+          console.warn(
+            `[Braze Sync] Time budget: stopping ${eventType} pagination early`,
+          );
+          syncPartial = true;
+          syncStoppedReason = "time_budget";
+          break;
+        }
+        try {
+          const q =
+            `${apiSuffix}?start_date=${startDateStrEmail}&end_date=${endDateStrEmail}&limit=${limit}&offset=${offset}&sort_direction=desc`;
+          const fullUrl = `${String(brazeRestEndpoint).replace(/\/+$/, "")}/${q}`;
+          if (p === 0) {
+            console.log(`[API] ${eventType} exact URL (page 0):`, fullUrl);
+          }
+          console.log(
+            `[Braze Sync] Email ${eventType}: GET ${apiSuffix} offset=${offset} limit=${limit} range=${startDateStrEmail}..${endDateStrEmail}`,
+          );
+          const j = (await brazeFetch(q, apiKey, brazeRestEndpoint)) as Record<string, unknown>;
+          const records = extractEmailEventRecords(j);
+          const rawEmailsLen = Array.isArray(j.emails) ? j.emails.length : null;
+          const rawBouncesLen = Array.isArray((j as { bounces?: unknown }).bounces)
+            ? (j as { bounces: unknown[] }).bounces.length
+            : null;
+          console.log(
+            `[API] ${eventType} count: emails=${rawEmailsLen ?? "n/a"} bounces=${rawBouncesLen ?? "n/a"} extracted=${records.length}`,
+          );
+          if (p === 0) {
+            const label =
+              eventType === "hard_bounce"
+                ? "[Braze Sync] Hard bounces raw response:"
+                : "[Braze Sync] Unsubscribes raw response:";
+            console.log(label, JSON.stringify(j).slice(0, 300));
+            console.log(
+              `[Braze Sync] Email ${eventType}: raw_keys=${Object.keys(j).join(",")} record_count=${records.length}`,
+            );
+            if (records[0]) {
+              console.log(`[Braze Sync] Email ${eventType}: sample_record=`, JSON.stringify(records[0]));
+            }
+          }
+          if (records.length === 0) break;
+          const rows = records
+            .map((e) => {
+              const em = pickEmailAddress(e);
+              if (!em) return null;
+              const at = pickEmailEventTime(e, eventType);
+              return {
+                client_id: clientId,
+                event_type: eventType,
+                email: em,
+                occurred_at: at,
+              };
+            })
+            .filter(Boolean) as Array<Record<string, unknown>>;
+          if (rows.length > 0) {
+            console.log("[DB WRITE] braze_email_events attempting to write:", rows.length, "rows", eventType, "page", p);
+            const { error: evErr } = await supabase.from("braze_email_events").insert(rows, {
+              ignoreDuplicates: true,
+            });
+            console.log(
+              "[DB WRITE]",
+              "braze_email_events",
+              "error:",
+              evErr?.message ?? "none",
+              "rows:",
+              rows.length,
+            );
+            console.log("[DB RESULT] braze_email_events error:", evErr?.message ?? "none");
+            if (!evErr) {
+              insertedTotal += rows.length;
+              console.log(`[Braze Sync] Email ${eventType}: inserted ${rows.length} rows (page ${p})`);
+            } else console.warn("[Braze Sync] braze_email_events insert:", evErr.message);
+          }
+          if (records.length < limit) break;
+          offset += limit;
+        } catch (err) {
+          console.error(`[Braze Sync] ${eventType} sync page failed:`, err);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      return insertedTotal;
+    }
+
+    emailHardBounceRows = await syncEmailEventPagesEarly("hard_bounce", "email/hard_bounces");
+    emailUnsubRows = await syncEmailEventPagesEarly("unsubscribe", "email/unsubscribes");
+    emailEventsSynced = emailHardBounceRows + emailUnsubRows;
+    console.log(
+      `[Braze Sync] Email events (early phase): hard_bounce_rows=${emailHardBounceRows} unsub_rows=${emailUnsubRows}`,
+    );
 
     // === PHASE 2: Score and prioritize canvases ===
     console.log('Phase 2: Scoring canvases by lifecycle priority...');
@@ -530,7 +999,6 @@ Deno.serve(async (req) => {
 
     // === PHASE 3: Process canvases in small batches with immediate checkpointing ===
     console.log('Phase 3: Processing canvas details in batches of 3...');
-    const nowIso = new Date().toISOString();
     let processedCount = 0;
     let enabledCount = 0;
 
@@ -564,6 +1032,14 @@ Deno.serve(async (req) => {
 
     // Process canvases in batches
     for (let i = 0; i < canvasesToProcess.length; i += BATCH_SIZE) {
+      if (syncOverBudget()) {
+        console.warn(
+          "[Braze Sync] Time budget: stopping canvas detail enrichment early (remaining canvases skipped)",
+        );
+        syncPartial = true;
+        syncStoppedReason = "time_budget";
+        break;
+      }
       const batch = canvasesToProcess.slice(i, i + BATCH_SIZE);
       console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(canvasesToProcess.length / BATCH_SIZE)}`);
 
@@ -572,7 +1048,7 @@ Deno.serve(async (req) => {
           const variants: ProcessedCanvas['variants'] = [];
           const steps: Record<string, unknown> = {};
 
-          const enabledFromList = isTruthy(c.enabled ?? c.is_active ?? c.active ?? (c.status === 'active'));
+          const enabledFromList = inferCanvasEnabledFromListItem(c);
           let enabled = enabledFromList;
 
           let firstEntryIso = toIso(c.last_entry);
@@ -593,10 +1069,21 @@ Deno.serve(async (req) => {
 
           try {
             // Fetch canvas details
-            const details = await brazeFetch(`canvas/details?canvas_id=${c.id}`, apiKey, brazeRestEndpoint);
+            const details = (await brazeFetch(
+              `canvas/details?canvas_id=${c.id}`,
+              apiKey,
+              brazeRestEndpoint,
+            )) as Record<string, unknown>;
+            const canvasNested = details.canvas as Record<string, unknown> | undefined;
 
             enabled = isTruthy(
-              details.enabled ?? details.canvas?.enabled ?? details.is_active ?? details.active ?? enabledFromList
+              details.enabled ??
+                canvasNested?.enabled ??
+                canvasNested?.is_active ??
+                canvasNested?.active ??
+                details.is_active ??
+                details.active ??
+                enabledFromList,
             );
 
             firstEntryIso = toIso(details.first_entry ?? details.first_entry_at) ?? firstEntryIso;
@@ -834,6 +1321,14 @@ Deno.serve(async (req) => {
             .from('braze_canvases')
             .upsert(row, { onConflict: 'client_id,braze_canvas_id' });
 
+          console.log(
+            "[DB WRITE]",
+            "braze_canvases",
+            "error:",
+            upsertErr?.message ?? "none",
+            "rows:",
+            1,
+          );
           if (upsertErr) {
             console.warn(`Canvas upsert failed for ${c.id}:`, upsertErr.message);
           } else {
@@ -850,12 +1345,24 @@ Deno.serve(async (req) => {
     console.log(`Processed ${processedCount} canvases, ${enabledCount} enabled`);
 
     // === PHASE 4: Fetch and process campaigns ===
-    console.log('Phase 4: Fetching all campaign IDs...');
+    let campaignsProcessedCount = 0;
+    let campaignsEnabledCount = 0;
     const allCampaignList: CampaignListItem[] = [];
+
+    if (!syncOverBudget()) {
+    console.log('Phase 4: Fetching all campaign IDs...');
     const seenCampaignIds = new Set<string>();
     let campaignPage = 0;
 
     while (campaignPage < 50) {
+      if (syncOverBudget()) {
+        console.warn(
+          "[Braze Sync] Time budget: stopping campaign list pagination early",
+        );
+        syncPartial = true;
+        syncStoppedReason = "time_budget";
+        break;
+      }
       try {
         const campaignsData = (await brazeFetch(
           `campaigns/list?page=${campaignPage}&include_archived=false&sort_direction=desc`,
@@ -906,11 +1413,17 @@ Deno.serve(async (req) => {
     console.log(`Will process ${campaignsToProcess.length} campaigns`);
 
     console.log('Phase 4b: Processing campaign details in batches of 3...');
-    let campaignsProcessedCount = 0;
-    let campaignsEnabledCount = 0;
     const campaignDataSeriesEndingAt = encodeURIComponent(nowIso);
 
     for (let i = 0; i < campaignsToProcess.length; i += BATCH_SIZE) {
+      if (syncOverBudget()) {
+        console.warn(
+          "[Braze Sync] Time budget: stopping campaign detail processing early",
+        );
+        syncPartial = true;
+        syncStoppedReason = "time_budget";
+        break;
+      }
       const batch = campaignsToProcess.slice(i, i + BATCH_SIZE);
       console.log(`Processing campaign batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(campaignsToProcess.length / BATCH_SIZE)}`);
 
@@ -1137,81 +1650,46 @@ Deno.serve(async (req) => {
     }
 
     console.log(`Processed ${campaignsProcessedCount} campaigns, ${campaignsEnabledCount} enabled/sent`);
-
-    // === PHASE 5: KPI series (DAU, MAU, new users) — up to 100 days each ===
-    let kpiSeriesPoints = 0;
-    const endingAtEnc = encodeURIComponent(new Date().toISOString());
-    if (brazeKpiAppId) {
-      console.log('KPI data_series: using app_id from platform additional_config:', brazeKpiAppId);
     } else {
-      console.log('KPI data_series: workspace aggregate (set additional_config.braze_app_id to scope one app)');
-    }
-    const kpiMetrics: Array<{ metric: 'dau' | 'mau' | 'new_users'; path: string }> = [
-      { metric: 'dau', path: `kpi/dau/data_series?length=100&ending_at=${endingAtEnc}${kpiAppQuery}` },
-      { metric: 'mau', path: `kpi/mau/data_series?length=100&ending_at=${endingAtEnc}${kpiAppQuery}` },
-      { metric: 'new_users', path: `kpi/new_users/data_series?length=100&ending_at=${endingAtEnc}${kpiAppQuery}` },
-    ];
-    for (const { metric, path } of kpiMetrics) {
-      try {
-        const kpiJson = (await brazeFetch(path, apiKey, brazeRestEndpoint)) as Record<
-          string,
-          unknown
-        >;
-        const series = brazeExportDataArray(kpiJson) as Array<Record<string, unknown>>;
-        const rows = series
-          .map((row) => {
-            const d = seriesDateFromBrazeKpi(row.time ?? row.date ?? row.day);
-            if (!d) return null;
-            const v = kpiNumericFromRow(row, metric);
-            return {
-              client_id: clientId,
-              metric,
-              series_date: d,
-              value: Number.isFinite(v) ? v : 0,
-              synced_at: nowIso,
-            };
-          })
-          .filter(Boolean) as Array<{
-            client_id: string;
-            metric: string;
-            series_date: string;
-            value: number;
-            synced_at: string;
-          }>;
-        if (rows.length > 0) {
-          const { error: kpiErr } = await supabase.from('braze_kpi_series').upsert(rows, {
-            onConflict: 'client_id,metric,series_date',
-          });
-          if (kpiErr) console.warn('braze_kpi_series upsert:', kpiErr.message);
-          else {
-            kpiSeriesPoints += rows.length;
-            const sortedTip = [...rows].sort((a, b) => {
-              const c = String(b.series_date).localeCompare(String(a.series_date));
-              return c !== 0 ? c : Number(b.value) - Number(a.value);
-            });
-            const tip = sortedTip[0];
-            console.log(
-              `KPI ${metric}: upserted ${rows.length} rows; latest_stored_date=${tip?.series_date} value=${tip?.value}`,
-            );
-          }
-        }
-      } catch (e) {
-        console.warn(`KPI ${metric} sync failed (check API key permissions):`, e);
-      }
-      await new Promise((r) => setTimeout(r, 150));
+      console.warn("[Braze Sync] Time budget: skipping campaign sync");
+      syncPartial = true;
+      syncStoppedReason = "time_budget";
     }
 
-    // === PHASE 6: Segment directory (paginated) ===
+    // === PHASE 6: Segment directory → public.braze_segments_sync (not braze_segments) ===
+    console.log("[SYNC] Starting: segments");
+    console.log('[START] segments/list → braze_segments_sync');
     let segmentsSynced = 0;
     try {
-      let segPage = 1;
-      while (segPage < 80) {
+      let segPage = 0;
+      while (segPage < MAX_SEGMENT_PAGES) {
+        if (syncOverBudget()) {
+          console.warn(
+            "[Braze Sync] Time budget: stopping segments pagination early",
+          );
+          syncPartial = true;
+          syncStoppedReason = "time_budget";
+          break;
+        }
         const segJson = await brazeFetch(
-          `segments/list?page=${segPage}&sort_direction=desc`,
+          `segments/list?page=${segPage}&sort_direction=desc&limit=100`,
           apiKey,
-          brazeRestEndpoint
+          brazeRestEndpoint,
         );
         const segs = (segJson.segments || []) as Array<Record<string, unknown>>;
+        console.log(
+          `[API] segments page ${segPage} segments.length:`,
+          segs.length,
+        );
+        console.log(
+          '[Braze Sync] Segments page',
+          segPage,
+          '— count:',
+          segs.length,
+        );
+        if (segPage === 0) {
+          console.log('[Braze Sync] Segments page 0 raw (truncated):', JSON.stringify(segJson).slice(0, 300));
+        }
         if (segs.length === 0) break;
         const rows = segs
           .map((s) => {
@@ -1228,9 +1706,19 @@ Deno.serve(async (req) => {
           })
           .filter(Boolean) as Array<Record<string, unknown>>;
         if (rows.length > 0) {
+          console.log('[DB WRITE] braze_segments_sync attempting to write:', rows.length, 'rows page=', segPage);
           const { error: segErr } = await supabase.from('braze_segments_sync').upsert(rows, {
             onConflict: 'client_id,braze_segment_id',
           });
+          console.log(
+            "[DB WRITE]",
+            "braze_segments_sync",
+            "error:",
+            segErr?.message ?? "none",
+            "rows:",
+            rows.length,
+          );
+          console.log('[DB RESULT] braze_segments_sync error:', segErr?.message ?? 'none');
           if (segErr) console.warn('braze_segments_sync upsert:', segErr.message);
           else segmentsSynced += rows.length;
         }
@@ -1238,59 +1726,9 @@ Deno.serve(async (req) => {
         await new Promise((r) => setTimeout(r, 100));
       }
     } catch (e) {
-      console.warn('Segment list sync failed:', e);
+      console.error('[Braze Sync] Segment list sync failed:', e);
     }
-
-    // === PHASE 7: Hard bounces & unsubscribes (paginated, last 30 days) ===
-    let emailEventsSynced = 0;
-    const endDateStr = new Date().toISOString().slice(0, 10);
-    const startDateStr = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-
-    async function syncEmailEventPages(
-      eventType: 'hard_bounce' | 'unsubscribe',
-      apiSuffix: string,
-      timeField: 'hard_bounced_at' | 'unsubscribed_at'
-    ) {
-      let offset = 0;
-      const limit = 500;
-      for (let p = 0; p < 25; p++) {
-        try {
-          const q = `${apiSuffix}?start_date=${startDateStr}&end_date=${endDateStr}&limit=${limit}&offset=${offset}&sort_direction=desc`;
-          const j = await brazeFetch(q, apiKey, brazeRestEndpoint);
-          const emails = (j.emails || []) as Array<Record<string, string | undefined>>;
-          if (emails.length === 0) break;
-          const rows = emails
-            .map((e) => {
-              const em = (e.email || '').trim();
-              if (!em) return null;
-              const at = e[timeField] || nowIso;
-              return {
-                client_id: clientId,
-                event_type: eventType,
-                email: em,
-                occurred_at: at,
-              };
-            })
-            .filter(Boolean) as Array<Record<string, unknown>>;
-          if (rows.length > 0) {
-            const { error: evErr } = await supabase.from('braze_email_events').insert(rows, {
-              ignoreDuplicates: true,
-            });
-            if (!evErr) emailEventsSynced += rows.length;
-            else console.warn('braze_email_events insert:', evErr.message);
-          }
-          if (emails.length < limit) break;
-          offset += limit;
-        } catch (err) {
-          console.warn(`${eventType} sync page failed:`, err);
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 150));
-      }
-    }
-
-    await syncEmailEventPages('hard_bounce', 'email/hard_bounces', 'hard_bounced_at');
-    await syncEmailEventPages('unsubscribe', 'email/unsubscribes', 'unsubscribed_at');
+    console.log(`[Braze Sync] Segment sync complete: ${segmentsSynced} segment rows upserted`);
 
     // === PHASE 8: Upcoming scheduled campaigns & Canvases ===
     let scheduledBroadcastsCount = 0;
@@ -1379,9 +1817,11 @@ Deno.serve(async (req) => {
 
     // === Update schema_cache with summary (no full canvas data) ===
     const schemaCache = {
-      cache_version: 9,
+      cache_version: 10,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
+      canvas_list_total: allCanvasList.length,
+      canvas_minimal_upserted: canvasMinimalUpserted,
       canvases_count: processedCount,
       canvases_enabled_count: enabledCount,
       campaigns_count: campaignsProcessedCount,
@@ -1398,7 +1838,7 @@ Deno.serve(async (req) => {
       .update({
         schema_cache: schemaCache,
         last_sync_at: nowIso,
-        additional_config: { rest_endpoint: brazeRestEndpoint },
+        additional_config: { ...addCfg, rest_endpoint: brazeRestEndpoint },
       })
       .eq('id', platformId);
 
@@ -1414,14 +1854,30 @@ Deno.serve(async (req) => {
       }).eq('id', syncRunId);
     }
 
-    console.log(`Braze sync complete in ${syncDuration}ms: ${processedCount} canvases, ${enabledCount} enabled, ${campaignsProcessedCount} campaigns`);
+    console.log(
+      `[Braze Sync] COMPLETE — summary:`,
+      JSON.stringify({
+        kpiLatestDau,
+        kpiLatestMau,
+        newUsers30dSum: kpiNewUsers30Sum,
+        hardBouncesInserted: emailHardBounceRows,
+        unsubscribesInserted: emailUnsubRows,
+        segmentsUpserted: segmentsSynced,
+        canvasesListed: allCanvasList.length,
+      }),
+    );
+    console.log(
+      `[Braze Sync] Done in ${syncDuration}ms: canvas_list=${allCanvasList.length} minimal=${canvasMinimalUpserted} detail_enriched=${processedCount} enabled=${enabledCount} campaigns=${campaignsProcessedCount}`,
+    );
     console.log(
       JSON.stringify({
         event: 'braze_sync_row_counts',
         client_id: clientId,
         platform_id: platformId,
-        canvases_processed: processedCount,
-        canvases_found: allCanvasList.length,
+        canvas_list_total: allCanvasList.length,
+        canvas_minimal_upserted: canvasMinimalUpserted,
+        canvases_detail_enriched: processedCount,
+        canvases_enabled_detail: enabledCount,
         campaigns_processed: campaignsProcessedCount,
         campaigns_found: allCampaignList.length,
         kpi_series_points_upserted: kpiSeriesPoints,
@@ -1435,13 +1891,16 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        partial: syncPartial,
+        stopped_reason: syncStoppedReason,
         data: {
           sync_run_id: syncRunId,
           saved_at: nowIso,
           duration_ms: syncDuration,
           counts: {
             canvases_found: allCanvasList.length,
-            canvases_processed: processedCount,
+            canvases_minimal_upserted: canvasMinimalUpserted,
+            canvases_detail_enriched: processedCount,
             canvases_enabled: enabledCount,
             campaigns_found: allCampaignList.length,
             campaigns_processed: campaignsProcessedCount,

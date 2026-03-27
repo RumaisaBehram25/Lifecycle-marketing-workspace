@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,8 +28,13 @@ import {
   XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  brazeSyncPartialDescription,
+  formatBrazeSyncInvokeError,
+} from '@/lib/brazeSyncInvoke';
 import { useToast } from '@/components/ui/use-toast';
 
 const DEFAULT_BRAZE_REST = 'https://rest.iad-01.braze.com';
@@ -266,24 +271,23 @@ export function OnboardingTab() {
   const [data, setData] = useState<OnboardingData>(INITIAL_DATA);
   const [submitted, setSubmitted] = useState(false);
   const [isCompletingSetup, setIsCompletingSetup] = useState(false);
-  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
-  const { data: fallbackClient, isLoading: fallbackLoading } = useQuery({
-    queryKey: ['onboarding-fallback-client'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('clients')
-        .select('id')
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as { id: string } | null;
-    },
-    enabled: !client?.id,
-    staleTime: 1000 * 60 * 5,
-  });
-  const clientId = client?.id ?? fallbackClient?.id ?? undefined;
-  const clientStillLoading = clientLoading || (!client?.id && fallbackLoading);
+  const { isAdmin } = useAuth();
+  const { clientId, isClientLoading: clientStillLoading } = useResolvedClientId();
+
+  /** Company / brand / audience (first three sections) are admin-only; members configure Braze, Drive, CSV on their workspace. */
+  const visibleSections = useMemo(
+    () =>
+      isAdmin
+        ? SECTIONS
+        : SECTIONS.filter((s) => !['company', 'brand', 'audience'].includes(s.id)),
+    [isAdmin],
+  );
+
+  useEffect(() => {
+    if (!visibleSections.some((s) => s.id === activeSection)) {
+      setActiveSection(visibleSections[0]?.id ?? 'tech');
+    }
+  }, [visibleSections, activeSection]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -439,12 +443,12 @@ export function OnboardingTab() {
   const handleSubmit = async () => {
     setIsCompletingSetup(true);
     try {
-      const brazeClientId = client?.id ?? fallbackClient?.id;
+      const brazeClientId = clientId;
       const restOpt = data.brazeRestEndpoint.trim() || undefined;
 
       const startBrazeSync = (platformId: string, cid: string) => {
         void (async () => {
-          const { error: syncError } = await supabase.functions.invoke('sync-braze', {
+          const { data: syncData, error: syncError } = await supabase.functions.invoke('sync-braze', {
             body: {
               clientId: cid,
               platformId,
@@ -454,16 +458,19 @@ export function OnboardingTab() {
           if (syncError) {
             toast({
               title: 'Braze sync failed',
-              description: formatError(syncError),
+              description: formatBrazeSyncInvokeError(syncError),
               variant: 'destructive',
             });
             return;
           }
           queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
           queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+          const partialDesc = brazeSyncPartialDescription(syncData);
           toast({
-            title: 'Braze sync complete',
-            description: 'Dashboard data has been refreshed.',
+            title: syncData?.partial ? 'Braze sync complete (partial)' : 'Braze sync complete',
+            description: partialDesc
+              ? `${partialDesc} Dashboard data has been refreshed.`
+              : 'Dashboard data has been refreshed.',
           });
         })();
       };
@@ -572,7 +579,7 @@ export function OnboardingTab() {
       />
       {/* Section Nav */}
       <div className="w-56 flex-shrink-0 space-y-1 hidden md:block">
-        {SECTIONS.map((section) => {
+        {visibleSections.map((section) => {
           const Icon = section.icon;
           return (
             <button
@@ -610,7 +617,7 @@ export function OnboardingTab() {
       {/* Mobile section selector */}
       <div className="md:hidden w-full space-y-4">
         <div className="flex gap-2 flex-wrap">
-          {SECTIONS.map((section) => (
+          {visibleSections.map((section) => (
             <button
               key={section.id}
               onClick={() => setActiveSection(section.id)}
@@ -826,21 +833,6 @@ export function OnboardingTab() {
                         />
                       </div>
                     ))}
-                    <p className="text-xs text-muted-foreground">Keys are optional and can be configured later in Settings.</p>
-                    {data.techTools.includes('Braze') && (
-                      <div className="space-y-2">
-                        <Label>Braze REST API URL (optional)</Label>
-                        <Input
-                          type="text"
-                          placeholder="https://rest.iad-06.braze.com"
-                          value={data.brazeRestEndpoint}
-                          onChange={e => updateField('brazeRestEndpoint', e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          If Braze API Key is provided, onboarding will connect Braze and run an initial sync.
-                        </p>
-                      </div>
-                    )}
                   </div>
                 )}
               </>

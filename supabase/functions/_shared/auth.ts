@@ -195,6 +195,104 @@ export async function validateClientAccess(
 }
 
 /**
+ * Same intent as {@link validateClientAccess}, but uses the **service role** client so checks
+ * are not blocked by RLS on `clients` (e.g. after workspace isolation: members only see their
+ * row via RLS, yet the Edge Function must still authorize that user for the given `clientId`).
+ */
+export async function validateClientAccessForEdge(
+  supabaseService: SupabaseClient,
+  userId: string,
+  clientId: string,
+): Promise<{ success: boolean; error?: string; status?: number }> {
+  if (!clientId) {
+    return {
+      success: false,
+      error: 'Client ID is required',
+      status: 400,
+    };
+  }
+
+  const { data: adminRow, error: adminErr } = await supabaseService
+    .from("user_roles")
+    .select("user_id")
+    .eq("user_id", userId)
+    .eq("role", "admin")
+    .maybeSingle();
+
+  if (adminErr) {
+    logger.error("validateClientAccessForEdge admin check:", adminErr);
+    return {
+      success: false,
+      error: "Failed to validate client access",
+      status: 500,
+    };
+  }
+
+  if (adminRow) {
+    const { data: clientRow } = await supabaseService
+      .from("clients")
+      .select("id")
+      .eq("id", clientId)
+      .maybeSingle();
+    if (!clientRow) {
+      return {
+        success: false,
+        error: "Client not found",
+        status: 404,
+      };
+    }
+    return { success: true };
+  }
+
+  const { data: mapping, error: mapErr } = await supabaseService
+    .from("user_workspace_clients")
+    .select("client_id")
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (mapErr) {
+    const msg = String(mapErr.message ?? "");
+    const missingTable =
+      msg.includes("user_workspace_clients") &&
+      (msg.includes("does not exist") ||
+        msg.includes("schema cache") ||
+        (mapErr as { code?: string }).code === "42P01");
+    if (missingTable) {
+      const { data: clientRow } = await supabaseService
+        .from("clients")
+        .select("id")
+        .eq("id", clientId)
+        .maybeSingle();
+      if (!clientRow) {
+        return {
+          success: false,
+          error: "Client not found",
+          status: 404,
+        };
+      }
+      return { success: true };
+    }
+    logger.error("validateClientAccessForEdge workspace check:", mapErr);
+    return {
+      success: false,
+      error: "Failed to validate client access",
+      status: 500,
+    };
+  }
+
+  if (mapping) {
+    return { success: true };
+  }
+
+  return {
+    success: false,
+    error: "Access denied to this client",
+    status: 403,
+  };
+}
+
+/**
  * Creates an error response with CORS headers
  */
 export function authErrorResponse(

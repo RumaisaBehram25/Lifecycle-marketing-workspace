@@ -425,7 +425,7 @@ export function ClientChat({
       } else {
         toast({
           title: 'No reply text',
-          description: 'The model streamed an empty message. Check Edge Function secrets (XAI_API_KEY / ANTHROPIC_API_KEY / GROQ_API_KEY) and redeploy ops-chat.',
+          description: 'The model streamed an empty message. Check Edge Function secret ANTHROPIC_API_KEY and redeploy ops-chat.',
           variant: 'destructive',
         });
         setMessages(newMessages);

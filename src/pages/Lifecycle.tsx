@@ -89,6 +89,48 @@ interface BrazeSchemaCache {
   last_sync?: string;
 }
 
+/**
+ * Mirrors PostgREST order: entries_last_60d desc nulls last, last_entry desc nulls first, name asc.
+ * Sorting in-app avoids fragile multi-column ORDER BY (can surface as HTTP 500 on some DB/PostgREST setups).
+ */
+function sortLifecycleCanvases<
+  T extends {
+    entries_last_60d?: number | null;
+    last_entry?: string | null;
+    name?: string | null;
+  },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const aE =
+      typeof a.entries_last_60d === 'number' && !Number.isNaN(a.entries_last_60d)
+        ? a.entries_last_60d
+        : null;
+    const bE =
+      typeof b.entries_last_60d === 'number' && !Number.isNaN(b.entries_last_60d)
+        ? b.entries_last_60d
+        : null;
+    if (aE == null && bE == null) {
+      /* tie-break last_entry */
+    } else if (aE == null) return 1;
+    else if (bE == null) return -1;
+    else if (bE !== aE) return bE - aE;
+
+    const aMs = a.last_entry ? Date.parse(String(a.last_entry)) : NaN;
+    const bMs = b.last_entry ? Date.parse(String(b.last_entry)) : NaN;
+    const aNull = Number.isNaN(aMs);
+    const bNull = Number.isNaN(bMs);
+    if (aNull && bNull) {
+      /* tie-break name */
+    } else if (aNull && !bNull) return -1;
+    else if (!aNull && bNull) return 1;
+    else if ((bMs as number) !== (aMs as number)) return (bMs as number) - (aMs as number);
+
+    return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, {
+      sensitivity: 'base',
+    });
+  });
+}
+
 // Mock data – generic copy, BRCG branded
 const MOCK_JOURNEYS: Array<{
   id: string;
@@ -240,12 +282,9 @@ export default function Lifecycle() {
         .eq('client_id', client.id)
         .eq('archived', false)
         .eq('draft', false)
-        .eq('enabled', true)
-        .order('entries_last_60d', { ascending: false, nullsFirst: false })
-        .order('last_entry', { ascending: false, nullsFirst: true })
-        .order('name');
+        .eq('enabled', true);
       if (error) throw error;
-      return data ?? [];
+      return sortLifecycleCanvases(data ?? []);
     },
     enabled: !!client?.id,
   });

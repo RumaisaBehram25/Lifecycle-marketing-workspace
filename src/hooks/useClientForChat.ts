@@ -1,36 +1,28 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Client, ClientPlatform } from '@/lib/types';
-import {
-  useDoubleGoodClient,
-  useResolvedClientId,
-  queryStillResolving,
-} from '@/hooks/useDoubleGoodClient';
+import { useResolvedClientId, queryStillResolving } from '@/hooks/useDoubleGoodClient';
 import { buildCrmPlatformContexts, type CrmChatPlatformContext } from '@/lib/crmChatContext';
 
 /**
- * Resolves the active CRM client (DoubleGood row or fallback) and platform schema
- * so Chat / Copilot work everywhere dashboards load.
+ * Active workspace `clients` row (admin = DoubleGood or fallback; member = personal workspace)
+ * and platform schema for Chat / Copilot.
  */
 export function useClientForChat() {
-  const dgQuery = useDoubleGoodClient();
   const { clientId, isClientLoading, resolveError } = useResolvedClientId();
 
-  const fallbackQuery = useQuery({
-    queryKey: ['client-for-chat-fallback', clientId],
+  const clientQuery = useQuery({
+    queryKey: ['client-row-for-chat', clientId],
     queryFn: async () => {
       const { data, error } = await supabase.from('clients').select('*').eq('id', clientId!).single();
       if (error) throw error;
       return data as Client;
     },
-    enabled: !!clientId && !dgQuery.data,
+    enabled: !!clientId,
     staleTime: 1000 * 60 * 5,
   });
 
-  const client = (dgQuery.data ?? fallbackQuery.data ?? null) as Client | null;
-
-  /** Once we can render a row from `fallbackQuery`, do not block the whole page on DoubleGood still fetching. */
-  const hasRenderableClient = client != null;
+  const client = clientQuery.data ?? null;
 
   const platformsQuery = useQuery({
     queryKey: ['client-platforms-public', clientId],
@@ -54,22 +46,22 @@ export function useClientForChat() {
     (p: { is_connected?: boolean }) => p.is_connected
   );
 
-  // Do not block the Chat UI on `client_platforms_public` — that adds a full extra round-trip
-  // and platform chips/context populate when the query resolves (same as dashboards).
-  const fullRowResolving =
+  const rowStillResolving =
     !!clientId &&
-    !dgQuery.data &&
-    !fallbackQuery.isSuccess &&
-    queryStillResolving(fallbackQuery);
+    queryStillResolving({
+      isSuccess: clientQuery.isSuccess,
+      isError: clientQuery.isError,
+      isPaused: clientQuery.isPaused,
+      isPending: clientQuery.isPending,
+      isFetching: clientQuery.isFetching,
+    });
 
-  const isLoading =
-    !hasRenderableClient &&
-    (queryStillResolving(dgQuery) || isClientLoading || fullRowResolving);
+  const isLoading = isClientLoading || rowStillResolving;
 
   const loadError =
     !client && !isLoading
       ? (resolveError ??
-          (clientId && !dgQuery.data && fallbackQuery.isError ? fallbackQuery.error : null) ??
+          (clientId && clientQuery.isError ? clientQuery.error : null) ??
           (clientId && platformsQuery.isError ? platformsQuery.error : null) ??
           null)
       : null;
@@ -82,9 +74,8 @@ export function useClientForChat() {
     isLoading,
     loadError,
     refetch: () => {
-      dgQuery.refetch();
-      fallbackQuery.refetch();
-      platformsQuery.refetch();
+      void clientQuery.refetch();
+      void platformsQuery.refetch();
     },
   };
 }

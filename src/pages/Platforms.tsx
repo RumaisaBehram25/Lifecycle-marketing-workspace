@@ -1,5 +1,10 @@
 import { useState, useCallback } from 'react';
-import { useDoubleGoodClient, useDoubleGoodPlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useDoubleGoodClient';
+import {
+  useActiveClientRow,
+  useDoubleGoodPlatforms,
+  useConnectPlatform,
+  useDisconnectPlatform,
+} from '@/hooks/useDoubleGoodClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -29,7 +34,7 @@ import { PLATFORM_INFO } from '@/lib/types';
 const ALL_PLATFORMS: PlatformType[] = ['customerio', 'braze', 'klaviyo', 'iterable', 'hubspot'];
 
 export default function Platforms() {
-  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
+  const { data: client, isLoading: clientLoading } = useActiveClientRow();
   const { data: platforms, isLoading: platformsLoading, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
   const connectPlatform = useConnectPlatform();
   const disconnectPlatform = useDisconnectPlatform();

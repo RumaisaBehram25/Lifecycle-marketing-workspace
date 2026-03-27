@@ -41,40 +41,111 @@ import {
   Legend,
 } from 'recharts';
 import {
-  Send, Workflow, UserPlus, Search, DollarSign, Users, ChevronDown, ChevronUp,
+  Send, Workflow, UserPlus, Search, DollarSign, ChevronDown, ChevronUp,
   Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  dashSectionTitleBorder,
+  dashSubtitleRule,
+  dashTableShell,
+  dashPill,
+  dashboardMetricTile,
+  dashboardSectionHeadingClass,
+  dashboardSurfaceCard,
+  dashboardTopAccentClass,
+  dashIconChip,
+  dashboardEmptyWarningCard,
+} from '@/lib/dashboard-surface';
+
+/** Match Dashboard section titles (e.g. Performance & connections). */
+const analyticsSectionHeadingClass = cn(
+  dashboardSectionHeadingClass,
+  'text-2xl sm:text-3xl font-bold tracking-tight',
+);
+
+const analyticsCardClass = cn(dashboardSurfaceCard, 'shadow-md');
+
+const analyticsCardHeaderClass = cn(
+  'pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent',
+  dashSectionTitleBorder,
+);
+
+const analyticsSubtitleClass = cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule);
+
+const analyticsChartPanelClass = cn(
+  'rounded-xl border border-border/50 bg-gradient-to-b from-muted/30 to-muted/10',
+  'p-2 sm:p-3 ring-1 ring-inset ring-border/30',
+);
+
+type StatAccent = 'primary' | 'blue' | 'amber' | 'cyan' | 'rose' | 'emerald' | 'violet' | 'orange' | 'purple';
+
+const statRail: Record<StatAccent, string> = {
+  primary: 'border-l-primary/55',
+  blue: 'border-l-blue-500/50',
+  amber: 'border-l-amber-500/50',
+  cyan: 'border-l-cyan-500/50',
+  rose: 'border-l-rose-500/50',
+  emerald: 'border-l-emerald-500/50',
+  violet: 'border-l-violet-500/50',
+  orange: 'border-l-orange-500/50',
+  purple: 'border-l-purple-500/50',
+};
 
 type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date' | 'channel' | 'segment';
 
-function StatCard({ icon: Icon, label, value, color, trend }: {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  color,
+  trend,
+  accent = 'primary',
+}: {
   icon: React.ElementType;
   label: string;
   value: string;
   color: string;
+  accent?: StatAccent;
   trend?: { direction: 'up' | 'down' | 'flat'; value: string };
 }) {
   return (
-    <Card className="shadow-sm border-border/80">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center", color)}>
+    <div
+      className={cn(
+        dashboardMetricTile,
+        'border-l-[3px]',
+        statRail[accent],
+      )}
+    >
+      <div className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className={cn('h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ring-1 ring-black/5 dark:ring-white/10', color)}>
             <Icon className="h-4 w-4" />
           </div>
-          <span className="text-sm text-muted-foreground">{label}</span>
         </div>
-        <p className="text-2xl font-bold tracking-tight text-foreground/95">{value}</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground leading-snug">{label}</p>
+        <p className="text-2xl font-bold tracking-tight text-foreground mt-1 tabular-nums">{value}</p>
         {trend && (
-          <div className={cn("flex items-center gap-1 mt-1 text-xs font-medium",
-            trend.direction === 'up' ? 'text-green-600' : trend.direction === 'down' ? 'text-red-500' : 'text-muted-foreground'
-          )}>
-            {trend.direction === 'up' ? <ChevronUp className="h-3 w-3" /> : trend.direction === 'down' ? <ChevronDown className="h-3 w-3" /> : null}
+          <div
+            className={cn(
+              'flex items-center gap-1 mt-2 text-xs font-medium',
+              trend.direction === 'up'
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : trend.direction === 'down'
+                  ? 'text-destructive'
+                  : 'text-muted-foreground',
+            )}
+          >
+            {trend.direction === 'up' ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : trend.direction === 'down' ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : null}
             {trend.value}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -128,14 +199,15 @@ export default function Analytics() {
     }
     return (
       <AppLayout>
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24">
-          <Card className="w-full max-w-md border-border/80 shadow-sm">
+        <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
+          <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
+            <div className={dashboardTopAccentClass} aria-hidden />
             <CardContent className="flex flex-col items-center pt-10 pb-10 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                <BarChart2 className="h-7 w-7 text-muted-foreground" />
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+                <BarChart2 className="h-7 w-7 text-primary" />
               </div>
-              <h2 className="text-lg font-semibold text-foreground">No analytics data yet</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
+              <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
                 Upload your Braze campaign, segment, or usage CSVs on the onboarding page to see charts and benchmarks here.
               </p>
               <Button asChild className="mt-6">
@@ -179,14 +251,15 @@ export default function Analytics() {
   if (!hasAnyData) {
     return (
       <AppLayout>
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24">
-          <Card className="w-full max-w-md border-border/80 shadow-sm">
+        <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
+          <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
+            <div className={dashboardTopAccentClass} aria-hidden />
             <CardContent className="flex flex-col items-center pt-10 pb-10 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
-                <BarChart2 className="h-7 w-7 text-muted-foreground" />
+              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+                <BarChart2 className="h-7 w-7 text-primary" />
               </div>
-              <h2 className="text-lg font-semibold text-foreground">No analytics data yet</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
+              <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
                 Upload your Braze campaign, segment, or usage CSVs on the onboarding page to see charts and benchmarks here.
               </p>
               <Button asChild className="mt-6">
@@ -329,14 +402,20 @@ export default function Analytics() {
 
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 space-y-8 max-w-7xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <PageHeader
             title="Analytics"
             description="Revenue performance, campaign metrics, and subscriber trends"
+            titleClassName="text-4xl sm:text-5xl"
           />
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className={cn(dashPill, 'border-0 text-[10px]')}>
+              Live data
+            </Badge>
           <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-[140px] h-9 text-sm">
+            <SelectTrigger className="w-[150px] h-10 text-sm border-primary/15 bg-card/80 shadow-sm">
               <SelectValue placeholder="Period" />
             </SelectTrigger>
             <SelectContent>
@@ -348,58 +427,66 @@ export default function Analytics() {
               <SelectItem value="custom">Custom</SelectItem>
             </SelectContent>
           </Select>
+          </div>
         </div>
 
-        <Card className="shadow-sm border-border/80">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-foreground/95 flex items-center gap-2">
-              <Send className="h-4 w-4 text-primary" />
+        <Card className={analyticsCardClass}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={analyticsCardHeaderClass}>
+            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+              <span className={cn(dashIconChip, 'h-9 w-9 shrink-0')}>
+                <Send className="h-4 w-4" />
+              </span>
               Performance Snapshot
             </CardTitle>
-            <p className="text-xs text-muted-foreground">Delivery, engagement, list health, and campaign hygiene KPIs.</p>
+            <p className={analyticsSubtitleClass}>Delivery, engagement, list health, and campaign hygiene KPIs.</p>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard icon={Send} label="Total Sent" value={metrics.totalSent.toLocaleString()} color="bg-primary/10 text-primary" />
-              <StatCard icon={Send} label="Total Delivered" value={metrics.totalDelivered.toLocaleString()} color="bg-blue-500/10 text-blue-600" />
-              <StatCard icon={Eye} label="Total Opens" value={metrics.totalOpens.toLocaleString()} color="bg-amber-500/10 text-amber-600" />
+          <CardContent className="space-y-5 pt-2 pb-6 bg-muted/10">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <StatCard icon={Send} label="Total Sent" value={metrics.totalSent.toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
+              <StatCard icon={Send} label="Total Delivered" value={metrics.totalDelivered.toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
+              <StatCard icon={Eye} label="Total Opens" value={metrics.totalOpens.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
               <StatCard
                 icon={Send}
                 label="Total Clicks"
                 value={metrics.totalClicks.toLocaleString()}
-                color="bg-cyan-500/10 text-cyan-600"
+                color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
+                accent="cyan"
                 trend={{ direction: 'flat', value: `${metrics.totalConversions.toLocaleString()} conversions` }}
               />
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/10 text-rose-600" />
-              <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/10 text-orange-600" />
-              <StatCard icon={Layers} label="Segments tracking ON" value={trackingSummary.enabled.toLocaleString()} color="bg-emerald-500/10 text-emerald-600" />
-              <StatCard icon={Workflow} label="Campaigns flagged" value={cleanupFlagged.toLocaleString()} color="bg-amber-500/10 text-amber-600" trend={{ direction: cleanupFlagged > 0 ? 'down' : 'flat', value: 'test/IP warming cleanup' }} />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/12 text-rose-600 dark:text-rose-400" accent="rose" />
+              <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/12 text-orange-600 dark:text-orange-400" accent="orange" />
+              <StatCard icon={Layers} label="Segments tracking ON" value={trackingSummary.enabled.toLocaleString()} color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400" accent="emerald" />
+              <StatCard icon={Workflow} label="Campaigns flagged" value={cleanupFlagged.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" trend={{ direction: cleanupFlagged > 0 ? 'down' : 'flat', value: 'test/IP warming cleanup' }} />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               <StatCard
                 icon={Eye}
                 label="Delivery Rate"
                 value={formatPct(metrics.deliveryRate)}
-                color="bg-purple-500/10 text-purple-600"
+                color="bg-purple-500/12 text-purple-600 dark:text-purple-400"
+                accent="purple"
                 trend={{ direction: 'flat', value: `Bounce ${formatPct(metrics.bounceRate)}` }}
               />
-              <StatCard icon={Eye} label="Open Rate" value={formatPct(metrics.openRate)} color="bg-amber-500/10 text-amber-600" />
+              <StatCard icon={Eye} label="Open Rate" value={formatPct(metrics.openRate)} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
               <StatCard
                 icon={Send}
                 label="Click Rate"
                 value={formatPct(metrics.clickRate)}
-                color="bg-cyan-500/10 text-cyan-600"
+                color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
+                accent="cyan"
                 trend={{ direction: 'flat', value: `Unsub ${formatPct(metrics.unsubscribeRate)}` }}
               />
               <StatCard
                 icon={DollarSign}
                 label="Conversion Rate"
                 value={formatPct(metrics.conversionRate)}
-                color="bg-rose-500/10 text-rose-600"
+                color="bg-rose-500/12 text-rose-600 dark:text-rose-400"
+                accent="rose"
                 trend={{
                   direction: 'flat',
                   value: `Scheduled active ${formatPct(metrics.schedulingPerformanceRate)}`,
@@ -410,35 +497,36 @@ export default function Analytics() {
         </Card>
 
         {/* Campaign revenue vs benchmark — combined chart */}
-        <Card className="shadow-sm border-border/80 overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-foreground/95 flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <BarChart2 className="h-4 w-4 text-primary" />
-              </div>
+        <Card className={cn(analyticsCardClass, 'overflow-hidden')}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={analyticsCardHeaderClass}>
+            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+              <span className={cn(dashIconChip, 'h-9 w-9 shrink-0')}>
+                <BarChart2 className="h-4 w-4" />
+              </span>
               How your campaigns compare to the benchmark
             </CardTitle>
-            <p className="text-xs text-muted-foreground">Your revenue from campaigns and what “good” looks like (25% of total site revenue from CRM).</p>
+            <p className={analyticsSubtitleClass}>Your revenue from campaigns and what “good” looks like (25% of total site revenue from CRM).</p>
           </CardHeader>
-          <CardContent className="pt-2 space-y-4">
+          <CardContent className="pt-2 pb-6 space-y-4 bg-muted/10">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="rounded-lg border border-border/80 bg-card p-3">
-                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">Total Campaign Revenue</p>
-                <p className="text-xl font-semibold text-foreground">${totalCampaignRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+              <div className="rounded-xl border border-border/50 bg-gradient-to-br from-primary/[0.08] via-card to-card p-4 shadow-sm ring-1 ring-inset ring-primary/10 border-l-[3px] border-l-primary/50">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Total Campaign Revenue</p>
+                <p className="text-xl font-bold tabular-nums text-foreground tracking-tight">${totalCampaignRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
               </div>
-              <div className="rounded-lg border border-border/80 bg-card p-3">
-                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">Best Month</p>
-                <p className="text-base font-semibold text-foreground">
+              <div className="rounded-xl border border-border/50 bg-gradient-to-br from-cyan-500/[0.06] via-card to-card p-4 shadow-sm ring-1 ring-inset ring-border/35 border-l-[3px] border-l-cyan-500/45">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Best Month</p>
+                <p className="text-base font-semibold text-foreground leading-snug">
                   {bestMonth ? `${bestMonth.monthLabel} · $${Number(bestMonth.campaignRev ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
                 </p>
               </div>
-              <div className="rounded-lg border border-border/80 bg-card p-3">
-                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1">vs 25% Benchmark</p>
-                <p className="text-base font-semibold text-foreground">{benchmarkStatText}</p>
+              <div className="rounded-xl border border-border/50 bg-gradient-to-br from-amber-500/[0.06] via-card to-card p-4 shadow-sm ring-1 ring-inset ring-border/35 border-l-[3px] border-l-amber-500/45">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">vs 25% Benchmark</p>
+                <p className="text-base font-semibold text-foreground leading-snug">{benchmarkStatText}</p>
               </div>
             </div>
 
-            <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+            <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={benchmarkChartData.length ? benchmarkChartData : [{ monthLabel: '—', campaignRev: 0, crmPct: null, benchmark: 25 }]}
@@ -457,18 +545,18 @@ export default function Analytics() {
               </ResponsiveContainer>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs text-muted-foreground">
-              <span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-dashed border-primary/20 bg-primary/[0.03] px-4 py-3 text-xs text-muted-foreground">
+              <span className="flex-1 leading-relaxed">
                 Top brands average 25% of total site revenue from CRM. Enter your site revenue above to see where you stand.
               </span>
-              <div className="inline-flex items-center gap-1.5 shrink-0">
-                <span>Site revenue</span>
+              <div className="inline-flex items-center gap-2 shrink-0">
+                <span className="text-foreground/80 font-medium whitespace-nowrap">Site revenue</span>
                 <Input
                   inputMode="decimal"
                   placeholder="$____"
                   value={siteRevenueInput}
                   onChange={(e) => setSiteRevenueInput(e.target.value)}
-                  className="h-7 w-[130px] text-xs"
+                  className="h-9 w-[140px] text-sm border-primary/15 bg-background/80"
                 />
               </div>
             </div>
@@ -477,16 +565,19 @@ export default function Analytics() {
 
         {/* Campaign Revenue by Campaign */}
         {flowRevenueByCampaign.length > 0 && (
-          <Card className="shadow-sm border-border/80">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground/95 flex items-center gap-2">
-                <Workflow className="h-4 w-4 text-violet-500" />
+          <Card className={analyticsCardClass}>
+            <div className={dashboardTopAccentClass} aria-hidden />
+            <CardHeader className={analyticsCardHeaderClass}>
+              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/12 text-violet-600 dark:text-violet-400 ring-1 ring-violet-500/20">
+                  <Workflow className="h-4 w-4" />
+                </span>
                 Campaign Revenue
               </CardTitle>
-              <p className="text-xs text-muted-foreground mt-0.5">Total revenue by campaign from Braze CSV</p>
+              <p className={analyticsSubtitleClass}>Total revenue by campaign from Braze CSV</p>
             </CardHeader>
-            <CardContent>
-              <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+            <CardContent className="pb-6 bg-muted/10">
+              <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={flowRevenueByCampaign} layout="vertical" margin={{ top: 8, right: 20, bottom: 8, left: 120 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -502,20 +593,23 @@ export default function Analytics() {
         )}
 
         {/* All Campaigns */}
-        <Card className="shadow-sm border-border/80">
-          <CardHeader className="pb-3">
+        <Card className={analyticsCardClass}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={cn(analyticsCardHeaderClass, 'pb-3')}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Send className="h-4 w-4 text-blue-500" />
+              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/12 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20">
+                  <Send className="h-4 w-4" />
+                </span>
                 All Campaigns
               </CardTitle>
               <div className="flex gap-2">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="Search..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="pl-8 h-8 w-[180px] text-xs" />
+                  <Input placeholder="Search..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="pl-8 h-9 w-[180px] text-sm border-primary/15 bg-background/80" />
                 </div>
                 <Select value={campaignChannelFilter} onValueChange={setCampaignChannelFilter}>
-                  <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[120px] text-sm border-primary/15 bg-background/80"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All</SelectItem>
                     <SelectItem value="Email">Email</SelectItem>
@@ -525,11 +619,11 @@ export default function Analytics() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="px-0 pb-0">
-            <div className="overflow-auto">
+          <CardContent className="px-0 pb-0 bg-muted/10">
+            <div className={cn('overflow-auto mx-4 mb-4 rounded-lg', dashTableShell)}>
               <Table>
                 <TableHeader>
-                  <TableRow className="hover:bg-transparent">
+                  <TableRow className="hover:bg-transparent bg-muted/50 border-b border-border/60">
                     <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('name')}>Campaign <SortIcon col="name" /></TableHead>
                     <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('revenue')}>Revenue <SortIcon col="revenue" /></TableHead>
                     <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('orders')}>Orders <SortIcon col="orders" /></TableHead>
@@ -556,7 +650,7 @@ export default function Analytics() {
                     </TableRow>
                   ) : (
                     filteredCampaigns.map((c, i) => (
-                      <TableRow key={i} className="cursor-pointer">
+                      <TableRow key={i} className="cursor-pointer border-border/40 hover:bg-muted/30 transition-colors">
                         <TableCell className="text-sm font-medium py-2">{c.name}</TableCell>
                         <TableCell className="text-sm text-right font-semibold py-2">${c.revenue.toLocaleString()}</TableCell>
                         <TableCell className="text-sm text-right py-2">{c.orders}</TableCell>
@@ -574,14 +668,17 @@ export default function Analytics() {
         </Card>
 
         {/* Segment size over time */}
-        <Card className="shadow-sm border-border/80">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold text-foreground/95 flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-emerald-500" />
+        <Card className={analyticsCardClass}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={analyticsCardHeaderClass}>
+            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
+                <UserPlus className="h-4 w-4" />
+              </span>
               Segment Size Over Time
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pb-6 bg-muted/10">
             {segmentChartDataByDate.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <UploadCloud className="h-8 w-8 text-muted-foreground/70" />
@@ -593,7 +690,7 @@ export default function Analytics() {
                 </Button>
               </div>
             ) : (
-              <div className="h-[300px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]">
+              <div className={cn('h-[300px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]')}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={segmentChartDataByDate} margin={{ top: 12, right: 12, bottom: 8, left: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -620,16 +717,20 @@ export default function Analytics() {
         </Card>
 
         {/* Performance Overview */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-foreground">Performance Overview</h2>
+        <div className="space-y-4">
+          <div className="pl-1">
+            <h2 className={analyticsSectionHeadingClass}>Performance Overview</h2>
+            <p className={analyticsSubtitleClass}>Engagement, campaign mix, and subscriber composition</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <Card className="shadow-sm border-border/80">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold text-foreground/95">Daily Email Engagement</CardTitle>
-                <p className="text-xs text-muted-foreground">Opens, clicks, and bounces from Braze usage analytics by day.</p>
+            <Card className={analyticsCardClass}>
+              <div className={dashboardTopAccentClass} aria-hidden />
+              <CardHeader className={analyticsCardHeaderClass}>
+                <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Daily Email Engagement</CardTitle>
+                <p className={analyticsSubtitleClass}>Opens, clicks, and bounces from Braze usage analytics by day.</p>
               </CardHeader>
-              <CardContent>
-                <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+              <CardContent className="pb-6 bg-muted/10">
+                <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={dailyEmailEngagementData} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -646,13 +747,14 @@ export default function Analytics() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm border-border/80">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold text-foreground/95">Campaign Comparison</CardTitle>
-                <p className="text-xs text-muted-foreground">Revenue and conversions by campaign, sorted by revenue.</p>
+            <Card className={analyticsCardClass}>
+              <div className={dashboardTopAccentClass} aria-hidden />
+              <CardHeader className={analyticsCardHeaderClass}>
+                <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Campaign Comparison</CardTitle>
+                <p className={analyticsSubtitleClass}>Revenue and conversions by campaign, sorted by revenue.</p>
               </CardHeader>
-              <CardContent>
-                <div className="h-[280px] [&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]">
+              <CardContent className="pb-6 bg-muted/10">
+                <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={campaignComparisonData} layout="vertical" margin={{ top: 8, right: 12, bottom: 8, left: 90 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
@@ -668,15 +770,16 @@ export default function Analytics() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm border-border/80">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold text-foreground/95">Subscriber Segments</CardTitle>
-                <p className="text-xs text-muted-foreground">
+            <Card className={analyticsCardClass}>
+              <div className={dashboardTopAccentClass} aria-hidden />
+              <CardHeader className={analyticsCardHeaderClass}>
+                <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Subscriber Segments</CardTitle>
+                <p className={analyticsSubtitleClass}>
                   Latest segment mix from Braze segment analytics{latestSegmentDate ? ` (${latestSegmentDate})` : ''}.
                 </p>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="h-[220px]">
+              <CardContent className="space-y-3 pb-6 bg-muted/10">
+                <div className={cn('h-[220px]', analyticsChartPanelClass)}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -703,16 +806,16 @@ export default function Analytics() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 rounded-lg border border-border/40 bg-card/50 p-3">
                   {segmentDonutData.map((s) => {
                     const pct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
                     return (
-                      <div key={s.name} className="flex items-center justify-between text-xs">
+                      <div key={s.name} className="flex items-center justify-between text-xs py-1 border-b border-border/30 last:border-0 last:pb-0 first:pt-0">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                          <span className="h-2.5 w-2.5 rounded-full shrink-0 ring-1 ring-black/10" style={{ backgroundColor: s.color }} />
                           <span className="text-muted-foreground truncate">{s.name}</span>
                         </div>
-                        <span className="font-medium text-foreground tabular-nums">
+                        <span className="font-semibold text-foreground tabular-nums text-[11px] sm:text-xs">
                           {s.value.toLocaleString()} ({pct.toFixed(1)}%)
                         </span>
                       </div>
@@ -725,39 +828,55 @@ export default function Analytics() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="shadow-sm border-border/80 lg:col-span-2">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground/95">Hard Bounce Timeline</CardTitle>
-              <p className="text-xs text-muted-foreground">From Braze email/hard_bounces, grouped by day.</p>
+          <Card className={cn(analyticsCardClass, 'lg:col-span-2')}>
+            <div className={dashboardTopAccentClass} aria-hidden />
+            <CardHeader className={analyticsCardHeaderClass}>
+              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Hard Bounce Timeline</CardTitle>
+              <p className={analyticsSubtitleClass}>From Braze email/hard_bounces, grouped by day.</p>
             </CardHeader>
-            <CardContent>
-              <div className="h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={bounceTimeline}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <Tooltip />
-                    <ReferenceLine x="2026-02-24" stroke="hsl(24 95% 53%)" label={{ value: 'Spike', fill: chartMutedFill, fontSize: 10 }} />
-                    <Bar dataKey="count" fill="hsl(0 72% 51% / 0.85)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+            <CardContent className="flex flex-col items-center justify-center pb-6 pt-10 bg-muted/10 min-h-[340px]">
+              <div
+                className={cn(
+                  'mt-[3.75rem] flex w-full max-w-full min-h-[260px] flex-1 items-center justify-center py-4',
+                  analyticsChartPanelClass,
+                )}
+              >
+                <div className="h-[240px] w-full sm:h-[260px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={bounceTimeline}
+                      margin={{ top: 16, right: 12, left: 4, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <Tooltip />
+                      <ReferenceLine x="2026-02-24" stroke="hsl(24 95% 53%)" label={{ value: 'Spike', fill: chartMutedFill, fontSize: 10 }} />
+                      <Bar dataKey="count" fill="hsl(0 72% 51% / 0.85)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="shadow-sm border-border/80">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground/95">Top Bounce Domains</CardTitle>
+          <Card className={analyticsCardClass}>
+            <div className={dashboardTopAccentClass} aria-hidden />
+            <CardHeader className={analyticsCardHeaderClass}>
+              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Top Bounce Domains</CardTitle>
+              <p className={analyticsSubtitleClass}>Highest-volume domains in hard bounce data</p>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-1 pb-6 bg-muted/10">
               {bounceDomains.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No hard bounce domain data yet.</p>
+                <p className="text-sm text-muted-foreground py-2">No hard bounce domain data yet.</p>
               ) : (
                 bounceDomains.map((d) => (
-                  <div key={d.domain} className="flex items-center justify-between text-xs border-b border-border/50 pb-1">
-                    <span className="text-muted-foreground">{d.domain}</span>
-                    <span className="font-semibold tabular-nums text-foreground">{d.count.toLocaleString()}</span>
+                  <div
+                    key={d.domain}
+                    className="flex items-center justify-between text-xs rounded-lg border border-border/40 bg-card/60 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+                  >
+                    <span className="text-muted-foreground truncate pr-2">{d.domain}</span>
+                    <span className="font-semibold tabular-nums text-foreground shrink-0">{d.count.toLocaleString()}</span>
                   </div>
                 ))
               )}
@@ -765,6 +884,7 @@ export default function Analytics() {
           </Card>
         </div>
 
+        </div>
       </div>
     </AppLayout>
   );

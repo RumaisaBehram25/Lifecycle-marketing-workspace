@@ -28,9 +28,13 @@ import {
 import { Link } from 'react-router-dom';
 import { format, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, isAfter, subQuarters, startOfQuarter, endOfQuarter, startOfYear } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  brazeSyncPartialDescription,
+  formatBrazeSyncInvokeError,
+} from '@/lib/brazeSyncInvoke';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/lib/logger';
@@ -222,22 +226,26 @@ export default function Campaigns() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: client } = useDoubleGoodClient();
+  const { clientId: workspaceClientId } = useResolvedClientId();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { clientId: brazeDataClientId } = useBrazeDashboardClientId();
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
 
   const handleSyncFromBraze = async () => {
-    if (!client?.id || !brazePlatform?.id) return;
+    if (!workspaceClientId || !brazePlatform?.id) return;
     setSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke('sync-braze', {
-        body: { clientId: client.id, platformId: brazePlatform.id },
+        body: { clientId: workspaceClientId, platformId: brazePlatform.id },
       });
 
       if (error) throw error;
 
-      toast({ title: 'Campaigns synced from Braze' });
+      const partialDesc = brazeSyncPartialDescription(data);
+      toast({
+        title: data?.partial ? 'Campaigns synced from Braze (partial)' : 'Campaigns synced from Braze',
+        description: partialDesc,
+      });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
@@ -245,7 +253,7 @@ export default function Campaigns() {
       logger.error('Sync error:', error);
       toast({
         title: 'Failed to sync campaigns',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        description: formatBrazeSyncInvokeError(error),
         variant: 'destructive',
       });
     } finally {

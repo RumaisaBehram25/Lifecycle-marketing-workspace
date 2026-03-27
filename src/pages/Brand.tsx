@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useDoubleGoodClient, useUpdateDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useUpdateDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +22,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 export default function Brand() {
-  const { data: client, isLoading: clientLoading, refetch: refetchClient } = useDoubleGoodClient();
+  const { data: client, isLoading: clientLoading, refetch: refetchClient } = useActiveClientRow();
   const updateClient = useUpdateDoubleGoodClient();
   const queryClient = useQueryClient();
 

@@ -25,13 +25,17 @@ function pctChange(prev: number, curr: number): string {
   return `${sign}${ch.toFixed(1)}%`;
 }
 
+/** Sum KPI points in the last `days` calendar days (not merely the last N rows). */
 function sumKpiLastDays(rows: KpiRow[], metric: string, days: number): number {
-  const filtered = rows.filter((r) => r.metric === metric);
-  if (!filtered.length) return 0;
-  const sorted = [...filtered].sort(
-    (a, b) => seriesDateMs(String(b.series_date)) - seriesDateMs(String(a.series_date))
-  );
-  return sorted.slice(0, days).reduce((s, r) => s + n(r.value), 0);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return rows
+    .filter(
+      (r) =>
+        r.metric === metric && String(r.series_date ?? '').slice(0, 10) >= cutoffStr
+    )
+    .reduce((s, r) => s + n(r.value), 0);
 }
 
 function latestKpi(rows: KpiRow[], metric: string): number {

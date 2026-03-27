@@ -1,14 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import { useAuth } from '@/hooks/useAuth';
 
 /**
  * Braze sync writes to `client_id` from the connected platform row.
  * `useResolvedClientId()` can differ (e.g. slug client vs oldest fallback), which makes
  * campaigns/KPI/broadcasts look empty while the API returns data. Prefer the client that
  * actually has a Braze row (most recently synced first).
+ * Admins may fall back to the globally latest Braze row; members only see their workspace client.
  */
 export function useBrazeDashboardClientId() {
+  const { isAdmin } = useAuth();
   const { clientId: resolvedId, isClientLoading: resolvedLoading } = useResolvedClientId();
 
   // 1) Prefer the current resolved workspace client *if* it has a Braze platform row.
@@ -46,6 +49,7 @@ export function useBrazeDashboardClientId() {
       return (data as { client_id: string } | null)?.client_id ?? null;
     },
     enabled:
+      isAdmin &&
       !!resolvedId &&
       resolvedPlatform.isFetched &&
       !resolvedPlatform.isError &&
@@ -53,14 +57,15 @@ export function useBrazeDashboardClientId() {
     staleTime: 60_000,
   });
 
-  const clientId =
-    resolvedPlatform.data ?? latestBrazeClient.data ?? resolvedId ?? undefined;
+  const clientId = isAdmin
+    ? (resolvedPlatform.data ?? latestBrazeClient.data ?? resolvedId ?? undefined)
+    : (resolvedPlatform.data ?? resolvedId ?? undefined);
 
   const isLoading =
     resolvedLoading ||
     (resolvedId
       ? resolvedPlatform.isLoading ||
-        (resolvedPlatform.data == null && latestBrazeClient.isLoading)
+        (isAdmin && resolvedPlatform.data == null && latestBrazeClient.isLoading)
       : false);
 
   return {
