@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
+import { fetchCampaignHygieneDirectory, isCampaignCleanupFlagged } from '@/lib/campaignHygiene';
+import { sumBouncesUnsubsLast30dFromCampaignAnalytics } from '@/lib/brazeCampaignAnalyticsHealth';
 
 type Row = Record<string, unknown>;
 
@@ -8,6 +10,67 @@ function num(v: unknown): number {
   if (v == null || v === '') return 0;
   const n = Number(v);
   return Number.isNaN(n) ? 0 : n;
+}
+
+function truthyFlag(v: unknown): boolean {
+  if (v === true || v === 'true' || v === 1 || v === '1') return true;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === 'yes' || s === 'on' || s === 'enabled';
+  }
+  return false;
+}
+
+function falsyExplicit(v: unknown): boolean {
+  if (v === false || v === 'false' || v === 0 || v === '0') return true;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === 'no' || s === 'off' || s === 'disabled';
+  }
+  return false;
+}
+
+function getNested(obj: Record<string, unknown>, path: string[]): unknown {
+  let cur: unknown = obj;
+  for (const p of path) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
+
+/** Braze list payloads omit flags or nest them; missing flag defaults to ON (not OFF). */
+function segmentAnalyticsTrackingOn(raw: Record<string, unknown>): boolean {
+  const tryVal = (v: unknown): boolean | null => {
+    if (v === undefined || v === null || v === '') return null;
+    if (falsyExplicit(v)) return false;
+    if (truthyFlag(v)) return true;
+    return null;
+  };
+
+  const topKeys = [
+    'analytics_tracking_enabled',
+    'analytics_enabled',
+    'tracking_enabled',
+    'is_tracking_enabled',
+    'analyticsTrackingEnabled',
+    'is_analytics_tracking_enabled',
+    'analytics_tracking',
+  ];
+  for (const k of topKeys) {
+    const t = tryVal(raw[k]);
+    if (t !== null) return t;
+  }
+  const nestedPaths = [
+    ['analytics', 'tracking_enabled'],
+    ['analytics', 'enabled'],
+    ['settings', 'analytics_tracking_enabled'],
+  ] as const;
+  for (const path of nestedPaths) {
+    const t = tryVal(getNested(raw, [...path]));
+    if (t !== null) return t;
+  }
+  return true;
 }
 
 function seriesDateMs(seriesDate: string): number {
@@ -164,7 +227,14 @@ export function useAnalyticsData() {
       ]);
       if (e1) throw e1;
       if (e2) throw e2;
-      return { bounces: bounces ?? 0, unsubs: unsubs ?? 0 };
+      let b = bounces ?? 0;
+      let u = unsubs ?? 0;
+      if (b === 0 || u === 0) {
+        const csv = await sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId);
+        if (b === 0) b = csv.bounces;
+        if (u === 0) u = csv.unsubs;
+      }
+      return { bounces: b, unsubs: u };
     },
     enabled: !!clientId,
     retry: false,
@@ -190,12 +260,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_campaigns_directory', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
-        .from('braze_campaigns')
-        .select('name,status,tags,updated_at,created_at,sent_date')
-        .eq('client_id', clientId);
-      if (error) throw error;
-      return (data ?? []) as Row[];
+      return fetchCampaignHygieneDirectory(clientId);
     },
     enabled: !!clientId,
     retry: false,
@@ -352,19 +417,44 @@ export function useAnalyticsData() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 12);
 
-  const trackingSummary = segmentSyncRows.reduce(
-    (acc, r) => {
-      const raw = (r.raw ?? {}) as Record<string, unknown>;
-      const enabled = Boolean(raw.analytics_tracking_enabled);
-      if (enabled) acc.enabled += 1;
-      else acc.disabled += 1;
-      return acc;
-    },
-    { enabled: 0, disabled: 0 }
-  );
+  const trackingSummary = (() => {
+    if (segmentSyncRows.length > 0) {
+      let enabled = 0;
+      let disabled = 0;
+      for (const r of segmentSyncRows) {
+        const raw = (r.raw ?? {}) as Record<string, unknown>;
+        if (segmentAnalyticsTrackingOn(raw)) enabled += 1;
+        else disabled += 1;
+      }
+      return {
+        enabled,
+        disabled,
+        total: segmentSyncRows.length,
+        source: 'sync' as const,
+      };
+    }
+    const segmentKeys = new Set<string>();
+    for (const r of segmentRows) {
+      const id = String(r.segment_id ?? '').trim();
+      const nm = String(r.segment_name ?? '').trim();
+      const key = id || nm;
+      if (key) segmentKeys.add(key);
+    }
+    const csvTotal = segmentKeys.size;
+    if (csvTotal > 0) {
+      return {
+        enabled: csvTotal,
+        disabled: 0,
+        total: csvTotal,
+        source: 'csv' as const,
+      };
+    }
+    return { enabled: 0, disabled: 0, total: 0, source: null as null };
+  })();
 
-  const cleanupRegex = /(test|warming|ip warm)/i;
-  const cleanupFlagged = campaignDirectoryRows.filter((r) => cleanupRegex.test(String(r.name ?? ''))).length;
+  const cleanupFlagged = campaignDirectoryRows.filter((r) =>
+    isCampaignCleanupFlagged(r as Record<string, unknown>)
+  ).length;
 
   const usageChartDataFromKpi = (): Row[] => {
     const byDate: Record<string, { date: string; dau: number; mau: number; new_users: number }> = {};

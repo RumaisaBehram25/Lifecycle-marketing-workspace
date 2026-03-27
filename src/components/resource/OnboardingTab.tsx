@@ -37,7 +37,7 @@ import {
 } from '@/lib/brazeSyncInvoke';
 import { useToast } from '@/components/ui/use-toast';
 
-const DEFAULT_BRAZE_REST = 'https://rest.iad-01.braze.com';
+const DEFAULT_BRAZE_REST = 'https://rest.iad-06.braze.com';
 
 interface OnboardingData {
   companyName: string;
@@ -433,6 +433,10 @@ export function OnboardingTab() {
     }
 
     setIsUploading(false);
+    if (successCount > 0) {
+      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    }
     toast({
       title: 'Processing complete',
       description: `${successCount} of ${list.length} files processed successfully.`,
@@ -456,9 +460,10 @@ export function OnboardingTab() {
             },
           });
           if (syncError) {
+            const description = await formatBrazeSyncInvokeError(syncError);
             toast({
               title: 'Braze sync failed',
-              description: formatBrazeSyncInvokeError(syncError),
+              description,
               variant: 'destructive',
             });
             return;

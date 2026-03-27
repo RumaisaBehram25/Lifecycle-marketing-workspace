@@ -256,7 +256,7 @@ export default function Platforms() {
                   placeholder="https://rest.iad-06.braze.com"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Defaults to iad-01 if left blank. Find yours in Braze under Settings &gt; APIs and Identifiers.
+                  Defaults to iad-06 if left blank. Find yours in Braze under Settings &gt; APIs and Identifiers.
                 </p>
               </div>
             )}

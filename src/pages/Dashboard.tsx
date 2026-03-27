@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -23,6 +23,12 @@ import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
 import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
+import {
+  campaignCleanupSearchText,
+  DASHBOARD_CAMPAIGN_HYGIENE_QK,
+  fetchCampaignHygieneDirectory,
+  isCampaignCleanupFlagged,
+} from '@/lib/campaignHygiene';
 import {
   dashBadgeSoft,
   dashIconChip,
@@ -341,7 +347,7 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
 
 export default function Dashboard() {
   const { clientId } = useResolvedClientId();
-  const { clientId: brazeDataClientId } = useBrazeDashboardClientId();
+  const { clientId: brazeMetricsClientId } = useBrazeDashboardClientId();
   const queryClient = useQueryClient();
   const [hygieneSearch, setHygieneSearch] = useState('');
   const refreshBriefs = () => {
@@ -351,6 +357,7 @@ export default function Dashboard() {
   const {
     canvasStats: brazeCanvas,
     segmentCount: brazeSegmentCount,
+    segmentDirectorySource: brazeSegmentDirectorySource,
     scheduled: brazeScheduled,
     scheduledIsError: brazeScheduledIsError,
     emailHealth: brazeEmail,
@@ -400,41 +407,56 @@ export default function Dashboard() {
   }, [brazeCanvas.pillars]);
 
   const { data: lifecycleFlowsUpdated = 0 } = useQuery({
-    queryKey: ['dashboard-lifecycle-updated-30d', brazeDataClientId],
+    queryKey: ['dashboard-lifecycle-updated-30d', brazeMetricsClientId],
     queryFn: async () => {
-      const cid = brazeDataClientId;
+      const cid = brazeMetricsClientId;
       if (!cid) return 0;
       const cutoffIso = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000)).toISOString();
       const { count, error } = await supabase
         .from('braze_canvases')
         .select('id', { count: 'exact', head: true })
         .eq('client_id', cid)
+        .or('archived.is.null,archived.eq.false')
         .gte('updated_at', cutoffIso);
       if (error) throw error;
       return count ?? 0;
     },
-    enabled: !!brazeDataClientId,
+    enabled: !!brazeMetricsClientId,
   });
 
   const { data: campaignDirectoryRows = [] } = useQuery({
-    queryKey: ['dashboard-campaign-hygiene', brazeDataClientId],
+    queryKey: [DASHBOARD_CAMPAIGN_HYGIENE_QK, brazeMetricsClientId],
     queryFn: async () => {
-      if (!brazeDataClientId) return [];
-      const { data, error } = await (supabase as any)
-        .from('braze_campaigns')
-        .select('name,status,updated_at')
-        .eq('client_id', brazeDataClientId)
-        .order('updated_at', { ascending: false, nullsFirst: false });
-      if (error) throw error;
-      return (data ?? []) as Array<{ name?: string | null; status?: string | null; updated_at?: string | null }>;
+      if (!brazeMetricsClientId) return [];
+      return fetchCampaignHygieneDirectory(brazeMetricsClientId);
     },
-    enabled: !!brazeDataClientId,
+    enabled: !!brazeMetricsClientId,
+    staleTime: 30_000,
   });
 
+  const hygieneQuery = hygieneSearch.trim().toLowerCase();
   const filteredHygieneRows = campaignDirectoryRows
-    .filter((r) => String(r.name ?? '').toLowerCase().includes(hygieneSearch.trim().toLowerCase()))
+    .filter((r) => {
+      if (!hygieneQuery) return true;
+      return campaignCleanupSearchText(r as Record<string, unknown>).toLowerCase().includes(hygieneQuery);
+    })
     .slice(0, 200);
-  const hygieneFlaggedCount = campaignDirectoryRows.filter((r) => /(test|warming|ip warm)/i.test(String(r.name ?? ''))).length;
+  const hygieneFlaggedCount = campaignDirectoryRows.filter((r) =>
+    isCampaignCleanupFlagged(r as Record<string, unknown>)
+  ).length;
+
+  useEffect(() => {
+    if (import.meta.env.PROD || !clientId || !brazeMetricsClientId) return;
+    if (clientId !== brazeMetricsClientId) {
+      console.info(
+        '[workspace-metrics] Braze KPI/email/segment reads use clients.id',
+        brazeMetricsClientId.slice(0, 8) + '…',
+        '— Drive/briefs use',
+        clientId.slice(0, 8) + '…',
+        '(admin: latest Braze sync when DoubleGood has no Braze row).',
+      );
+    }
+  }, [clientId, brazeMetricsClientId]);
 
   return (
     <AppLayout>
@@ -485,7 +507,7 @@ export default function Dashboard() {
               icon={MailWarning}
               label="Hard bounces (30d)"
               value={brazeEmail.bounces.toLocaleString()}
-              footnote="From Braze email/hard_bounces sync"
+              footnote="Braze email_events sync, or roll-up from campaign analytics CSV if events are empty"
               railClass={dashRailWarning}
               accentClass={cn(dashIconChipWarning, 'h-10 w-10 rounded-xl')}
             />
@@ -493,7 +515,7 @@ export default function Dashboard() {
               icon={UserMinus}
               label="Unsubscribes (30d)"
               value={brazeEmail.unsubs.toLocaleString()}
-              footnote="From Braze email/unsubscribes sync"
+              footnote="Braze email_events sync, or roll-up from campaign analytics CSV if events are empty"
               railClass={dashRailDestructive}
               accentClass={cn(dashIconChipDestructive, 'h-10 w-10 rounded-xl')}
             />
@@ -517,16 +539,20 @@ export default function Dashboard() {
               footnote={`${brazeCanvas.syncedTotal.toLocaleString()} total synced (non-archived) · ${lifecycleFlowsUpdated} updated in last 30d`}
               railClass={dashRailAccent}
               accentClass={cn(dashIconChipAccent, 'h-10 w-10 rounded-xl')}
-              warnZero={!!brazeDataClientId && brazeCanvas.enabledInBraze === 0 && brazeCanvas.syncedTotal > 0}
+              warnZero={!!brazeMetricsClientId && brazeCanvas.enabledInBraze === 0 && brazeCanvas.syncedTotal > 0}
             />
             <ClientProminentMetric
               icon={Layers}
               label="Braze segments"
               value={brazeSegmentCount.toLocaleString()}
-              footnote="Directory from segments/list sync"
+              footnote={
+                brazeSegmentDirectorySource === 'csv'
+                  ? 'Distinct segments from segment analytics CSV (Resources)'
+                  : 'Directory from Braze segments/list sync (or CSV if sync not run yet)'
+              }
               railClass={dashRailWarning}
               accentClass={cn(dashIconChipWarning, 'h-10 w-10 rounded-xl')}
-              warnZero={!!brazeDataClientId && brazeSegmentCount === 0}
+              warnZero={!!brazeMetricsClientId && brazeSegmentCount === 0}
             />
             <ClientProminentMetric
               icon={FileText}
@@ -563,7 +589,8 @@ export default function Dashboard() {
                     Campaign Hygiene
                   </CardTitle>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Braze API campaign list with flagged names (test/warming/IP warm).
+                    Same workspace as Drive &amp; KPIs — Braze sync or campaign analytics CSV. Flags use name, id, tags,
+                    status, channel.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -577,7 +604,7 @@ export default function Dashboard() {
                 <Input
                   value={hygieneSearch}
                   onChange={(e) => setHygieneSearch(e.target.value)}
-                  placeholder="Search campaign name..."
+                  placeholder="Search name, id, tags, status…"
                   className="h-8 pl-8 text-xs"
                 />
               </div>
@@ -598,12 +625,14 @@ export default function Dashboard() {
                       {filteredHygieneRows.length === 0 ? (
                         <tr>
                           <td colSpan={4} className="px-3 py-8 text-center text-xs text-muted-foreground">
-                            No campaigns match your search.
+                            {campaignDirectoryRows.length === 0
+                              ? 'No campaigns yet. Sync Braze or upload campaign analytics CSV for this workspace.'
+                              : 'No campaigns match your search.'}
                           </td>
                         </tr>
                       ) : (
                         filteredHygieneRows.map((row, i) => {
-                          const flagged = /(test|warming|ip warm)/i.test(String(row.name ?? ''));
+                          const flagged = isCampaignCleanupFlagged(row as Record<string, unknown>);
                           return (
                             <tr key={`${String(row.name)}-${i}`} className="border-t border-border/60">
                               <td className="px-3 py-2.5 text-sm font-medium">{String(row.name ?? 'Campaign')}</td>

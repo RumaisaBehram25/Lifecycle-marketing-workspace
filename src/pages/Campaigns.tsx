@@ -251,9 +251,10 @@ export default function Campaigns() {
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     } catch (error: unknown) {
       logger.error('Sync error:', error);
+      const description = await formatBrazeSyncInvokeError(error);
       toast({
         title: 'Failed to sync campaigns',
-        description: formatBrazeSyncInvokeError(error),
+        description,
         variant: 'destructive',
       });
     } finally {

@@ -4,17 +4,24 @@ import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 
 /**
- * Braze sync writes to `client_id` from the connected platform row.
- * `useResolvedClientId()` can differ (e.g. slug client vs oldest fallback), which makes
- * campaigns/KPI/broadcasts look empty while the API returns data. Prefer the client that
- * actually has a Braze row (most recently synced first).
- * Admins may fall back to the globally latest Braze row; members only see their workspace client.
+ * `clients.id` used to **read** Braze-backed tables (KPI, canvases, segments sync, email
+ * events, campaign directory, Analytics).
+ *
+ * - **Members:** always the personal workspace (`useResolvedClientId`), optionally
+ *   confirmed via a Braze row on that client (same id).
+ * - **Admins:** the resolved workspace (e.g. DoubleGood) **if** it has a Braze platform
+ *   row; otherwise the **globally most recently synced Braze** client. That matches where
+ *   API/CSV sync typically lands when admins use DoubleGood for Drive but members (or a
+ *   single shared sync) wrote Braze data under another `clients.id` — without this,
+ *   Analytics “Performance Snapshot” and segment/campaign hygiene diverge from the member
+ *   view despite identical credentials.
+ *
+ * **Drive, briefs, onboarding CSV storage** still use `useResolvedClientId()` only.
  */
 export function useBrazeDashboardClientId() {
   const { isAdmin } = useAuth();
   const { clientId: resolvedId, isClientLoading: resolvedLoading } = useResolvedClientId();
 
-  // 1) Prefer the current resolved workspace client *if* it has a Braze platform row.
   const resolvedPlatform = useQuery({
     queryKey: ['braze-platform-client-id-for-resolved', resolvedId],
     queryFn: async () => {
@@ -34,7 +41,6 @@ export function useBrazeDashboardClientId() {
     staleTime: 60_000,
   });
 
-  // 2) If the resolved client has no Braze row, fall back to the most recently synced Braze client.
   const latestBrazeClient = useQuery({
     queryKey: ['braze-latest-client'],
     queryFn: async () => {
@@ -71,7 +77,6 @@ export function useBrazeDashboardClientId() {
   return {
     clientId,
     isLoading,
-    // Keep these names for debugging parity with previous callers
     platformClientId: resolvedPlatform.data ?? null,
     resolvedClientId: resolvedId,
   };

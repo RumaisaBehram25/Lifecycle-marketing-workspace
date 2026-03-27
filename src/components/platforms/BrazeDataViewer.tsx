@@ -108,16 +108,21 @@ export function BrazeDataViewer({
       
       if (error) throw error;
       
-      toast({ title: 'Braze data synced successfully' });
+      const partialDesc = brazeSyncPartialDescription(data);
+      toast({
+        title: data?.partial ? 'Braze data synced (partial)' : 'Braze data synced successfully',
+        description: partialDesc,
+      });
       queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       onSyncComplete?.();
     } catch (error: unknown) {
       logger.error('Sync error:', error);
+      const description = await formatBrazeSyncInvokeError(error);
       toast({
         title: 'Sync failed',
-        description: formatBrazeSyncInvokeError(error),
+        description,
         variant: 'destructive',
       });
     } finally {

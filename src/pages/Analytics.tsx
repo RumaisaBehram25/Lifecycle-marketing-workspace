@@ -178,6 +178,7 @@ export default function Analytics() {
     unsubCount30d,
     trackingSummary,
     cleanupFlagged,
+    campaignDirectoryRows,
   } = useAnalyticsData();
 
   const [campaignSearch, setCampaignSearch] = useState('');
@@ -459,8 +460,38 @@ export default function Analytics() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/12 text-rose-600 dark:text-rose-400" accent="rose" />
               <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/12 text-orange-600 dark:text-orange-400" accent="orange" />
-              <StatCard icon={Layers} label="Segments tracking ON" value={trackingSummary.enabled.toLocaleString()} color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400" accent="emerald" />
-              <StatCard icon={Workflow} label="Campaigns flagged" value={cleanupFlagged.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" trend={{ direction: cleanupFlagged > 0 ? 'down' : 'flat', value: 'test/IP warming cleanup' }} />
+              <StatCard
+                icon={Layers}
+                label="Segments tracking ON"
+                value={trackingSummary.enabled.toLocaleString()}
+                color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
+                accent="emerald"
+                trend={{
+                  direction: 'flat',
+                  value:
+                    trackingSummary.total === 0
+                      ? 'Sync Braze segments/list or upload segment analytics CSV (Resources)'
+                      : trackingSummary.source === 'csv'
+                        ? `${trackingSummary.total.toLocaleString()} from segment CSV — shown as on (no per-segment API flags)`
+                        : `${trackingSummary.total.toLocaleString()} in directory · ${trackingSummary.disabled.toLocaleString()} tracking off`,
+                }}
+              />
+              <StatCard
+                icon={Workflow}
+                label="Campaigns flagged"
+                value={cleanupFlagged.toLocaleString()}
+                color="bg-amber-500/12 text-amber-600 dark:text-amber-400"
+                accent="amber"
+                trend={{
+                  direction: cleanupFlagged > 0 ? 'down' : 'flat',
+                  value:
+                    cleanupFlagged > 0
+                      ? 'Name, tags, or status matched cleanup patterns'
+                      : campaignDirectoryRows.length === 0
+                        ? 'No campaign directory yet — sync Braze or upload campaign analytics CSV'
+                        : 'No campaigns matched patterns (test, IP warm, sandbox, staging, cleanup)',
+                }}
+              />
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">

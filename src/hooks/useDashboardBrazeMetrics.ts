@@ -1,7 +1,13 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
+import {
+  countDistinctSegmentsFromAnalytics,
+  resolveBrazeSegmentDirectoryCount,
+} from '@/lib/brazeSegmentDirectory';
+import { sumBouncesUnsubsLast30dFromCampaignAnalytics } from '@/lib/brazeCampaignAnalyticsHealth';
+import { warnIfMetricsDiverge } from '@/lib/workspaceMetricsIntegrity';
 
 type KpiRow = { metric: string; series_date: string; value: number | string | null };
 
@@ -169,13 +175,8 @@ export function useDashboardBrazeMetrics() {
   const segmentCount = useQuery({
     queryKey: ['dashboard-braze', 'segments-count', clientId],
     queryFn: async () => {
-      if (!clientId) return 0;
-      const { count, error } = await (supabase as any)
-        .from('braze_segments_sync')
-        .select('id', { count: 'exact', head: true })
-        .eq('client_id', clientId);
-      if (error) throw error;
-      return count ?? 0;
+      if (!clientId) return { count: 0, source: null as const };
+      return resolveBrazeSegmentDirectoryCount(clientId);
     },
     enabled: !!clientId,
     staleTime: 60_000,
@@ -248,7 +249,14 @@ export function useDashboardBrazeMetrics() {
         .eq('event_type', 'unsubscribe')
         .gte('occurred_at', since);
       if (e2) throw e2;
-      return { bounces: bounces ?? 0, unsubs: unsubs ?? 0 };
+      let b = bounces ?? 0;
+      let u = unsubs ?? 0;
+      if (b === 0 || u === 0) {
+        const csv = await sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId);
+        if (b === 0) b = csv.bounces;
+        if (u === 0) u = csv.unsubs;
+      }
+      return { bounces: b, unsubs: u };
     },
     enabled: !!clientId,
     staleTime: 60_000,
@@ -275,7 +283,11 @@ export function useDashboardBrazeMetrics() {
         latestRunRes,
         latestFailedRes,
       ] = await Promise.all([
-        (supabase as any).from('braze_canvases').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+        (supabase as any)
+          .from('braze_canvases')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', clientId)
+          .or('archived.is.null,archived.eq.false'),
         (supabase as any).from('braze_segments_sync').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
         (supabase as any)
           .from('braze_email_events')
@@ -314,10 +326,14 @@ export function useDashboardBrazeMetrics() {
         | { error_message?: string | null; started_at?: string | null; completed_at?: string | null }
         | null;
 
+      const syncSegmentN = segmentsRes.count ?? 0;
+      const segmentsDisplay =
+        syncSegmentN > 0 ? syncSegmentN : await countDistinctSegmentsFromAnalytics(clientId);
+
       return {
         counts: {
           canvases: canvasesRes.count ?? 0,
-          segments: segmentsRes.count ?? 0,
+          segments: segmentsDisplay,
           emailEvents30d: emailEventsRes.count ?? 0,
           scheduledBroadcasts: scheduledRes.count ?? 0,
         },
@@ -366,6 +382,22 @@ export function useDashboardBrazeMetrics() {
     };
   }, [kpiQuery.data, campaignsAgg.data]);
 
+  useEffect(() => {
+    if (import.meta.env.PROD || !clientId || !syncHealth.data || !canvasStats.data) return;
+    warnIfMetricsDiverge(
+      { nonArchivedCanvases: syncHealth.data.counts.canvases },
+      { nonArchivedCanvases: canvasStats.data.syncedTotal },
+      'syncHealth vs canvasStats (non-archived canvases)'
+    );
+    const segTile = segmentCount.data?.count ?? 0;
+    const segSync = syncHealth.data.counts.segments;
+    warnIfMetricsDiverge(
+      { segmentDirectory: segTile },
+      { segmentDirectory: segSync },
+      'segment count tile vs syncHealth'
+    );
+  }, [clientId, syncHealth.data, canvasStats.data, segmentCount.data]);
+
   const isLoading =
     isClientLoading ||
     (!!clientId &&
@@ -398,7 +430,8 @@ export function useDashboardBrazeMetrics() {
         number
       >,
     },
-    segmentCount: segmentCount.data ?? 0,
+    segmentCount: segmentCount.data?.count ?? 0,
+    segmentDirectorySource: segmentCount.data?.source ?? null,
     scheduled: scheduledPeek.data ?? { count: 0, nextSendTimeLabel: '', upcomingThree: [] },
     scheduledError: scheduledPeek.error ?? null,
     scheduledIsError: scheduledPeek.isError,
