@@ -51,11 +51,19 @@ export function insightsApi(): Plugin {
               messages: [
                 {
                   role: 'system',
-                  content: `You are a lifecycle marketing analytics expert. Analyze campaign data and return exactly 3-4 actionable insights.
+                  content: `You are a lifecycle marketing analytics expert. Analyze the specific campaign data provided and return exactly 3-4 actionable insights.
+
+CRITICAL RULES:
+- Every insight MUST reference specific campaigns or flows BY NAME from the data.
+- Use actual numbers from the data (sends, entries, conversion events) to support each insight.
+- Do NOT give generic marketing advice. If you cannot tie an insight to a specific campaign in the data, do not include it.
+- Compare campaigns against each other — highlight outliers (best and worst performers).
+- Bad example: "Campaigns targeting reactivation are failing to reach users effectively." (too generic, no campaign names)
+- Good example: "Welcome Series has 342 entries in 30d but Cart Abandon only has 12 — consider reviewing Cart Abandon trigger conditions or audience filters."
 
 Return ONLY valid JSON — an array of objects with these fields:
-- "title": short insight heading (5-10 words)
-- "body": 1-2 sentence explanation with specific numbers from the data
+- "title": short insight heading that names the specific campaign/flow (5-10 words)
+- "body": 1-2 sentences with specific campaign names and numbers from the data. Compare against other campaigns when relevant.
 - "tag": one of "High Priority", "Strategy", "Growth", "Benchmark", "Warning", "Opportunity"
 - "tagColor": matching Tailwind classes:
   - "High Priority" -> "bg-red-500/10 text-red-600"
@@ -63,9 +71,7 @@ Return ONLY valid JSON — an array of objects with these fields:
   - "Growth" -> "bg-green-500/10 text-green-600"
   - "Benchmark" -> "bg-purple-500/10 text-purple-600"
   - "Warning" -> "bg-orange-500/10 text-orange-600"
-  - "Opportunity" -> "bg-cyan-500/10 text-cyan-600"
-
-Focus on: performance patterns, underperforming flows, engagement gaps, and growth opportunities.`,
+  - "Opportunity" -> "bg-cyan-500/10 text-cyan-600"`,
                 },
                 {
                   role: 'user',
