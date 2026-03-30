@@ -168,6 +168,8 @@ export default function Analytics() {
     refetch,
     hasAnyData,
     metrics,
+    rawCampaignRows,
+    canvasListRows,
     revenueMonthly,
     campaignTableRows,
     usageChartData,
@@ -187,12 +189,61 @@ export default function Analytics() {
   const [campaignSearch, setCampaignSearch] = useState('');
   const [campaignChannelFilter, setCampaignChannelFilter] = useState('All');
   const [period, setPeriod] = useState('default');
+  const [flowChartMetric, setFlowChartMetric] = useState<'revenue' | 'sent' | 'opens' | 'clicks' | 'orders'>('revenue');
   const [siteRevenueInput, setSiteRevenueInput] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('revenue');
   const [sortAsc, setSortAsc] = useState(false);
   const [insights, setInsights] = useState<{ title: string; body: string; tag: string; tagColor: string }[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
+  const [selectedFlow, setSelectedFlow] = useState<string>('all');
+
+  // Unique campaign names for the filter dropdown
+  const campaignNames = [...new Set(
+    rawCampaignRows.map(r => String(r.campaign_name ?? r.name ?? '').trim()).filter(Boolean)
+  )].sort();
+
+  // Unique canvas names for the filter dropdown
+  const canvasNames = [...new Set(
+    canvasListRows.map(r => String(r.name ?? '').trim()).filter(Boolean)
+  )].sort();
+
+  // Compute filtered metrics when a specific campaign is selected
+  const n = (v: unknown) => { const x = Number(v); return isNaN(x) ? 0 : x; };
+
+  const activeMetrics = (() => {
+    if (!selectedFlow.startsWith('campaign:')) return metrics;
+    const name = selectedFlow.slice(9);
+    const rows = rawCampaignRows.filter(r => (String(r.campaign_name ?? r.name ?? '').trim()) === name);
+    const fSent = rows.reduce((s, r) => s + n(r.sent ?? r.sends_last_30d), 0);
+    const fDelivered = rows.reduce((s, r) => s + n(r.delivered), 0);
+    const fOpens = rows.reduce((s, r) => s + n(r.opens), 0);
+    const fClicks = rows.reduce((s, r) => s + n(r.clicks), 0);
+    const fConversions = rows.reduce((s, r) => s + n(r.conversions), 0);
+    const fBounces = rows.reduce((s, r) => s + n(r.bounces), 0);
+    const fUnsubs = rows.reduce((s, r) => s + n(r.unsubscribes), 0);
+    return {
+      ...metrics,
+      totalSent: fSent,
+      totalDelivered: fDelivered,
+      totalOpens: fOpens,
+      totalClicks: fClicks,
+      totalConversions: fConversions,
+      totalBounces: fBounces,
+      totalUnsubscribes: fUnsubs,
+      deliveryRate: fSent > 0 ? (fDelivered / fSent) * 100 : 0,
+      openRate: fDelivered > 0 ? (fOpens / fDelivered) * 100 : 0,
+      clickRate: fDelivered > 0 ? (fClicks / fDelivered) * 100 : 0,
+      conversionRate: fDelivered > 0 ? (fConversions / fDelivered) * 100 : 0,
+      bounceRate: fSent > 0 ? (fBounces / fSent) * 100 : 0,
+      unsubscribeRate: fDelivered > 0 ? (fUnsubs / fDelivered) * 100 : 0,
+    };
+  })();
+
+  // For canvas selection, pull metrics from canvasListRows
+  const selectedCanvasRow = selectedFlow.startsWith('canvas:')
+    ? canvasListRows.find(r => String(r.name ?? '').trim() === selectedFlow.slice(7)) ?? null
+    : null;
 
   const generateInsights = async () => {
     if (!client?.id) return;
@@ -342,7 +393,8 @@ export default function Analytics() {
     .filter((c) => {
       const matchesSearch = c.name.toLowerCase().includes(campaignSearch.toLowerCase());
       const matchesChannel = campaignChannelFilter === 'All' || c.channel === campaignChannelFilter;
-      return matchesSearch && matchesChannel;
+      const matchesFlow = !selectedFlow.startsWith('campaign:') || c.name === selectedFlow.slice(9);
+      return matchesSearch && matchesChannel && matchesFlow;
     })
     .sort((a, b) => {
       const mul = sortAsc ? 1 : -1;
@@ -478,6 +530,98 @@ export default function Analytics() {
           </div>
         </div>
 
+        {/* Lifecycle Flow Performance */}
+        {campaignTableRows.length > 0 && (() => {
+          const metricLabels: Record<string, string> = {
+            revenue: 'Revenue', sent: 'Sends', opens: 'Opens', clicks: 'Clicks', orders: 'Orders',
+          };
+          const metricFormatter = (v: number) =>
+            flowChartMetric === 'revenue' ? `$${Number(v).toLocaleString()}` : Number(v).toLocaleString();
+
+          const flowChartData = [...campaignTableRows]
+            .map(r => ({ name: r.name, value: Number((r as any)[flowChartMetric] ?? 0) }))
+            .filter(r => r.value >= 0)
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 15);
+
+          const barHeight = 36;
+          const chartHeight = Math.max(220, flowChartData.length * barHeight + 40);
+
+          return (
+            <Card className={analyticsCardClass}>
+              <div className={dashboardTopAccentClass} aria-hidden />
+              <CardHeader className={analyticsCardHeaderClass}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/12 text-violet-600 dark:text-violet-400 ring-1 ring-violet-500/20">
+                        <Workflow className="h-4 w-4" />
+                      </span>
+                      Lifecycle Flow Performance
+                    </CardTitle>
+                    <p className={analyticsSubtitleClass}>Select a flow to see touchpoint-level metrics</p>
+                  </div>
+                  <Select value={flowChartMetric} onValueChange={(v) => setFlowChartMetric(v as typeof flowChartMetric)}>
+                    <SelectTrigger className="w-[210px] h-9 text-sm border-primary/15 bg-card/80 shadow-sm shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(['revenue', 'sent', 'opens', 'clicks', 'orders'] as const).map(m => (
+                        <SelectItem key={m} value={m}>
+                          All Flows ({metricLabels[m]})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent className="pb-6 bg-muted/10">
+                <div className={cn(analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')} style={{ height: chartHeight }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={flowChartData}
+                      layout="vertical"
+                      margin={{ top: 8, right: 24, bottom: 8, left: 130 }}
+                      onClick={(d) => {
+                        if (d?.activePayload?.[0]?.payload?.name) {
+                          const name = d.activePayload[0].payload.name;
+                          setSelectedFlow(prev => prev === `campaign:${name}` ? 'all' : `campaign:${name}`);
+                        }
+                      }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                      <XAxis type="number" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={metricFormatter} />
+                      <YAxis type="category" dataKey="name" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={128} />
+                      <Tooltip
+                        contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }}
+                        formatter={(v: number) => [metricFormatter(v), metricLabels[flowChartMetric]]}
+                      />
+                      <Bar
+                        dataKey="value"
+                        name={metricLabels[flowChartMetric]}
+                        radius={[0, 4, 4, 0]}
+                        cursor="pointer"
+                      >
+                        {flowChartData.map((entry) => (
+                          <Cell
+                            key={entry.name}
+                            fill={selectedFlow === `campaign:${entry.name}` ? 'hsl(262 83% 45%)' : 'hsl(230 80% 55%)'}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                {selectedFlow !== 'all' && (
+                  <p className="mt-2 text-xs text-muted-foreground text-center">
+                    Filtering to <span className="font-medium text-foreground">{selectedFlow.replace(/^(campaign|canvas):/, '')}</span> — click the bar again to reset
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         <Card className={analyticsCardClass}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardHeader className={analyticsCardHeaderClass}>
@@ -490,87 +634,105 @@ export default function Analytics() {
             <p className={analyticsSubtitleClass}>Delivery, engagement, list health, and campaign hygiene KPIs.</p>
           </CardHeader>
           <CardContent className="space-y-5 pt-2 pb-6 bg-muted/10">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <StatCard icon={Send} label="Total Sent" value={metrics.totalSent.toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
-              <StatCard icon={Send} label="Total Delivered" value={metrics.totalDelivered.toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
-              <StatCard icon={Eye} label="Total Opens" value={metrics.totalOpens.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
-              <StatCard
-                icon={Send}
-                label="Total Clicks"
-                value={metrics.totalClicks.toLocaleString()}
-                color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
-                accent="cyan"
-                trend={{ direction: 'flat', value: `${metrics.totalConversions.toLocaleString()} conversions` }}
-              />
-            </div>
+            {selectedCanvasRow ? (
+              /* Canvas-level view */
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <StatCard icon={Send} label="Sends (30d)" value={n(selectedCanvasRow.sends_last_30d).toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
+                <StatCard icon={UserPlus} label="Entries (30d)" value={n(selectedCanvasRow.entries_last_30d).toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
+                <StatCard icon={Workflow} label="Schedule Type" value={String(selectedCanvasRow.schedule_type ?? '—')} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
+                <StatCard
+                  icon={Layers}
+                  label="Status"
+                  value={selectedCanvasRow.enabled ? 'Active' : 'Inactive'}
+                  color={selectedCanvasRow.enabled ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/12 text-rose-600 dark:text-rose-400'}
+                  accent={selectedCanvasRow.enabled ? 'emerald' : 'rose'}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <StatCard icon={Send} label="Total Sent" value={activeMetrics.totalSent.toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
+                  <StatCard icon={Send} label="Total Delivered" value={activeMetrics.totalDelivered.toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
+                  <StatCard icon={Eye} label="Total Opens" value={activeMetrics.totalOpens.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
+                  <StatCard
+                    icon={Send}
+                    label="Total Clicks"
+                    value={activeMetrics.totalClicks.toLocaleString()}
+                    color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
+                    accent="cyan"
+                    trend={{ direction: 'flat', value: `${activeMetrics.totalConversions.toLocaleString()} conversions` }}
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/12 text-rose-600 dark:text-rose-400" accent="rose" />
-              <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/12 text-orange-600 dark:text-orange-400" accent="orange" />
-              <StatCard
-                icon={Layers}
-                label="Segments tracking ON"
-                value={trackingSummary.enabled.toLocaleString()}
-                color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-                accent="emerald"
-                trend={{
-                  direction: 'flat',
-                  value:
-                    trackingSummary.total === 0
-                      ? 'Sync Braze segments/list or upload segment analytics CSV (Resources)'
-                      : trackingSummary.source === 'csv'
-                        ? `${trackingSummary.total.toLocaleString()} from segment CSV — shown as on (no per-segment API flags)`
-                        : `${trackingSummary.total.toLocaleString()} in directory · ${trackingSummary.disabled.toLocaleString()} tracking off`,
-                }}
-              />
-              <StatCard
-                icon={Workflow}
-                label="Campaigns flagged"
-                value={cleanupFlagged.toLocaleString()}
-                color="bg-amber-500/12 text-amber-600 dark:text-amber-400"
-                accent="amber"
-                trend={{
-                  direction: cleanupFlagged > 0 ? 'down' : 'flat',
-                  value:
-                    cleanupFlagged > 0
-                      ? 'Name, tags, or status matched cleanup patterns'
-                      : campaignDirectoryRows.length === 0
-                        ? 'No campaign directory yet — sync Braze or upload campaign analytics CSV'
-                        : 'No campaigns matched patterns (test, IP warm, sandbox, staging, cleanup)',
-                }}
-              />
-            </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/12 text-rose-600 dark:text-rose-400" accent="rose" />
+                  <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/12 text-orange-600 dark:text-orange-400" accent="orange" />
+                  <StatCard
+                    icon={Layers}
+                    label="Segments tracking ON"
+                    value={trackingSummary.enabled.toLocaleString()}
+                    color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
+                    accent="emerald"
+                    trend={{
+                      direction: 'flat',
+                      value:
+                        trackingSummary.total === 0
+                          ? 'Sync Braze segments/list or upload segment analytics CSV (Resources)'
+                          : trackingSummary.source === 'csv'
+                            ? `${trackingSummary.total.toLocaleString()} from segment CSV — shown as on (no per-segment API flags)`
+                            : `${trackingSummary.total.toLocaleString()} in directory · ${trackingSummary.disabled.toLocaleString()} tracking off`,
+                    }}
+                  />
+                  <StatCard
+                    icon={Workflow}
+                    label="Campaigns flagged"
+                    value={cleanupFlagged.toLocaleString()}
+                    color="bg-amber-500/12 text-amber-600 dark:text-amber-400"
+                    accent="amber"
+                    trend={{
+                      direction: cleanupFlagged > 0 ? 'down' : 'flat',
+                      value:
+                        cleanupFlagged > 0
+                          ? 'Name, tags, or status matched cleanup patterns'
+                          : campaignDirectoryRows.length === 0
+                            ? 'No campaign directory yet — sync Braze or upload campaign analytics CSV'
+                            : 'No campaigns matched patterns (test, IP warm, sandbox, staging, cleanup)',
+                    }}
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-              <StatCard
-                icon={Eye}
-                label="Delivery Rate"
-                value={formatPct(metrics.deliveryRate)}
-                color="bg-purple-500/12 text-purple-600 dark:text-purple-400"
-                accent="purple"
-                trend={{ direction: 'flat', value: `Bounce ${formatPct(metrics.bounceRate)}` }}
-              />
-              <StatCard icon={Eye} label="Open Rate" value={formatPct(metrics.openRate)} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
-              <StatCard
-                icon={Send}
-                label="Click Rate"
-                value={formatPct(metrics.clickRate)}
-                color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
-                accent="cyan"
-                trend={{ direction: 'flat', value: `Unsub ${formatPct(metrics.unsubscribeRate)}` }}
-              />
-              <StatCard
-                icon={DollarSign}
-                label="Conversion Rate"
-                value={formatPct(metrics.conversionRate)}
-                color="bg-rose-500/12 text-rose-600 dark:text-rose-400"
-                accent="rose"
-                trend={{
-                  direction: 'flat',
-                  value: `Scheduled active ${formatPct(metrics.schedulingPerformanceRate)}`,
-                }}
-              />
-            </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <StatCard
+                    icon={Eye}
+                    label="Delivery Rate"
+                    value={formatPct(activeMetrics.deliveryRate)}
+                    color="bg-purple-500/12 text-purple-600 dark:text-purple-400"
+                    accent="purple"
+                    trend={{ direction: 'flat', value: `Bounce ${formatPct(activeMetrics.bounceRate)}` }}
+                  />
+                  <StatCard icon={Eye} label="Open Rate" value={formatPct(activeMetrics.openRate)} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
+                  <StatCard
+                    icon={Send}
+                    label="Click Rate"
+                    value={formatPct(activeMetrics.clickRate)}
+                    color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
+                    accent="cyan"
+                    trend={{ direction: 'flat', value: `Unsub ${formatPct(activeMetrics.unsubscribeRate)}` }}
+                  />
+                  <StatCard
+                    icon={DollarSign}
+                    label="Conversion Rate"
+                    value={formatPct(activeMetrics.conversionRate)}
+                    color="bg-rose-500/12 text-rose-600 dark:text-rose-400"
+                    accent="rose"
+                    trend={{
+                      direction: 'flat',
+                      value: `Scheduled active ${formatPct(activeMetrics.schedulingPerformanceRate)}`,
+                    }}
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -640,35 +802,6 @@ export default function Analytics() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Campaign Revenue by Campaign */}
-        {flowRevenueByCampaign.length > 0 && (
-          <Card className={analyticsCardClass}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardHeader className={analyticsCardHeaderClass}>
-              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/12 text-violet-600 dark:text-violet-400 ring-1 ring-violet-500/20">
-                  <Workflow className="h-4 w-4" />
-                </span>
-                Campaign Revenue
-              </CardTitle>
-              <p className={analyticsSubtitleClass}>Total revenue by campaign from Braze CSV</p>
-            </CardHeader>
-            <CardContent className="pb-6 bg-muted/10">
-              <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={flowRevenueByCampaign} layout="vertical" margin={{ top: 8, right: 20, bottom: 8, left: 120 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${Number(v).toLocaleString()}`} />
-                    <YAxis type="category" dataKey="name" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={120} />
-                    <Tooltip contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }} formatter={(v: number) => [`$${Number(v).toLocaleString()}`, 'Revenue']} />
-                    <Bar dataKey="revenue" name="Revenue" fill="hsl(262 83% 58% / 0.9)" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* All Campaigns */}
         <Card className={analyticsCardClass}>
