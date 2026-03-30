@@ -299,6 +299,7 @@ export function useConnectPlatform() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
       queryClient.invalidateQueries({ queryKey: ['braze-platform-client-id-for-resolved'] });
+      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       toast({ title: 'Platform connected' });
     },
     onError: (error: Error) => {

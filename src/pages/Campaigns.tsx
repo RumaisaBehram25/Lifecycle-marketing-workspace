@@ -1,11 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -22,14 +24,52 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Search, Mail, Bell, Smartphone, LayoutGrid, List,
-  Sparkles, Calendar as CalendarIcon, Image, CalendarDays, RefreshCw, Info, ArrowRight,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Search,
+  Mail,
+  Bell,
+  Smartphone,
+  LayoutGrid,
+  List,
+  Sparkles,
+  Calendar as CalendarIcon,
+  CalendarDays,
+  RefreshCw,
+  Info,
+  ArrowRight,
+  Inbox,
+  FilterX,
+  ChevronLeft,
+  ChevronRight,
+  Bug,
+  Database,
+  Copy,
+  Check,
+  ChevronDown,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { format, subDays, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, getDay, isAfter, subQuarters, startOfQuarter, endOfQuarter, startOfYear } from 'date-fns';
+import {
+  format,
+  subDays,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameDay,
+  getDay,
+  isAfter,
+  subQuarters,
+  startOfQuarter,
+  endOfQuarter,
+  startOfYear,
+} from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
-import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { supabase } from '@/integrations/supabase/client';
 import {
   brazeSyncPartialDescription,
@@ -38,15 +78,30 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/lib/logger';
+import {
+  buildCampaignSearchIndex,
+  extractPreviewImageUrl,
+  formatCampaignRate,
+  getCampaignPreviewLine,
+  getCampaignSecondaryLine,
+  normalizeCampaignChannel,
+  sanitizeCampaignDisplayText,
+  type CampaignChannelUi,
+  type CampaignPreviewFields,
+} from '@/lib/campaignDisplay';
+import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
+import { EmailModalCreative } from '@/components/campaigns/EmailModalCreative';
 
 interface PlaceholderCampaign {
   id: string;
   name: string;
-  channel: 'email' | 'push' | 'inapp';
+  channel: CampaignChannelUi;
   subject?: string;
   preheader?: string;
   push_title?: string;
   push_body?: string;
+  /** Braze campaign description from raw_details (optional). */
+  description?: string;
   sent_date: string;
   status: 'sent' | 'scheduled' | 'draft';
   opens?: number;
@@ -56,118 +111,316 @@ interface PlaceholderCampaign {
   open_rate?: string;
   click_rate?: string;
   unsubs?: number;
+  /** Resolved preview line (always safe to render). */
   creative_preview?: string;
+  preview_image_url?: string;
 }
+
+type CampaignViewModel = PlaceholderCampaign & {
+  searchIndex: string;
+  updatedAtMs: number;
+  createdAtMs: number;
+  openRateSort: number;
+  clickRateSort: number;
+};
+
+type CampaignSortKey = 'sent_desc' | 'updated_desc' | 'created_desc' | 'performance_desc';
+
+const PAGE_SIZE = 24;
+
+type BrazeCampaignRow = {
+  id: string;
+  braze_campaign_id?: string | null;
+  name: string;
+  channel?: string | null;
+  subject?: string | null;
+  preheader?: string | null;
+  status?: string | null;
+  sent_date?: string | null;
+  opens?: number | null;
+  clicks?: number | null;
+  deliveries?: number | null;
+  open_rate?: number | string | null;
+  click_rate?: number | string | null;
+  unsubs?: number | null;
+  segment?: string | null;
+  creative_preview?: string | null;
+  raw_details?: Record<string, unknown> | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  synced_at?: string | null;
+};
 
 const now = new Date();
 
 const PLACEHOLDER_CAMPAIGNS: PlaceholderCampaign[] = [
   {
-    id: '1', name: 'Spring Launch Announcement', channel: 'email',
-    subject: '🌸 Spring is here! Check out what\'s new',
+    id: '1',
+    name: 'Spring Launch Announcement',
+    channel: 'email',
+    subject: "🌸 Spring is here! Check out what's new",
     preheader: 'New products, fresh deals, and more inside',
-    sent_date: format(subDays(now, 1), 'yyyy-MM-dd'), status: 'sent',
-    opens: 12450, clicks: 3200, segment: 'Engaged 180d', deliveries: 42300,
-    open_rate: '29.4%', click_rate: '7.6%', unsubs: 84,
+    sent_date: format(subDays(now, 1), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 12450,
+    clicks: 3200,
+    segment: 'Engaged 180d',
+    deliveries: 42300,
+    open_rate: '29.4%',
+    click_rate: '7.6%',
+    unsubs: 84,
     creative_preview: 'Hero banner with spring floral imagery and CTA button',
   },
   {
-    id: '2', name: 'Flash Sale Reminder', channel: 'push',
+    id: '2',
+    name: 'Flash Sale Reminder',
+    channel: 'push',
     push_title: '⚡ Flash Sale ends tonight!',
-    push_body: 'Don\'t miss 40% off everything. Tap to shop now.',
-    sent_date: format(subDays(now, 2), 'yyyy-MM-dd'), status: 'sent',
-    opens: 8900, clicks: 2100, segment: 'All Subscribers', deliveries: 31200,
-    open_rate: '28.5%', click_rate: '6.7%', unsubs: 45,
+    push_body: "Don't miss 40% off everything. Tap to shop now.",
+    sent_date: format(subDays(now, 2), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 8900,
+    clicks: 2100,
+    segment: 'All Subscribers',
+    deliveries: 31200,
+    open_rate: '28.5%',
+    click_rate: '6.7%',
+    unsubs: 45,
     creative_preview: 'Bold "40% OFF" text with countdown timer',
   },
   {
-    id: '3', name: 'Welcome Series — Day 1', channel: 'email',
-    subject: 'Welcome to the family! Here\'s what to do first',
+    id: '3',
+    name: 'Welcome Series — Day 1',
+    channel: 'email',
+    subject: "Welcome to the family! Here's what to do first",
     preheader: 'Get started in 3 easy steps',
-    sent_date: format(subDays(now, 3), 'yyyy-MM-dd'), status: 'sent',
-    opens: 15600, clicks: 5400, segment: 'New Subscribers', deliveries: 28400,
-    open_rate: '54.9%', click_rate: '19.0%', unsubs: 12,
+    sent_date: format(subDays(now, 3), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 15600,
+    clicks: 5400,
+    segment: 'New Subscribers',
+    deliveries: 28400,
+    open_rate: '54.9%',
+    click_rate: '19.0%',
+    unsubs: 12,
     creative_preview: 'Clean welcome layout with 3-step getting started guide',
   },
   {
-    id: '4', name: 'Feature Update — In-App', channel: 'inapp',
+    id: '4',
+    name: 'Feature Update — In-App',
+    channel: 'inapp',
     push_title: 'New: Dark Mode is here!',
     push_body: 'Try our brand-new dark mode. Easier on your eyes.',
-    sent_date: format(subDays(now, 4), 'yyyy-MM-dd'), status: 'sent',
-    segment: 'Active Users', deliveries: 18500,
-    open_rate: '—', click_rate: '12.1%', unsubs: 0,
+    sent_date: format(subDays(now, 4), 'yyyy-MM-dd'),
+    status: 'sent',
+    segment: 'Active Users',
+    deliveries: 18500,
+    open_rate: '—',
+    click_rate: '12.1%',
+    unsubs: 0,
     creative_preview: 'Split-screen light/dark mode comparison',
   },
   {
-    id: '5', name: 'Weekly Digest', channel: 'email',
+    id: '5',
+    name: 'Weekly Digest',
+    channel: 'email',
     subject: 'Your weekly roundup is here 📬',
     preheader: 'Top stories, tips, and what\'s trending',
-    sent_date: format(subDays(now, 5), 'yyyy-MM-dd'), status: 'sent',
-    opens: 9800, clicks: 1500, segment: 'Engaged 90d', deliveries: 37200,
-    open_rate: '26.3%', click_rate: '4.0%', unsubs: 62,
+    sent_date: format(subDays(now, 5), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 9800,
+    clicks: 1500,
+    segment: 'Engaged 90d',
+    deliveries: 37200,
+    open_rate: '26.3%',
+    click_rate: '4.0%',
+    unsubs: 62,
     creative_preview: 'Newsletter-style layout with featured articles',
   },
   {
-    id: '6', name: 'Cart Abandonment Nudge', channel: 'push',
+    id: '6',
+    name: 'Cart Abandonment Nudge',
+    channel: 'push',
     push_title: 'You left something behind!',
     push_body: 'Your cart is waiting. Complete your order before items sell out.',
-    sent_date: format(subDays(now, 6), 'yyyy-MM-dd'), status: 'sent',
-    opens: 6200, clicks: 1800, segment: 'Cart Abandoners', deliveries: 14800,
-    open_rate: '41.9%', click_rate: '12.2%', unsubs: 18,
+    sent_date: format(subDays(now, 6), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 6200,
+    clicks: 1800,
+    segment: 'Cart Abandoners',
+    deliveries: 14800,
+    open_rate: '41.9%',
+    click_rate: '12.2%',
+    unsubs: 18,
     creative_preview: 'Product thumbnail with urgency messaging',
   },
   {
-    id: '7', name: 'Loyalty Reward Unlocked', channel: 'email',
-    subject: '🎉 You\'ve earned a reward!',
+    id: '7',
+    name: 'Loyalty Reward Unlocked',
+    channel: 'email',
+    subject: "🎉 You've earned a reward!",
     preheader: 'Redeem your points before they expire',
-    sent_date: format(subDays(now, 7), 'yyyy-MM-dd'), status: 'sent',
-    opens: 11200, clicks: 4100, segment: 'Loyalty Members', deliveries: 22100,
-    open_rate: '50.7%', click_rate: '18.6%', unsubs: 8,
+    sent_date: format(subDays(now, 7), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 11200,
+    clicks: 4100,
+    segment: 'Loyalty Members',
+    deliveries: 22100,
+    open_rate: '50.7%',
+    click_rate: '18.6%',
+    unsubs: 8,
     creative_preview: 'Reward badge with confetti animation and CTA',
   },
   {
-    id: '8', name: 'Summer Preview', channel: 'email',
+    id: '8',
+    name: 'Summer Preview',
+    channel: 'email',
     subject: '☀️ Summer Preview: First look inside',
     preheader: 'Be the first to see our summer collection',
-    sent_date: format(subDays(now, 10), 'yyyy-MM-dd'), status: 'sent',
-    opens: 13400, clicks: 3800, segment: 'Engaged 180d', deliveries: 41500,
-    open_rate: '32.3%', click_rate: '9.2%', unsubs: 71,
+    sent_date: format(subDays(now, 10), 'yyyy-MM-dd'),
+    status: 'sent',
+    opens: 13400,
+    clicks: 3800,
+    segment: 'Engaged 180d',
+    deliveries: 41500,
+    open_rate: '32.3%',
+    click_rate: '9.2%',
+    unsubs: 71,
     creative_preview: 'Product grid with summer color palette',
   },
 ];
 
-// Placeholder briefs as calendar items
 const BRIEF_CALENDAR_ITEMS = [
   { id: 'b1', name: 'Memorial Day Sale Brief', date: format(subDays(now, -3), 'yyyy-MM-dd'), type: 'brief' as const },
   { id: 'b2', name: 'June Newsletter Brief', date: format(subDays(now, -7), 'yyyy-MM-dd'), type: 'brief' as const },
 ];
 
-const channelIcons: Record<string, React.ReactNode> = {
-  email: <Mail className="h-4 w-4" />,
-  push: <Bell className="h-4 w-4" />,
-  inapp: <Smartphone className="h-4 w-4" />,
+const channelIcons: Record<CampaignChannelUi, React.ReactNode> = {
+  email: <Mail className="h-4 w-4" aria-hidden />,
+  push: <Bell className="h-4 w-4" aria-hidden />,
+  inapp: <Smartphone className="h-4 w-4" aria-hidden />,
 };
 
-const channelLabels: Record<string, string> = {
-  email: 'Email', push: 'Push', inapp: 'In-App',
+const channelLabels: Record<CampaignChannelUi, string> = {
+  email: 'Email',
+  push: 'Push',
+  inapp: 'In-App',
 };
 
-const channelColors: Record<string, string> = {
-  email: 'bg-blue-500/10 text-blue-600',
-  push: 'bg-orange-500/10 text-orange-600',
-  inapp: 'bg-purple-500/10 text-purple-600',
+const channelColors: Record<CampaignChannelUi, string> = {
+  email: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  push: 'bg-orange-500/10 text-orange-700 dark:text-orange-300',
+  inapp: 'bg-purple-500/10 text-purple-700 dark:text-purple-300',
 };
 
-const creativeGradients: Record<string, string> = {
-  email: 'from-blue-100 to-blue-50',
-  push: 'from-orange-100 to-orange-50',
-  inapp: 'from-purple-100 to-purple-50',
-};
+function parseRateToSort(s: string | undefined): number {
+  if (!s || s === '—') return -1;
+  const n = Number.parseFloat(s.replace(/%/g, ''));
+  return Number.isFinite(n) ? n : -1;
+}
 
-function CalendarView({ campaigns, briefs, onSelectCampaign }: {
-  campaigns: PlaceholderCampaign[];
+function toPreviewFields(c: PlaceholderCampaign): CampaignPreviewFields {
+  return {
+    subject: c.subject,
+    push_title: c.push_title,
+    preheader: c.preheader,
+    push_body: c.push_body,
+    creative_preview: c.creative_preview,
+    description: c.description,
+    name: c.name,
+  };
+}
+
+function enrichToViewModel(c: PlaceholderCampaign, index = 0): CampaignViewModel {
+  const previewFields = toPreviewFields(c);
+  const previewLine = getCampaignPreviewLine(previewFields);
+  return {
+    ...c,
+    creative_preview: previewLine,
+    searchIndex: buildCampaignSearchIndex({
+      name: c.name,
+      subject: c.subject,
+      push_title: c.push_title,
+      push_body: c.push_body,
+      creative_preview: c.creative_preview,
+      preheader: c.preheader,
+    }),
+    updatedAtMs: now.getTime() - index * 60_000,
+    createdAtMs: now.getTime() - index * 120_000,
+    openRateSort: parseRateToSort(c.open_rate),
+    clickRateSort: parseRateToSort(c.click_rate),
+  };
+}
+
+function sortCampaigns(list: CampaignViewModel[], sortKey: CampaignSortKey): CampaignViewModel[] {
+  const out = [...list];
+  const perfScore = (c: CampaignViewModel) =>
+    Math.max(0, c.openRateSort) * 2 + Math.max(0, c.clickRateSort);
+
+  out.sort((a, b) => {
+    switch (sortKey) {
+      case 'sent_desc':
+        return new Date(b.sent_date).getTime() - new Date(a.sent_date).getTime();
+      case 'updated_desc':
+        return b.updatedAtMs - a.updatedAtMs;
+      case 'created_desc':
+        return b.createdAtMs - a.createdAtMs;
+      case 'performance_desc':
+        return perfScore(b) - perfScore(a);
+      default:
+        return 0;
+    }
+  });
+  return out;
+}
+
+function CampaignsGridSkeleton() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Card key={i} className="flex h-full min-h-0 flex-col overflow-hidden">
+          <Skeleton className="aspect-video w-full shrink-0 rounded-none" />
+          <CardContent className="flex flex-1 flex-col gap-3 p-4">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <div className="mt-auto flex items-center justify-between pt-1">
+              <Skeleton className="h-5 w-14 rounded-full" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function CampaignsListSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <Card key={i}>
+          <CardContent className="flex items-center gap-4 p-4">
+            <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+            <Skeleton className="h-5 w-20 shrink-0 rounded-full" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function CalendarView({
+  campaigns,
+  briefs,
+  onSelectCampaign,
+}: {
+  campaigns: CampaignViewModel[];
   briefs: typeof BRIEF_CALENDAR_ITEMS;
-  onSelectCampaign: (c: PlaceholderCampaign) => void;
+  onSelectCampaign: (c: CampaignViewModel) => void;
 }) {
   const start = startOfMonth(now);
   const end = endOfMonth(now);
@@ -176,33 +429,47 @@ function CalendarView({ campaigns, briefs, onSelectCampaign }: {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold mb-3">{format(now, 'MMMM yyyy')}</h3>
-      <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
+      <h3 className="mb-3 text-sm font-semibold">{format(now, 'MMMM yyyy')}</h3>
+      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-border">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-          <div key={d} className="bg-muted/50 p-2 text-center text-xs font-medium text-muted-foreground">{d}</div>
+          <div key={d} className="bg-muted/50 p-2 text-center text-xs font-medium text-muted-foreground">
+            {d}
+          </div>
         ))}
         {Array.from({ length: startDayOfWeek }).map((_, i) => (
-          <div key={`empty-${i}`} className="bg-card p-2 min-h-[80px]" />
+          <div key={`empty-${i}`} className="min-h-[80px] bg-card p-2" />
         ))}
         {days.map(day => {
           const dayCampaigns = campaigns.filter(c => isSameDay(new Date(c.sent_date), day));
           const dayBriefs = briefs.filter(b => isSameDay(new Date(b.date), day));
           const isToday = isSameDay(day, now);
           return (
-            <div key={day.toISOString()} className={cn("bg-card p-1.5 min-h-[80px]", isToday && "ring-1 ring-primary/50")}>
-              <span className={cn("text-xs font-medium", isToday ? "text-primary" : "text-muted-foreground")}>{format(day, 'd')}</span>
+            <div
+              key={day.toISOString()}
+              className={cn('min-h-[80px] bg-card p-1.5', isToday && 'ring-1 ring-primary/50')}
+            >
+              <span className={cn('text-xs font-medium', isToday ? 'text-primary' : 'text-muted-foreground')}>
+                {format(day, 'd')}
+              </span>
               <div className="mt-1 space-y-0.5">
                 {dayCampaigns.map(c => (
                   <button
                     key={c.id}
+                    type="button"
                     onClick={() => onSelectCampaign(c)}
-                    className={cn("w-full text-left text-[10px] px-1 py-0.5 rounded truncate", channelColors[c.channel])}
+                    className={cn(
+                      'w-full truncate rounded px-1 py-0.5 text-left text-[10px]',
+                      channelColors[c.channel],
+                    )}
                   >
                     {c.name}
                   </button>
                 ))}
                 {dayBriefs.map(b => (
-                  <div key={b.id} className="text-[10px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 truncate">
+                  <div
+                    key={b.id}
+                    className="truncate rounded px-1 py-0.5 text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  >
                     📋 {b.name}
                   </div>
                 ))}
@@ -215,21 +482,40 @@ function CalendarView({ campaigns, briefs, onSelectCampaign }: {
   );
 }
 
+/** Modal / detail copy: remove ESP invisible characters, then em dash if nothing left. */
+function displaySanitized(value: string | null | undefined): string {
+  const s = sanitizeCampaignDisplayText(value);
+  return s.length > 0 ? s : '—';
+}
+
 export default function Campaigns() {
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'calendar'>('grid');
-  const [selectedCampaign, setSelectedCampaign] = useState<PlaceholderCampaign | null>(null);
+  const [selectedCampaign, setSelectedCampaign] = useState<CampaignViewModel | null>(null);
   const [dateFilter, setDateFilter] = useState('All Time');
+  const [sortBy, setSortBy] = useState<CampaignSortKey>('sent_desc');
+  const [page, setPage] = useState(1);
+  const [devRawJsonOpen, setDevRawJsonOpen] = useState(false);
+  const [rawJsonCopied, setRawJsonCopied] = useState(false);
 
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { clientId: workspaceClientId } = useResolvedClientId();
-  const { data: platforms } = useDoubleGoodPlatforms();
-  const { clientId: brazeDataClientId } = useBrazeDashboardClientId();
+  const { clientId: workspaceClientId, isClientLoading: workspaceClientLoading } = useResolvedClientId();
+  const { data: platforms, isLoading: platformsLoading } = useDoubleGoodPlatforms();
+  /** Stable check — avoids treating “no row yet” as disconnected while `platforms` is still loading. */
+  const brazeConnected = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
+  /** Must match `sync-braze` body `clientId` — not `useBrazeDashboardClientId()` (admin fallback can point at another workspace). */
+  const showLiveCampaigns = Boolean(workspaceClientId && brazeConnected);
+  /** Demo cards only when we know the workspace has no Braze link — never while platforms query is in flight (prevents fake rows flashing after API save). */
+  const showDemoCampaigns =
+    Boolean(workspaceClientId) &&
+    !workspaceClientLoading &&
+    !platformsLoading &&
+    !brazeConnected;
 
   const handleSyncFromBraze = async () => {
     if (!workspaceClientId || !brazePlatform?.id) return;
@@ -262,63 +548,127 @@ export default function Campaigns() {
     }
   };
 
-  const { data: dbCampaigns, isLoading } = useQuery({
-    queryKey: ['braze_campaigns', brazeDataClientId],
+  const {
+    data: dbCampaigns,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['braze_campaigns', workspaceClientId],
     queryFn: async () => {
-      const cid = brazeDataClientId;
+      const cid = workspaceClientId;
       if (!cid) return [];
-      const { data, error } = await supabase
+      const { data, error: qErr } = await supabase
         .from('braze_campaigns')
         .select('*')
         .eq('client_id', cid)
-        .order('sent_date', { ascending: false });
-      if (error) throw error;
+        .order('sent_date', { ascending: false })
+        .limit(2000);
+      if (qErr) throw qErr;
       return data ?? [];
     },
-    enabled: !!brazeDataClientId,
+    enabled: showLiveCampaigns,
   });
 
-  // Map database records to the PlaceholderCampaign shape the UI expects
-  const campaigns: PlaceholderCampaign[] = useMemo(() => {
-    if (!dbCampaigns || dbCampaigns.length === 0) return PLACEHOLDER_CAMPAIGNS;
+  const campaigns: CampaignViewModel[] = useMemo(() => {
+    if (showLiveCampaigns) {
+      if (dbCampaigns === undefined) return [];
+      if (dbCampaigns.length === 0) return [];
 
-    return dbCampaigns.map((row: any) => {
+      return (dbCampaigns as BrazeCampaignRow[]).map(row => {
       const rawDetails = (row.raw_details ?? {}) as Record<string, unknown>;
-      const channel = (row.channel ?? 'email') as PlaceholderCampaign['channel'];
+      const channel = normalizeCampaignChannel(row.channel);
+      const push_title = typeof rawDetails.push_title === 'string' ? rawDetails.push_title : undefined;
+      const push_body = typeof rawDetails.push_body === 'string' ? rawDetails.push_body : undefined;
+      const description = typeof rawDetails.description === 'string' ? rawDetails.description : undefined;
+      const preview_image_url =
+        extractPreviewImageUrl(rawDetails) ??
+        (typeof rawDetails.preview_image_url === 'string' ? rawDetails.preview_image_url : undefined);
 
-      return {
-        id: row.braze_campaign_id ?? row.id,
+      const base: PlaceholderCampaign = {
+        id: String(row.braze_campaign_id ?? row.id),
         name: row.name,
         channel,
         subject: row.subject ?? undefined,
         preheader: row.preheader ?? undefined,
-        push_title: (rawDetails.push_title as string | undefined) ?? undefined,
-        push_body: (rawDetails.push_body as string | undefined) ?? undefined,
+        push_title,
+        push_body,
+        description,
         sent_date: row.sent_date ? format(new Date(row.sent_date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
         status: (row.status ?? 'draft') as PlaceholderCampaign['status'],
         opens: row.opens ?? undefined,
         clicks: row.clicks ?? undefined,
         segment: row.segment ?? undefined,
         deliveries: row.deliveries ?? undefined,
-        open_rate: row.open_rate != null ? `${Number(row.open_rate).toFixed(1)}%` : undefined,
-        click_rate: row.click_rate != null ? `${Number(row.click_rate).toFixed(1)}%` : undefined,
+        open_rate: formatCampaignRate(row.open_rate),
+        click_rate: formatCampaignRate(row.click_rate),
         unsubs: row.unsubs ?? undefined,
         creative_preview: row.creative_preview ?? undefined,
-      } satisfies PlaceholderCampaign;
+        preview_image_url,
+      };
+
+      const previewFields: CampaignPreviewFields = {
+        subject: base.subject,
+        push_title: base.push_title,
+        preheader: base.preheader,
+        push_body: base.push_body,
+        creative_preview: base.creative_preview,
+        description: base.description,
+        name: base.name,
+      };
+      const previewLine = getCampaignPreviewLine(previewFields);
+
+      const updatedAtMs = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+      const createdAtMs = row.created_at ? new Date(row.created_at).getTime() : 0;
+
+      return {
+        ...base,
+        creative_preview: previewLine,
+        searchIndex: buildCampaignSearchIndex({
+          name: base.name,
+          subject: base.subject,
+          push_title: base.push_title,
+          push_body: base.push_body,
+          creative_preview: row.creative_preview,
+          preheader: base.preheader,
+        }),
+        updatedAtMs,
+        createdAtMs,
+        openRateSort: parseRateToSort(base.open_rate),
+        clickRateSort: parseRateToSort(base.click_rate),
+      };
     });
-  }, [dbCampaigns]);
+    }
 
-  // Show preview banner when no real Braze data exists
-  const isPreviewMode = !dbCampaigns || dbCampaigns.length === 0;
+    if (showDemoCampaigns) {
+      return PLACEHOLDER_CAMPAIGNS.map((c, i) => enrichToViewModel(c, i));
+    }
 
-  // Apply filters (search, channel, date range)
+    return [];
+  }, [dbCampaigns, showLiveCampaigns, showDemoCampaigns]);
+
+  const showLoading =
+    workspaceClientLoading ||
+    (Boolean(workspaceClientId) && platformsLoading) ||
+    Boolean(showLiveCampaigns && isLoading);
+  const showSampleBanner = showDemoCampaigns;
+  const isEmptyLive =
+    showLiveCampaigns &&
+    !isLoading &&
+    !isError &&
+    Array.isArray(dbCampaigns) &&
+    dbCampaigns.length === 0;
+
   const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return campaigns.filter(c => {
-      const matchesSearch = !searchQuery ||
-        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.push_title?.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesChannel = channelFilter === 'All' || c.channel === channelFilter;
+      const matchesSearch =
+        !q ||
+        c.searchIndex.includes(q) ||
+        c.name.toLowerCase().includes(q);
+      const matchesChannel =
+        channelFilter === 'All' || c.channel === normalizeCampaignChannel(channelFilter);
 
       let matchesDate = true;
       if (dateFilter !== 'All Time') {
@@ -332,15 +682,18 @@ export default function Campaigns() {
             matchesDate = isAfter(sentDate, subDays(today, 30));
             break;
           case 'This Quarter':
-            matchesDate = isAfter(sentDate, startOfQuarter(today)) || isSameDay(sentDate, startOfQuarter(today));
+            matchesDate =
+              isAfter(sentDate, startOfQuarter(today)) || isSameDay(sentDate, startOfQuarter(today));
             break;
           case 'Last Quarter': {
             const lastQ = subQuarters(today, 1);
-            matchesDate = isAfter(sentDate, startOfQuarter(lastQ)) && !isAfter(sentDate, endOfQuarter(lastQ));
+            matchesDate =
+              isAfter(sentDate, startOfQuarter(lastQ)) && !isAfter(sentDate, endOfQuarter(lastQ));
             break;
           }
           case 'YTD':
-            matchesDate = isAfter(sentDate, startOfYear(today)) || isSameDay(sentDate, startOfYear(today));
+            matchesDate =
+              isAfter(sentDate, startOfYear(today)) || isSameDay(sentDate, startOfYear(today));
             break;
         }
       }
@@ -349,9 +702,112 @@ export default function Campaigns() {
     });
   }, [campaigns, searchQuery, channelFilter, dateFilter]);
 
+  const sortedCampaigns = useMemo(
+    () => sortCampaigns(filtered, sortBy),
+    [filtered, sortBy],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(sortedCampaigns.length / PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, channelFilter, dateFilter, sortBy]);
+
+  useEffect(() => {
+    setPage(p => Math.min(p, totalPages));
+  }, [totalPages]);
+
+  const paginatedCampaigns = useMemo(() => {
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    return sortedCampaigns.slice(start, start + PAGE_SIZE);
+  }, [sortedCampaigns, page, totalPages]);
+
+  const devDataHealth = useMemo(() => {
+    if (!import.meta.env.DEV || !dbCampaigns?.length) return null;
+    let missingCreative = 0;
+    let missingImage = 0;
+    let missingPushCopy = 0;
+    for (const row of dbCampaigns as BrazeCampaignRow[]) {
+      if (!String(row.creative_preview ?? '').trim()) missingCreative++;
+      const raw = (row.raw_details ?? {}) as Record<string, unknown>;
+      if (!extractPreviewImageUrl(raw) && !(typeof raw.preview_image_url === 'string' && raw.preview_image_url))
+        missingImage++;
+      const pt = typeof raw.push_title === 'string' ? raw.push_title : '';
+      const pb = typeof raw.push_body === 'string' ? raw.push_body : '';
+      const ch = normalizeCampaignChannel(row.channel);
+      if ((ch === 'push' || ch === 'inapp') && !pt.trim() && !pb.trim()) {
+        missingPushCopy++;
+      }
+    }
+    return {
+      total: dbCampaigns.length,
+      missingCreative,
+      missingImage,
+      missingPushCopy,
+    };
+  }, [dbCampaigns]);
+
+  const selectedRawRow = useMemo(() => {
+    if (!selectedCampaign || !dbCampaigns) return null;
+    return (dbCampaigns as BrazeCampaignRow[]).find(
+      r => String(r.braze_campaign_id ?? r.id) === selectedCampaign.id,
+    );
+  }, [selectedCampaign, dbCampaigns]);
+
+  const selectedRawJson = useMemo(
+    () => (selectedRawRow ? JSON.stringify(selectedRawRow, null, 2) : ''),
+    [selectedRawRow],
+  );
+
+  const modalHeroPreviewText = useMemo(() => {
+    if (!selectedCampaign) return 'No preview available';
+    const t = sanitizeCampaignDisplayText(
+      selectedCampaign.creative_preview ??
+        getCampaignPreviewLine(toPreviewFields(selectedCampaign)),
+    );
+    return t.length > 0 ? t : 'No preview available';
+  }, [selectedCampaign]);
+
+  useEffect(() => {
+    if (!selectedCampaign) {
+      setDevRawJsonOpen(false);
+      setRawJsonCopied(false);
+    }
+  }, [selectedCampaign]);
+
+  const copyRawCampaignJson = async () => {
+    if (!selectedRawJson) return;
+    try {
+      await navigator.clipboard.writeText(selectedRawJson);
+      setRawJsonCopied(true);
+      toast({
+        title: 'Copied to clipboard',
+        description: 'Raw braze_campaigns row as JSON.',
+      });
+      window.setTimeout(() => setRawJsonCopied(false), 2000);
+    } catch {
+      toast({ title: 'Could not copy', variant: 'destructive' });
+    }
+  };
+
+  const queryErrorMessage =
+    error instanceof Error ? error.message : 'Something went wrong while loading campaigns.';
+
+  const showPagination =
+    !showLoading &&
+    !isEmptyLive &&
+    !(isError && showLiveCampaigns && !dbCampaigns?.length) &&
+    viewMode !== 'calendar' &&
+    sortedCampaigns.length > 0;
+
+  const rangeStart = sortedCampaigns.length === 0 ? 0 : (Math.min(page, totalPages) - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(sortedCampaigns.length, Math.min(page, totalPages) * PAGE_SIZE);
+
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <TooltipProvider delayDuration={300}>
+      <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
         <PageHeader
           title="Campaigns"
           description="Browse sent campaigns and one-off communications"
@@ -379,15 +835,22 @@ export default function Campaigns() {
           }
         />
 
-        {/* Filters — date + channel inline */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
+            <div className="relative min-w-[200px] max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Search campaigns..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
+              <Input
+                placeholder="Search campaigns..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-10"
+                aria-label="Search campaigns"
+              />
             </div>
             <Select value={channelFilter} onValueChange={setChannelFilter}>
-              <SelectTrigger className="w-[140px]"><SelectValue placeholder="Channel" /></SelectTrigger>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Channel" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="All">All Channels</SelectItem>
                 <SelectItem value="email">Email</SelectItem>
@@ -396,7 +859,9 @@ export default function Campaigns() {
               </SelectContent>
             </Select>
             <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="Date Range" /></SelectTrigger>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Date Range" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="All Time">All Time</SelectItem>
                 <SelectItem value="Last 7 Days">Last 7 Days</SelectItem>
@@ -406,25 +871,67 @@ export default function Campaigns() {
                 <SelectItem value="YTD">YTD</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={sortBy} onValueChange={v => setSortBy(v as CampaignSortKey)}>
+              <SelectTrigger className="w-[180px]" aria-label="Sort campaigns">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sent_desc">Sent date (newest)</SelectItem>
+                <SelectItem value="updated_desc">Last updated</SelectItem>
+                <SelectItem value="created_desc">Created date</SelectItem>
+                <SelectItem value="performance_desc">Performance (open + click)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant={viewMode === 'grid' ? 'default' : 'outline'} size="icon" onClick={() => setViewMode('grid')}>
+            <Button
+              variant={viewMode === 'grid' ? 'default' : 'outline'}
+              size="icon"
+              onClick={() => setViewMode('grid')}
+              aria-label="Grid view"
+            >
               <LayoutGrid className="h-4 w-4" />
             </Button>
-            <Button variant={viewMode === 'list' ? 'default' : 'outline'} size="icon" onClick={() => setViewMode('list')}>
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'outline'}
+              size="icon"
+              onClick={() => setViewMode('list')}
+              aria-label="List view"
+            >
               <List className="h-4 w-4" />
             </Button>
-            <Button variant={viewMode === 'calendar' ? 'default' : 'outline'} size="icon" onClick={() => setViewMode('calendar')}>
+            <Button
+              variant={viewMode === 'calendar' ? 'default' : 'outline'}
+              size="icon"
+              onClick={() => setViewMode('calendar')}
+              aria-label="Calendar view"
+            >
               <CalendarDays className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
-        {/* Sample Data Banner */}
-        {isPreviewMode && !isLoading && (
+        {import.meta.env.DEV && devDataHealth && showLiveCampaigns && (
+          <Collapsible className="rounded-lg border border-dashed border-amber-500/40 bg-muted/30 px-3 py-2">
+            <CollapsibleTrigger className="flex w-full items-center gap-2 text-left text-sm font-medium text-amber-900 dark:text-amber-200">
+              <Bug className="h-4 w-4 shrink-0" aria-hidden />
+              Campaign data health (dev)
+              <span className="ml-auto text-xs font-normal text-muted-foreground">
+                {devDataHealth.total} rows · {devDataHealth.missingCreative} missing creative ·{' '}
+                {devDataHealth.missingImage} missing image · {devDataHealth.missingPushCopy} push/IAM without title/body
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 text-xs text-muted-foreground">
+              Re-sync from Braze to backfill creative_preview, images, and push fields. Counts are from the latest query
+              (max 2000 rows).
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {showSampleBanner && (
           <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/50">
             <Info className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-amber-800 dark:text-amber-200">
                 This is sample data. Connect your Braze account on the Platforms page to see real campaign data.
               </span>
@@ -432,7 +939,7 @@ export default function Campaigns() {
                 variant="outline"
                 size="sm"
                 asChild
-                className="border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/50 w-fit shrink-0"
+                className="w-fit shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/50"
               >
                 <Link to="/platforms">
                   Connect Braze
@@ -443,165 +950,446 @@ export default function Campaigns() {
           </Alert>
         )}
 
-        {/* Loading State */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <LoadingSpinner />
-          </div>
-        ) :
+        {isError && showLiveCampaigns && (
+          <Alert variant="destructive">
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>{queryErrorMessage}</span>
+              <Button type="button" variant="outline" size="sm" className="w-fit shrink-0" onClick={() => refetch()}>
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
 
-        /* Calendar View */
-        viewMode === 'calendar' ? (
+        {showLoading ? (
+          viewMode === 'calendar' ? (
+            <Skeleton className="h-[420px] w-full rounded-xl" />
+          ) : viewMode === 'grid' ? (
+            <CampaignsGridSkeleton />
+          ) : (
+            <CampaignsListSkeleton />
+          )
+        ) : isError && showLiveCampaigns && !dbCampaigns?.length ? (
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+              <Mail className="h-12 w-12 text-muted-foreground opacity-60" />
+              <p className="max-w-sm text-muted-foreground">
+                Campaigns could not be loaded. Check your connection and try again.
+              </p>
+              <Button type="button" variant="default" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
+        ) : isEmptyLive ? (
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+              <Inbox className="h-12 w-12 text-muted-foreground opacity-60" />
+              <div className="space-y-1">
+                <p className="font-medium">No campaigns yet</p>
+                <p className="max-w-md text-sm text-muted-foreground">
+                  Sync from Braze to pull your campaigns into this dashboard.
+                </p>
+              </div>
+              <Button type="button" variant="default" disabled={!brazePlatform} onClick={handleSyncFromBraze}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sync from Braze
+              </Button>
+            </CardContent>
+          </Card>
+        ) : viewMode === 'calendar' ? (
           <Card>
             <CardContent className="p-4">
-              <CalendarView campaigns={filtered} briefs={BRIEF_CALENDAR_ITEMS} onSelectCampaign={setSelectedCampaign} />
+              <CalendarView
+                campaigns={sortedCampaigns}
+                briefs={BRIEF_CALENDAR_ITEMS}
+                onSelectCampaign={setSelectedCampaign}
+              />
             </CardContent>
           </Card>
         ) : (
-          /* Campaign Grid / List */
-          <div className={viewMode === 'grid' ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3'}>
-            {filtered.length === 0 ? (
-              <div className="col-span-full text-center py-12 text-muted-foreground">
-                <Mail className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>No campaigns found</p>
+          <>
+          <div
+            className={
+              viewMode === 'grid' ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3'
+            }
+          >
+            {sortedCampaigns.length === 0 ? (
+              <div className="col-span-full flex flex-col items-center gap-3 rounded-xl border border-dashed py-16 text-center">
+                {campaigns.length > 0 ? (
+                  <>
+                    <FilterX className="h-10 w-10 text-muted-foreground opacity-60" aria-hidden />
+                    <p className="font-medium text-foreground">No campaigns match your filters</p>
+                    <p className="max-w-sm text-sm text-muted-foreground">
+                      Try adjusting search, channel, or date range.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setChannelFilter('All');
+                        setDateFilter('All Time');
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Mail className="h-10 w-10 text-muted-foreground opacity-60" aria-hidden />
+                    <p className="text-muted-foreground">No campaigns found</p>
+                  </>
+                )}
               </div>
             ) : (
-              filtered.map(campaign => (
-                <Card key={campaign.id} className="hover:border-primary/50 transition-colors cursor-pointer overflow-hidden" onClick={() => setSelectedCampaign(campaign)}>
-                  {viewMode === 'grid' && (
-                    <div className={cn("h-32 bg-gradient-to-br flex items-center justify-center", creativeGradients[campaign.channel])}>
-                      <div className="text-center px-4">
-                        <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center mx-auto mb-2", channelColors[campaign.channel])}>
-                          {channelIcons[campaign.channel]}
-                        </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{campaign.creative_preview}</p>
-                      </div>
-                    </div>
+              paginatedCampaigns.map(campaign => {
+                const titleText = campaign.name;
+                const previewLine =
+                  campaign.creative_preview ?? getCampaignPreviewLine(toPreviewFields(campaign));
+                return (
+                <Card
+                  key={campaign.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open campaign ${campaign.name}`}
+                  className={cn(
+                    'group flex cursor-pointer flex-col overflow-hidden transition-all duration-200 hover:border-primary/50 hover:shadow-md motion-safe:hover:-translate-y-0.5',
+                    viewMode === 'grid' && 'h-full min-h-0',
                   )}
-                  <CardContent className={viewMode === 'grid' ? 'p-4 space-y-2' : 'p-4 flex items-center gap-4'}>
+                  onClick={() => setSelectedCampaign(campaign)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedCampaign(campaign);
+                    }
+                  }}
+                >
+                  {viewMode === 'grid' && (
+                    <CampaignCreativeHero
+                      channel={campaign.channel}
+                      previewText={previewLine}
+                      previewImageUrl={campaign.preview_image_url}
+                      campaignName={campaign.name}
+                      variant="card"
+                    />
+                  )}
+                  <CardContent
+                    className={cn(
+                      'flex min-h-[88px] flex-1 flex-col gap-2',
+                      viewMode === 'grid' ? 'p-4' : 'p-4 sm:flex-row sm:items-start sm:gap-4',
+                    )}
+                  >
                     {viewMode === 'list' && (
-                      <div className={cn("h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0", channelColors[campaign.channel])}>
+                      <div
+                        className={cn(
+                          'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+                          channelColors[campaign.channel],
+                        )}
+                      >
                         {channelIcons[campaign.channel]}
                       </div>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-sm truncate">{campaign.name}</h3>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {campaign.subject || campaign.push_title}
-                      </p>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <h3 className="line-clamp-2 text-left text-sm font-medium leading-snug">{titleText}</h3>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-sm">
+                          {titleText}
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">
+                            {previewLine}
+                          </p>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-sm">
+                          {previewLine}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
-                    <div className={viewMode === 'grid' ? 'flex items-center justify-between' : 'flex items-center gap-3'}>
-                      <Badge className={cn("text-xs", channelColors[campaign.channel])}>
+                    <div
+                      className={cn(
+                        'flex shrink-0 items-center gap-2',
+                        viewMode === 'grid' ? 'mt-auto justify-between pt-1' : 'flex-col items-end gap-1 sm:pt-0.5',
+                      )}
+                    >
+                      <Badge className={cn('text-xs font-normal', channelColors[campaign.channel])}>
                         {channelLabels[campaign.channel]}
                       </Badge>
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <CalendarIcon className="h-3 w-3" />
+                      <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                        <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
                         {format(new Date(campaign.sent_date), 'MMM d')}
                       </span>
                     </div>
                   </CardContent>
                 </Card>
-              ))
+                );
+              })
             )}
           </div>
+          {showPagination && totalPages > 1 && (
+            <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 sm:flex-row">
+              <p className="text-sm text-muted-foreground">
+                Showing{' '}
+                <span className="font-medium text-foreground">
+                  {rangeStart}–{rangeEnd}
+                </span>{' '}
+                of {sortedCampaigns.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  Page {Math.min(page, totalPages)} of {totalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
+      </TooltipProvider>
 
-      {/* Campaign Detail Modal — enhanced with full metrics */}
-      <Dialog open={!!selectedCampaign} onOpenChange={() => setSelectedCampaign(null)}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={!!selectedCampaign} onOpenChange={open => !open && setSelectedCampaign(null)}>
+        <DialogContent className="max-w-lg gap-0 overflow-hidden p-0 duration-300 sm:max-w-xl">
           {selectedCampaign && (
             <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center", channelColors[selectedCampaign.channel])}>
+              <DialogHeader className="space-y-2 px-6 pb-2 pt-6">
+                <DialogTitle className="flex items-start gap-3 pr-8 text-left leading-snug">
+                  <div
+                    className={cn(
+                      'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                      channelColors[selectedCampaign.channel],
+                    )}
+                  >
                     {channelIcons[selectedCampaign.channel]}
                   </div>
-                  {selectedCampaign.name}
+                  <span className="line-clamp-3 break-words">
+                    {displaySanitized(selectedCampaign.name)}
+                  </span>
                 </DialogTitle>
                 <DialogDescription>
                   Sent {format(new Date(selectedCampaign.sent_date), 'MMMM d, yyyy')}
-                  {selectedCampaign.segment && <> · Segment: <span className="font-medium text-foreground">{selectedCampaign.segment}</span></>}
+                  {selectedCampaign.segment && (
+                    <>
+                      {' '}
+                      · Segment:{' '}
+                      <span className="font-medium text-foreground">{selectedCampaign.segment}</span>
+                    </>
+                  )}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 mt-2">
-                {/* Creative Preview */}
-                <div className={cn("rounded-lg p-6 bg-gradient-to-br flex items-center justify-center", creativeGradients[selectedCampaign.channel])}>
-                  <div className="text-center">
-                    <Image className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-                    <p className="text-sm text-muted-foreground">{selectedCampaign.creative_preview}</p>
-                  </div>
-                </div>
+
+              <div className="space-y-5 px-6 pb-6">
+                {selectedCampaign.channel === 'email' ? (
+                  <EmailModalCreative
+                    key={selectedCampaign.id}
+                    subjectLine={displaySanitized(
+                      selectedCampaign.subject ?? selectedCampaign.push_title,
+                    )}
+                    preheaderLine={displaySanitized(
+                      selectedCampaign.preheader ??
+                        getCampaignSecondaryLine(toPreviewFields(selectedCampaign)) ??
+                        '',
+                    )}
+                    previewImageUrl={selectedCampaign.preview_image_url}
+                    summaryLine={modalHeroPreviewText}
+                  />
+                ) : (
+                  <CampaignCreativeHero
+                    key={selectedCampaign.id}
+                    channel={selectedCampaign.channel}
+                    previewText={modalHeroPreviewText}
+                    previewImageUrl={selectedCampaign.preview_image_url}
+                    campaignName={
+                      sanitizeCampaignDisplayText(selectedCampaign.name) ||
+                      selectedCampaign.name ||
+                      'Campaign'
+                    }
+                    variant="modal"
+                  />
+                )}
+
+                {import.meta.env.DEV && selectedRawRow && (
+                  <Collapsible
+                    open={devRawJsonOpen}
+                    onOpenChange={setDevRawJsonOpen}
+                    className="overflow-hidden rounded-xl border border-amber-500/25 bg-amber-500/[0.07] dark:bg-amber-950/25"
+                  >
+                    <CollapsibleTrigger className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-amber-500/10 dark:hover:bg-amber-950/40">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300">
+                        <Database className="h-4 w-4" aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-foreground">Raw database row</span>
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 text-[10px] font-normal text-amber-900 dark:text-amber-200"
+                          >
+                            Dev only
+                          </Badge>
+                        </div>
+                        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                          Full{' '}
+                          <code className="rounded bg-muted/80 px-1 py-px font-mono text-[10px] text-foreground/90">
+                            braze_campaigns
+                          </code>{' '}
+                          rowset from Supabase — use when copy or fields look wrong in the UI.
+                        </p>
+                      </div>
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                          devRawJsonOpen && 'rotate-180',
+                        )}
+                        aria-hidden
+                      />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-2 border-t border-amber-500/20 px-3 pb-3 pt-2">
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={e => {
+                              e.stopPropagation();
+                              void copyRawCampaignJson();
+                            }}
+                          >
+                            {rawJsonCopied ? (
+                              <Check className="h-3.5 w-3.5 text-green-600" aria-hidden />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" aria-hidden />
+                            )}
+                            {rawJsonCopied ? 'Copied' : 'Copy JSON'}
+                          </Button>
+                        </div>
+                        <ScrollArea className="h-52 rounded-lg border border-amber-500/15 bg-background/80">
+                          <pre className="select-text p-3 font-mono text-[11px] leading-relaxed text-foreground/90">
+                            {selectedRawJson}
+                          </pre>
+                        </ScrollArea>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
 
                 {selectedCampaign.channel === 'email' && (
-                  <>
-                    {selectedCampaign.subject && (
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Subject Line</p>
-                        <p className="font-medium">{selectedCampaign.subject}</p>
-                      </div>
-                    )}
-                    {selectedCampaign.preheader && (
-                      <div>
-                        <p className="text-xs font-medium text-muted-foreground mb-1">Preview Text</p>
-                        <p className="text-sm text-muted-foreground">{selectedCampaign.preheader}</p>
-                      </div>
-                    )}
-                  </>
-                )}
-                {(selectedCampaign.channel === 'push' || selectedCampaign.channel === 'inapp') && (
-                  <div className="max-w-sm mx-auto">
-                    <div className="bg-card border rounded-2xl p-4 shadow-lg">
-                      <p className="font-semibold text-sm">{selectedCampaign.push_title}</p>
-                      {selectedCampaign.push_body && (
-                        <p className="text-sm text-muted-foreground mt-1">{selectedCampaign.push_body}</p>
-                      )}
+                  <div className="space-y-5">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">Subject line</p>
+                      <p className="select-text text-sm font-medium leading-snug text-foreground break-words">
+                        {displaySanitized(selectedCampaign.subject ?? selectedCampaign.push_title)}
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">Preheader</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Inline preview text (below the subject)
+                      </p>
+                      <p className="select-text text-sm leading-relaxed text-muted-foreground break-words">
+                        {displaySanitized(
+                          selectedCampaign.preheader ??
+                            getCampaignSecondaryLine(toPreviewFields(selectedCampaign)) ??
+                            '',
+                        )}
+                      </p>
                     </div>
                   </div>
                 )}
 
-                {/* Full Metrics Grid */}
+                {(selectedCampaign.channel === 'push' || selectedCampaign.channel === 'inapp') && (
+                  <div className="mx-auto max-w-sm">
+                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+                      <p className="select-text text-sm font-semibold leading-snug break-words">
+                        {displaySanitized(selectedCampaign.push_title ?? selectedCampaign.subject)}
+                      </p>
+                      <p className="mt-2 select-text text-sm leading-relaxed text-muted-foreground break-words">
+                        {displaySanitized(
+                          selectedCampaign.push_body ??
+                            selectedCampaign.preheader ??
+                            getCampaignSecondaryLine(toPreviewFields(selectedCampaign)) ??
+                            '',
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-3 gap-3">
                   {selectedCampaign.segment && (
-                    <div className="p-3 rounded-lg bg-muted/50 col-span-3">
+                    <div className="col-span-3 rounded-lg bg-muted/50 p-3">
                       <p className="text-xs text-muted-foreground">Segment</p>
                       <p className="text-sm font-semibold">{selectedCampaign.segment}</p>
                     </div>
                   )}
                   {selectedCampaign.deliveries != null && (
-                    <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="rounded-lg bg-muted/50 p-3">
                       <p className="text-xs text-muted-foreground">Deliveries</p>
-                      <p className="text-lg font-semibold">{selectedCampaign.deliveries.toLocaleString()}</p>
+                      <p className="text-lg font-semibold tabular-nums">
+                        {selectedCampaign.deliveries.toLocaleString()}
+                      </p>
                     </div>
                   )}
                   {selectedCampaign.opens != null && (
-                    <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="rounded-lg bg-muted/50 p-3">
                       <p className="text-xs text-muted-foreground">Opens</p>
-                      <p className="text-lg font-semibold">{selectedCampaign.opens.toLocaleString()}</p>
+                      <p className="text-lg font-semibold tabular-nums">
+                        {selectedCampaign.opens.toLocaleString()}
+                      </p>
                     </div>
                   )}
                   {selectedCampaign.open_rate && (
-                    <div className="p-3 rounded-lg bg-muted/50">
-                      <p className="text-xs text-muted-foreground">Open Rate</p>
-                      <p className="text-lg font-semibold">{selectedCampaign.open_rate}</p>
+                    <div className="rounded-lg bg-muted/50 p-3">
+                      <p className="text-xs text-muted-foreground">Open rate</p>
+                      <p className="text-lg font-semibold tabular-nums">{selectedCampaign.open_rate}</p>
                     </div>
                   )}
                   {selectedCampaign.clicks != null && (
-                    <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="rounded-lg bg-muted/50 p-3">
                       <p className="text-xs text-muted-foreground">Clicks</p>
-                      <p className="text-lg font-semibold">{selectedCampaign.clicks.toLocaleString()}</p>
+                      <p className="text-lg font-semibold tabular-nums">
+                        {selectedCampaign.clicks.toLocaleString()}
+                      </p>
                     </div>
                   )}
                   {selectedCampaign.click_rate && (
-                    <div className="p-3 rounded-lg bg-muted/50">
-                      <p className="text-xs text-muted-foreground">Click Rate</p>
-                      <p className="text-lg font-semibold">{selectedCampaign.click_rate}</p>
+                    <div className="rounded-lg bg-muted/50 p-3">
+                      <p className="text-xs text-muted-foreground">Click rate</p>
+                      <p className="text-lg font-semibold tabular-nums">{selectedCampaign.click_rate}</p>
                     </div>
                   )}
                   {selectedCampaign.unsubs != null && (
-                    <div className="p-3 rounded-lg bg-muted/50">
+                    <div className="rounded-lg bg-muted/50 p-3">
                       <p className="text-xs text-muted-foreground">Unsubs</p>
-                      <p className="text-lg font-semibold">{selectedCampaign.unsubs.toLocaleString()}</p>
+                      <p className="text-lg font-semibold tabular-nums">
+                        {selectedCampaign.unsubs.toLocaleString()}
+                      </p>
                     </div>
                   )}
                 </div>

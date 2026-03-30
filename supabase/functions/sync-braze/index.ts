@@ -265,7 +265,20 @@ interface ProcessedCampaign {
   unsubs: number;
   segment?: string;
   tags?: string[];
+  /** Short line for dashboard cards (subject, push title, or description). */
+  creative_preview?: string;
   raw_details?: Record<string, unknown>;
+}
+
+/** Braze push `alert` may be a string or nested object. */
+function brazeAlertToString(alert: unknown): string | undefined {
+  if (typeof alert === "string" && alert.trim()) return alert.trim();
+  if (alert && typeof alert === "object") {
+    const o = alert as Record<string, unknown>;
+    if (typeof o.body === "string" && o.body.trim()) return o.body.trim();
+    if (typeof o.alert === "string" && o.alert.trim()) return o.alert.trim();
+  }
+  return undefined;
 }
 
 function numFromDay(day: Record<string, unknown>, keys: string[]): number {
@@ -1557,6 +1570,9 @@ Deno.serve(async (req) => {
           let segment: string | undefined;
           let tags = c.tags || [];
           let rawDetails: Record<string, unknown> = {};
+          let push_title: string | undefined;
+          let push_body: string | undefined;
+          let preview_image_url: string | undefined;
 
           // Fetch campaign details
           try {
@@ -1598,6 +1614,77 @@ Deno.serve(async (req) => {
               for (const msg of msgEntries) {
                 if (msg.preheader) { preheader = msg.preheader as string; break; }
               }
+
+              // Push / in-app title & body + first image URL for dashboard previews
+              for (const msg of msgEntries) {
+                const ch = String(msg.channel ?? "").toLowerCase();
+                const isPush =
+                  ch.includes("push") ||
+                  ch === "android_push" ||
+                  ch === "ios_push" ||
+                  ch === "web_push";
+                const isInApp = ch.includes("in_app") || ch.includes("in-app") || ch === "content_card";
+                if (isPush || isInApp) {
+                  const titleCandidate =
+                    (typeof msg.title === "string" && msg.title) ||
+                    (typeof msg.header === "string" && msg.header) ||
+                    undefined;
+                  const bodyCandidate =
+                    brazeAlertToString(msg.alert) ||
+                    (typeof msg.body === "string" ? msg.body : undefined) ||
+                    (typeof msg.message === "string" ? msg.message : undefined);
+                  if (titleCandidate && !push_title) push_title = titleCandidate;
+                  if (bodyCandidate && !push_body) push_body = bodyCandidate;
+                }
+                const img =
+                  msg.big_image ||
+                  msg.image_url ||
+                  msg.thumbnail_url ||
+                  msg.url;
+                if (
+                  typeof img === "string" &&
+                  (img.startsWith("http") || img.startsWith("//")) &&
+                  !preview_image_url
+                ) {
+                  preview_image_url = img.startsWith("//") ? `https:${img}` : img;
+                }
+              }
+
+              // Email hero images (Braze often nests these only on email messages)
+              for (const msg of msgEntries) {
+                const ch = String(msg.channel ?? "").toLowerCase();
+                if (!preview_image_url && (ch === "email" || ch.includes("email"))) {
+                  const img =
+                    msg.image_url ||
+                    msg.thumbnail_url ||
+                    msg.big_image ||
+                    msg.url;
+                  if (
+                    typeof img === "string" &&
+                    (img.startsWith("http") || img.startsWith("//"))
+                  ) {
+                    preview_image_url = img.startsWith("//") ? `https:${img}` : img;
+                    break;
+                  }
+                }
+              }
+              // SMS copy as push-style fields when native push/in-app messages are absent
+              for (const msg of msgEntries) {
+                const ch = String(msg.channel ?? "").toLowerCase();
+                if (ch !== "sms") continue;
+                if (!push_body) {
+                  const b =
+                    (typeof msg.body === "string" && msg.body) ||
+                    brazeAlertToString(msg.alert);
+                  if (typeof b === "string" && b.trim()) push_body = b.trim();
+                }
+                if (!push_title) {
+                  const t =
+                    (typeof msg.title === "string" && msg.title) ||
+                    (typeof msg.name === "string" && msg.name);
+                  if (typeof t === "string" && t.trim()) push_title = t.trim();
+                }
+              }
             }
 
             // Determine status
@@ -1626,6 +1713,24 @@ Deno.serve(async (req) => {
               sentDate = toIso(c.last_sent);
             }
           }
+
+          rawDetails = {
+            ...rawDetails,
+            ...(push_title ? { push_title } : {}),
+            ...(push_body ? { push_body } : {}),
+            ...(preview_image_url ? { preview_image_url } : {}),
+          };
+
+          const descPreview =
+            typeof rawDetails.description === "string" ? rawDetails.description.trim() : "";
+          const creative_preview =
+            (subject && subject.trim()) ||
+            (push_title && push_title.trim()) ||
+            (preheader && preheader.trim()) ||
+            (push_body && push_body.trim().slice(0, 140)) ||
+            (descPreview ? descPreview.slice(0, 140) : undefined) ||
+            (displayName && displayName.trim()) ||
+            "Campaign";
 
           // Fetch analytics for sent/scheduled campaigns
           let opens = 0;
@@ -1688,6 +1793,7 @@ Deno.serve(async (req) => {
             unsubs,
             segment,
             tags,
+            creative_preview,
             raw_details: rawDetails,
           };
         })
@@ -1722,6 +1828,7 @@ Deno.serve(async (req) => {
           unsubs: c.unsubs,
           segment: c.segment || null,
           tags: c.tags || [],
+          creative_preview: c.creative_preview || null,
           raw_details: c.raw_details || {},
           synced_at: nowIso,
         });

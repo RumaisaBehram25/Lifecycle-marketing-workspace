@@ -96,6 +96,8 @@ const statRail: Record<StatAccent, string> = {
 
 type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date' | 'channel' | 'segment';
 
+type BenchmarkTooltipPayload = { campaignRev?: number; crmPct?: number | null };
+
 function StatCard({
   icon: Icon,
   label,
@@ -198,14 +200,17 @@ export default function Analytics() {
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [selectedFlow, setSelectedFlow] = useState<string>('all');
 
+  const rawRows = rawCampaignRows ?? [];
+  const canvasRowsList = canvasListRows ?? [];
+
   // Unique campaign names for the filter dropdown
   const campaignNames = [...new Set(
-    rawCampaignRows.map(r => String(r.campaign_name ?? r.name ?? '').trim()).filter(Boolean)
+    rawRows.map((r) => String(r.campaign_name ?? r.name ?? '').trim()).filter(Boolean),
   )].sort();
 
   // Unique canvas names for the filter dropdown
   const canvasNames = [...new Set(
-    canvasListRows.map(r => String(r.name ?? '').trim()).filter(Boolean)
+    canvasRowsList.map((r) => String(r.name ?? '').trim()).filter(Boolean),
   )].sort();
 
   // Compute filtered metrics when a specific campaign is selected
@@ -214,7 +219,7 @@ export default function Analytics() {
   const activeMetrics = (() => {
     if (!selectedFlow.startsWith('campaign:')) return metrics;
     const name = selectedFlow.slice(9);
-    const rows = rawCampaignRows.filter(r => (String(r.campaign_name ?? r.name ?? '').trim()) === name);
+    const rows = rawRows.filter((r) => String(r.campaign_name ?? r.name ?? '').trim() === name);
     const fSent = rows.reduce((s, r) => s + n(r.sent ?? r.sends_last_30d), 0);
     const fDelivered = rows.reduce((s, r) => s + n(r.delivered), 0);
     const fOpens = rows.reduce((s, r) => s + n(r.opens), 0);
@@ -242,7 +247,7 @@ export default function Analytics() {
 
   // For canvas selection, pull metrics from canvasListRows
   const selectedCanvasRow = selectedFlow.startsWith('canvas:')
-    ? canvasListRows.find(r => String(r.name ?? '').trim() === selectedFlow.slice(7)) ?? null
+    ? canvasRowsList.find((r) => String(r.name ?? '').trim() === selectedFlow.slice(7)) ?? null
     : null;
 
   const generateInsights = async () => {
@@ -427,9 +432,18 @@ export default function Analytics() {
     crmPct: hasSiteRevenue ? (Number(m.campaignRev ?? 0) / parsedSiteRevenue) * 100 : null,
     benchmark: 25,
   }));
-  const renderBenchmarkTooltip = ({ active, payload, label }: any) => {
+
+  const renderBenchmarkTooltip = ({
+    active,
+    payload,
+    label,
+  }: {
+    active?: boolean;
+    payload?: ReadonlyArray<{ payload?: BenchmarkTooltipPayload }>;
+    label?: string;
+  }) => {
     if (!active || !payload || payload.length === 0) return null;
-    const row = payload[0]?.payload as { campaignRev?: number; crmPct?: number | null };
+    const row = payload[0]?.payload;
     const revenue = Number(row?.campaignRev ?? 0);
     const crm = row?.crmPct == null ? null : Number(row.crmPct);
     const gap = crm == null ? null : crm - 25;
@@ -443,12 +457,15 @@ export default function Analytics() {
     );
   };
 
-  const dailyEmailEngagementData = usageChartData.map((r) => ({
-    date: r.date,
-    emails_opened: Number((r as any).emails_opened ?? 0),
-    email_clicks: Number((r as any).email_clicks ?? 0),
-    email_bounces: Number((r as any).email_bounces ?? 0),
-  }));
+  const dailyEmailEngagementData = usageChartData.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      date: String(row.date ?? ''),
+      emails_opened: Number(row.emails_opened ?? 0),
+      email_clicks: Number(row.email_clicks ?? 0),
+      email_bounces: Number(row.email_bounces ?? 0),
+    };
+  });
 
   const engagementRatio = metrics.mau > 0 ? (metrics.dau / metrics.mau) * 100 : 0;
 
@@ -463,7 +480,9 @@ export default function Analytics() {
 
   const latestSegmentDate =
     segmentChartDataByDate.length > 0
-      ? String((segmentChartDataByDate[segmentChartDataByDate.length - 1] as any).date ?? '')
+      ? String(
+          (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>).date ?? '',
+        )
       : '';
   const latestSegmentRow = segmentChartDataByDate.length > 0
     ? (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>)
@@ -539,7 +558,17 @@ export default function Analytics() {
             flowChartMetric === 'revenue' ? `$${Number(v).toLocaleString()}` : Number(v).toLocaleString();
 
           const flowChartData = [...campaignTableRows]
-            .map(r => ({ name: r.name, value: Number((r as any)[flowChartMetric] ?? 0) }))
+            .map((r) => {
+              const value =
+                flowChartMetric === 'revenue'
+                  ? r.revenue
+                  : flowChartMetric === 'sent'
+                    ? r.sent
+                    : flowChartMetric === 'orders'
+                      ? r.orders
+                      : 0;
+              return { name: r.name, value: Number(value) };
+            })
             .filter(r => r.value >= 0)
             .sort((a, b) => b.value - a.value)
             .slice(0, 15);

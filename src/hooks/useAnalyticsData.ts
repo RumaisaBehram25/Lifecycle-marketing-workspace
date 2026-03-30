@@ -1,4 +1,4 @@
-﻿import { useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { fetchCampaignHygieneDirectory, isCampaignCleanupFlagged } from '@/lib/campaignHygiene';
@@ -166,7 +166,9 @@ export function useAnalyticsData() {
       if (!clientId) return [];
       const { data, error } = await (supabase as any)
         .from('braze_canvases')
-        .select('schedule_type,enabled,entries_last_30d')
+        .select(
+          'name,schedule_type,enabled,archived,sends_last_30d,entries_last_30d,entries_last_60d',
+        )
         .eq('client_id', clientId);
       if (error) throw error;
       return (data ?? []) as Row[];
@@ -620,6 +622,10 @@ export function useAnalyticsData() {
       schedulingPerformanceRate,
       scheduledCanvases: scheduledCanvases.length,
     },
+    /** Braze campaign analytics rows (CSV/API) — used by Analytics filters and per-campaign drill-down. */
+    rawCampaignRows: canvases,
+    /** Canvas directory rows from `braze_canvases` (name, sends, entries, etc.). */
+    canvasListRows: canvasRows,
     usageChartData,
     campaignChartData,
     segmentChartData,
