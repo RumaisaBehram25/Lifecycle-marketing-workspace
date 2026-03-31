@@ -36,7 +36,7 @@ export function formatCampaignRate(value: number | string | null | undefined): s
 function trimText(v: unknown): string {
   if (v == null) return '';
   if (typeof v !== 'string') return '';
-  return v.trim();
+  return sanitizeCampaignDisplayText(v);
 }
 
 function truncateForPreview(s: string, maxLen: number): string {
@@ -133,7 +133,12 @@ export function getCampaignSecondaryLine(fields: CampaignPreviewFields): string 
  */
 export function sanitizeCampaignDisplayText(input: string | null | undefined): string {
   if (input == null || typeof input !== 'string') return '';
+  // Some Braze payloads contain full HTML/doctype; strip tags/scripts/styles for UI safety/readability.
   let s = input
+    .replace(/<!doctype[\s\S]*?>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u00AD\u034F\u061C]/g, '')
     .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ');
   s = s.replace(/\s+/g, ' ').trim();

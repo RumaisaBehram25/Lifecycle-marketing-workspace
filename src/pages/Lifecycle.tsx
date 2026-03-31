@@ -214,8 +214,8 @@ export default function Lifecycle() {
         .select('*')
         .eq('client_id', client.id)
         .eq('archived', false)
-        .eq('draft', false)
-        .eq('enabled', true);
+        // Include draft canvases (often enabled=false in Braze) so journeys with synced step data are visible.
+        .or('enabled.eq.true,draft.eq.true');
       if (error) throw error;
       return sortLifecycleCanvases(data ?? []);
     },
@@ -302,6 +302,8 @@ export default function Lifecycle() {
         id: brazeCanvasId,
         name,
         displayName: taxonomy.displayName,
+        draft: Boolean(canvas.draft),
+        enabled: Boolean(canvas.enabled),
         description: (canvas.description as string | undefined) || 'Automated lifecycle journey',
         status: 'active' as const,
         tags: (canvas.tags as string[] | undefined) || [],
@@ -416,19 +418,10 @@ export default function Lifecycle() {
         />
 
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-          <div
-            className={cn(
-              'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br shadow-lg ring-2 ring-white/20 dark:ring-black/30',
-              'from-teal-500 via-emerald-600 to-cyan-700 text-white shadow-teal-500/30',
-            )}
-            aria-hidden
-          >
-            <Workflow className="h-7 w-7 drop-shadow" strokeWidth={1.5} />
-          </div>
           <PageHeader
             className="min-w-0 flex-1"
             title="Lifecycle"
-            titleClassName="text-2xl sm:text-3xl bg-gradient-to-r from-teal-700 via-emerald-700 to-violet-700 bg-clip-text text-transparent dark:from-teal-300 dark:via-emerald-300 dark:to-violet-300"
+            titleClassName="text-4xl sm:text-5xl text-black dark:text-white"
             description={
               hasBrazeApi
                 ? 'Browse synced Braze canvases as journeys — same card layout as Campaigns.'
@@ -703,9 +696,11 @@ export default function Lifecycle() {
                   const d = new Date(firstEntry);
                   if (!Number.isNaN(d.getTime())) entryLine = ` · First entry ${format(d, 'MMMM d, yyyy')}`;
                 }
+                const headerDraft = Boolean(j.draft);
+                const headerDisabled = j.enabled === false;
                 return (
                   <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">
-                    <DialogTitle className="flex items-start gap-3 pr-8 text-left text-lg font-semibold leading-snug">
+                    <DialogTitle className="flex flex-wrap items-start gap-3 pr-8 text-left text-lg font-semibold leading-snug">
                       <div
                         className={cn(
                           'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10',
@@ -715,7 +710,17 @@ export default function Lifecycle() {
                       >
                         <Icon className="h-4 w-4 text-white drop-shadow" />
                       </div>
-                      <span className="line-clamp-3 break-words">{title}</span>
+                      <span className="line-clamp-3 min-w-0 flex-1 break-words">{title}</span>
+                      {headerDraft && (
+                        <Badge variant="outline" className="shrink-0 border-amber-500/40 bg-amber-500/10 text-xs font-normal text-amber-900 dark:text-amber-200">
+                          Draft
+                        </Badge>
+                      )}
+                      {!headerDraft && headerDisabled && (
+                        <Badge variant="outline" className="shrink-0 text-xs font-normal text-muted-foreground">
+                          Disabled
+                        </Badge>
+                      )}
                     </DialogTitle>
                     <DialogDescription>
                       {stepCount} message step{stepCount !== 1 ? 's' : ''}
@@ -1006,12 +1011,31 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
 
   const open = () => onClick();
 
+  const isDraft = Boolean(journey.draft);
+  const isDisabled = journey.enabled === false;
+
   const touchpointBadge = (
     <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-teal-500/25 bg-gradient-to-r from-teal-500/[0.08] to-emerald-500/[0.06] px-2.5 py-1 text-xs font-medium text-teal-800 dark:text-teal-200">
       <GitBranch className="h-3.5 w-3.5 opacity-80" aria-hidden />
       {touchCount} touchpoint{touchCount !== 1 ? 's' : ''}
     </span>
   );
+
+  const statusBadges =
+    isDraft || isDisabled ? (
+      <div className="flex flex-wrap gap-1.5">
+        {isDraft && (
+          <Badge variant="outline" className="text-xs font-normal border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200">
+            Draft
+          </Badge>
+        )}
+        {!isDraft && isDisabled && (
+          <Badge variant="outline" className="text-xs font-normal border-muted-foreground/30 text-muted-foreground">
+            Disabled
+          </Badge>
+        )}
+      </div>
+    ) : null;
 
   const channelPillRow = (
     <div className="flex flex-wrap gap-1.5">
@@ -1064,6 +1088,7 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
               </TooltipContent>
             </Tooltip>
             {touchpointBadge}
+            {statusBadges}
             {channelPillRow}
           </div>
           <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
@@ -1130,6 +1155,7 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
           </TooltipContent>
         </Tooltip>
         {touchpointBadge}
+        {statusBadges}
         {channelPillRow}
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
           <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
@@ -1204,6 +1230,8 @@ function JourneyDetail({
       last_entry: detailRow.last_entry ?? journey.last_entry,
       schedule_type: detailRow.schedule_type ?? journey.schedule_type,
       total_steps: effectiveMsgCount,
+      draft: Boolean(detailRow.draft ?? journey.draft),
+      enabled: Boolean(detailRow.enabled ?? journey.enabled),
     };
   }, [journey, detailRow]);
 
@@ -1438,8 +1466,8 @@ function JourneyDetail({
                 id: String(merged.id),
                 name: String(merged.name ?? ''),
                 description: merged.description as string | undefined,
-                enabled: true,
-                draft: false,
+                enabled: merged.enabled !== false,
+                draft: Boolean(merged.draft),
                 variants: (merged.variants as CanvasVariant[]) || [],
                 steps: stepsRecord as Record<string, CanvasStep>,
                 tags: merged.tags as string[] | undefined,

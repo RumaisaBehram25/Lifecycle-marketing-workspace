@@ -24,8 +24,8 @@ function clampIntEnv(key: string, fallback: number, min: number, max: number): n
 /** Stored HTML in canvas/campaign payloads (raw_steps, templates). Lower = smaller DB; min 2000, max 50000. */
 const MAX_HTML_SIZE = clampIntEnv("BRAZE_SYNC_MAX_HTML_CHARS", 14000, 2000, 50000);
 
-/** Full detail + analytics fetch for top N canvases (list still syncs all). Override via BRAZE_SYNC_MAX_CANVAS_DETAIL; raise wall time if you bump this. */
-const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 90, 1, 300);
+/** Full detail + analytics fetch for top N canvases (list still syncs all). Default 200. Override via BRAZE_SYNC_MAX_CANVAS_DETAIL; raise wall time if you bump this. */
+const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 200, 1, 300);
 /** When true, skip Phase 3 detail fetch for draft canvases (legacy behavior). Default: drafts compete for the same detail cap as live canvases so `raw_steps` / touchpoints can populate. */
 const EXCLUDE_DRAFT_FROM_CANVAS_DETAIL =
   Deno.env.get("BRAZE_SYNC_EXCLUDE_DRAFT_CANVAS_DETAIL") === "true";
@@ -813,7 +813,16 @@ Deno.serve(async (req) => {
       return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
     }
 
-    const { clientId, platformId, restEndpoint } = await req.json();
+    const body = (await req.json()) as {
+      clientId?: string;
+      platformId?: string;
+      restEndpoint?: string;
+      force_canvas_ids?: unknown;
+    };
+    const { clientId, platformId, restEndpoint } = body;
+    const forceCanvasIds: string[] = Array.isArray(body.force_canvas_ids)
+      ? body.force_canvas_ids.map((x) => String(x).trim()).filter(Boolean)
+      : [];
 
     if (!clientId || !platformId) {
       throw new Error('clientId and platformId are required');
@@ -885,6 +894,14 @@ Deno.serve(async (req) => {
     const kpiAppQuery = brazeKpiAppId ? `&app_id=${encodeURIComponent(brazeKpiAppId)}` : "";
 
     console.log("[Braze Sync] START — clientId=", clientId, "REST=", brazeRestEndpoint);
+    if (forceCanvasIds.length > 0) {
+      console.log(
+        "[Braze Sync] force_canvas_ids:",
+        forceCanvasIds.length,
+        forceCanvasIds,
+        "(these canvases will always get Phase 3 detail, in addition to top-N by priority)",
+      );
+    }
     console.log(
       "[Braze Sync] KPI scope:",
       brazeKpiAppId ? `app_id=${brazeKpiAppId} (from additional_config.braze_kpi_app_id)` : "workspace aggregate — no app_id (omit braze_kpi_app_id for full-workspace KPI)",
@@ -1120,6 +1137,8 @@ Deno.serve(async (req) => {
     for (const chunk of minimalChunks) {
       const minimalRows = chunk.map((c) => {
         const enabledList = inferCanvasEnabledFromListItem(c);
+        // Phase 1: list/metadata only. Never set raw_steps, total_steps, or raw_variants here — those
+        // belong to Phase 3 only; writing empty values would wipe good detail rows every sync.
         return {
           client_id: clientId,
           braze_canvas_id: c.id,
@@ -1131,9 +1150,6 @@ Deno.serve(async (req) => {
           tags: normalizeStringArray(c.tags),
           created_in_braze: c.created_at || null,
           updated_in_braze: c.updated_at || null,
-          raw_variants: [] as unknown[],
-          raw_steps: {} as Record<string, unknown>,
-          total_steps: 0,
           synced_at: nowIso,
         };
       });
@@ -1293,23 +1309,102 @@ Deno.serve(async (req) => {
     }
     const scoredCanvases = allCanvasList
       .filter((c) => !c.archived && (!EXCLUDE_DRAFT_FROM_CANVAS_DETAIL || !c.draft))
-      .map(c => ({
+      .map((c) => ({
         canvas: c,
         priority: getCanvasPriority(c.name),
       }))
       .sort((a, b) => b.priority - a.priority);
 
     // Log top scoring canvases for debugging
-    console.log('Top 20 priority canvases:', scoredCanvases.slice(0, 20).map(s => `${s.priority}: ${s.canvas.name}`));
+    console.log(
+      "Top 20 priority canvases:",
+      scoredCanvases.slice(0, 20).map((s) => `${s.priority}: ${s.canvas.name}`),
+    );
 
-    const canvasesToProcess = scoredCanvases.slice(0, MAX_CANVASES_TO_PROCESS).map(s => s.canvas);
-    console.log(`Will process top ${canvasesToProcess.length} canvases`);
+    /** Forced IDs always get Phase 3 (deduped); rest filled from priority slice up to MAX. */
+    const forcedIdSet = new Set<string>();
+    const forcedCanvases: CanvasListItem[] = [];
+    for (const fid of forceCanvasIds) {
+      const found = allCanvasList.find((c) => String(c.id) === String(fid));
+      if (found) {
+        if (!forcedIdSet.has(found.id)) {
+          forcedIdSet.add(found.id);
+          forcedCanvases.push(found);
+          console.log(
+            `[Braze Sync][Phase3] force-included canvas id=${found.id} name=${JSON.stringify(found.name)} priority=${getCanvasPriority(found.name)}`,
+          );
+        }
+      } else {
+        console.warn(
+          `[Braze Sync][Phase3] force_canvas_ids: no canvas with id "${fid}" in canvas/list results — skipped`,
+        );
+      }
+    }
+
+    const restAfterForced = scoredCanvases
+      .map((s) => s.canvas)
+      .filter((c) => !forcedIdSet.has(c.id));
+    const scoredSlice = restAfterForced.slice(0, MAX_CANVASES_TO_PROCESS);
+    const canvasesToProcess = [...forcedCanvases, ...scoredSlice];
+
+    const cutoffPriority =
+      scoredCanvases.length >= MAX_CANVASES_TO_PROCESS
+        ? scoredCanvases[MAX_CANVASES_TO_PROCESS - 1].priority
+        : null;
+    const cutoffName =
+      scoredCanvases.length >= MAX_CANVASES_TO_PROCESS
+        ? scoredCanvases[MAX_CANVASES_TO_PROCESS - 1].canvas.name
+        : null;
+
+    console.log("[Braze Sync][Phase3][debug] canvas list + detail selection:", {
+      allCanvasList_length: allCanvasList.length,
+      scored_eligible: scoredCanvases.length,
+      max_detail_cap: MAX_CANVASES_TO_PROCESS,
+      forced_count: forcedCanvases.length,
+      scored_slice_count: scoredSlice.length,
+      canvasesToProcess_length: canvasesToProcess.length,
+      cutoff_priority_at_rank_max: cutoffPriority,
+      cutoff_name_at_rank_max: cutoffName,
+    });
+
+    const alexTestMatcher = (n: string) => /alex\s*test/i.test(n);
+    const alexMatches = scoredCanvases.filter((s) => alexTestMatcher(s.canvas.name));
+    for (const s of alexMatches) {
+      const rank = scoredCanvases.findIndex((x) => x.canvas.id === s.canvas.id) + 1;
+      const inQueue = canvasesToProcess.some((c) => c.id === s.canvas.id);
+      console.log("[Braze Sync][Phase3][debug] name matches /Alex Test/i:", {
+        id: s.canvas.id,
+        name: s.canvas.name,
+        priority: s.priority,
+        rank_in_priority_list: rank,
+        in_phase3_detail_queue: inQueue,
+        force_included: forcedIdSet.has(s.canvas.id),
+      });
+      if (!inQueue) {
+        console.warn(
+          `[Braze Sync][Phase3][debug] Canvas ${JSON.stringify(s.canvas.name)} NOT in detail queue — rank ${rank}, priority ${s.priority}` +
+            (cutoffPriority != null
+              ? ` (lowest priority that made the priority-slice-only cut: ${cutoffPriority}, "${cutoffName}")`
+              : ""),
+        );
+      }
+    }
+    if (alexMatches.length === 0) {
+      console.log(
+        "[Braze Sync][Phase3][debug] No canvas name matched /alex\\s*test/i — if testing \"[Alex Test] Canvas\", rename or use force_canvas_ids with its braze canvas id",
+      );
+    }
+
+    console.log(
+      `[Braze Sync][Phase3] detail queue: ${canvasesToProcess.length} canvas(es) (${forcedCanvases.length} forced + ${scoredSlice.length} from priority slice)`,
+    );
 
     // === PHASE 3: Process canvases in small batches with immediate checkpointing ===
-    console.log('Phase 3: Processing canvas details in batches of 3...');
+    console.log("Phase 3: Processing canvas details in batches of 3...");
     let processedCount = 0;
     let enabledCount = 0;
     let phase3CanvasesWithRawSteps = 0;
+    let phase3DbWritesWithRawSteps = 0;
 
     // Build template map first (limited to 30 templates for memory)
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
@@ -1350,7 +1445,16 @@ Deno.serve(async (req) => {
         break;
       }
       const batch = canvasesToProcess.slice(i, i + BATCH_SIZE);
-      console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(canvasesToProcess.length / BATCH_SIZE)}`);
+      console.log(
+        `[Braze Sync][Phase3] batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(canvasesToProcess.length / BATCH_SIZE)} (${batch.length} canvas(es))`,
+      );
+      for (const c of batch) {
+        const pr = getCanvasPriority(c.name);
+        const forced = forcedIdSet.has(c.id);
+        console.log(
+          `[Braze Sync][Phase3] detail-fetch queued: id=${c.id} name=${JSON.stringify(c.name)} priority=${pr} force_included=${forced}`,
+        );
+      }
 
       const batchResults = await Promise.allSettled(
         batch.map(async (c): Promise<ProcessedCanvas | null> => {
@@ -1377,9 +1481,9 @@ Deno.serve(async (req) => {
           let last_activity_at: string | undefined;
 
           try {
-            // Fetch canvas details
+            // Braze REST: GET {restEndpoint}/canvas/details?canvas_id={id} (JSON body; steps parsed via collectCanvasDetailStepRows)
             const details = (await brazeFetch(
-              `canvas/details?canvas_id=${c.id}`,
+              `canvas/details?canvas_id=${encodeURIComponent(c.id)}`,
               apiKey,
               brazeRestEndpoint,
             )) as Record<string, unknown>;
@@ -1574,22 +1678,25 @@ Deno.serve(async (req) => {
               }
             } else {
               console.warn(
-                `[Braze Sync] canvas ${c.id}: canvas/details returned 0 step rows (check API shape / nested paths)`,
+                `[Braze Sync][Phase3] canvas/details returned 0 step rows: id=${c.id} name=${JSON.stringify(c.name)} — check collectCanvasDetailStepRows / nested legacy_response`,
               );
             }
 
             const parsedStepKeys = Object.keys(steps).length;
             if (detailStepRows.length > 0 && parsedStepKeys === 0) {
               console.warn(
-                `[Braze Sync] canvas ${c.id}: had ${detailStepRows.length} step row(s) from API but stored 0 (id/message parsing)`,
+                `[Braze Sync][Phase3] id=${c.id} name=${JSON.stringify(c.name)}: API had ${detailStepRows.length} step row(s) but parsed 0 steps (missing step ids?)`,
               );
             } else if (parsedStepKeys > 0) {
               console.log(
-                `[Braze Sync] canvas ${c.id}: raw_steps keys=${parsedStepKeys} (from ${detailStepRows.length} source row(s))`,
+                `[Braze Sync][Phase3] id=${c.id} raw_steps keys=${parsedStepKeys} (source rows=${detailStepRows.length})`,
               );
             }
           } catch (err) {
-            console.warn(`Failed to fetch details for canvas ${c.id}:`, err);
+            console.warn(
+              `[Braze Sync][Phase3] canvas/details request FAILED: id=${c.id} name=${JSON.stringify(c.name)}`,
+              err,
+            );
           }
 
           // Fetch activity data if canvas is enabled
@@ -1657,10 +1764,27 @@ Deno.serve(async (req) => {
         })
       );
 
+      for (let bi = 0; bi < batchResults.length; bi++) {
+        const br = batchResults[bi];
+        const bc = batch[bi];
+        if (br.status === "rejected") {
+          console.error(
+            `[Braze Sync][Phase3] detail promise REJECTED: id=${bc?.id} name=${JSON.stringify(bc?.name)}`,
+            br.reason,
+          );
+        }
+      }
+
       // Immediately upsert this batch to the database (checkpointing)
       for (const result of batchResults) {
         if (result.status === 'fulfilled' && result.value) {
           const c = result.value;
+          const stepsObj =
+            c.steps && typeof c.steps === "object" && !Array.isArray(c.steps)
+              ? (c.steps as Record<string, unknown>)
+              : {};
+          const hasIncomingSteps = Object.keys(stepsObj).length > 0;
+
           const row = {
             client_id: clientId,
             braze_canvas_id: c.id,
@@ -1678,9 +1802,7 @@ Deno.serve(async (req) => {
             last_entry: c.last_entry || null,
             created_in_braze: c.created_at || null,
             updated_in_braze: c.updated_at || null,
-            total_steps: c.total_steps || 0,
             raw_variants: c.variants || [],
-            raw_steps: c.steps || {},
             conversion_events: c.conversion_events || [],
             entry_filters: c.entry_filters || [],
             exception_events: c.exception_events || [],
@@ -1689,6 +1811,15 @@ Deno.serve(async (req) => {
             sends_last_30d: c.sends_last_30d || 0,
             last_activity_at: c.last_activity_at || null,
             synced_at: nowIso,
+            ...(hasIncomingSteps
+              ? {
+                  total_steps:
+                    typeof c.total_steps === "number"
+                      ? c.total_steps
+                      : Object.keys(stepsObj).length,
+                  raw_steps: stepsObj,
+                }
+              : {}),
           };
 
           const { error: upsertErr } = await supabase
@@ -1704,13 +1835,26 @@ Deno.serve(async (req) => {
             1,
           );
           if (upsertErr) {
-            console.warn(`Canvas upsert failed for ${c.id}:`, upsertErr.message);
+            console.warn(
+              `[Braze Sync][Phase3] DB upsert FAILED: braze_canvas_id=${c.id} name=${JSON.stringify(c.name)}`,
+              upsertErr.message,
+            );
             pushDbErr("braze_canvases(detail)", upsertErr);
           } else {
             processedCount++;
             if (c.enabled) enabledCount++;
             if (c.steps && Object.keys(c.steps).length > 0) {
               phase3CanvasesWithRawSteps++;
+            }
+            if (hasIncomingSteps) {
+              phase3DbWritesWithRawSteps++;
+              console.log(
+                `[Braze Sync][Phase3] DB wrote raw_steps: id=${c.id} keys=${Object.keys(stepsObj).length} name=${JSON.stringify(c.name)}`,
+              );
+            } else {
+              console.log(
+                `[Braze Sync][Phase3] DB upsert metadata only (skipped raw_steps — empty): id=${c.id} name=${JSON.stringify(c.name)}`,
+              );
             }
           }
         }
@@ -1721,7 +1865,9 @@ Deno.serve(async (req) => {
     }
 
     console.log(
-      `[Braze Sync] Phase 3 done: processed=${processedCount} enabled=${enabledCount} with_non_empty_raw_steps=${phase3CanvasesWithRawSteps} (list_total=${allCanvasList.length}, detail_cap=${MAX_CANVASES_TO_PROCESS})`,
+      `[Braze Sync] Phase 3 done: processed=${processedCount} enabled=${enabledCount} ` +
+        `fulfilled_with_step_object=${phase3CanvasesWithRawSteps} db_upserts_with_raw_steps=${phase3DbWritesWithRawSteps} ` +
+        `(list_total=${allCanvasList.length}, priority_detail_cap=${MAX_CANVASES_TO_PROCESS}, forced=${forcedCanvases.length})`,
     );
 
     // === PHASE 4: Fetch and process campaigns ===

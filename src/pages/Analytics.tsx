@@ -527,7 +527,6 @@ export default function Analytics() {
           <PageHeader
             title="Analytics"
             description="Revenue performance, campaign metrics, and subscriber trends"
-            titleClassName="text-4xl sm:text-5xl"
           />
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className={cn(dashPill, 'border-0 text-[10px]')}>
