@@ -461,10 +461,8 @@ function StepCard({
   onSplitClick?: (splitStep: CanvasStep) => void;
 }) {
   const colors = getChannelColors(step.channel);
-  const type = step.type?.toLowerCase() || 'message';
-  
-  // Skip non-message steps (they're handled as metadata)
-  if (['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths'].includes(type)) {
+  // Skip delay/branch steps (shown as connectors / split module, not creative cards)
+  if (isDelayOnlyStep(step) || isBranchOnlyStep(step)) {
     return null;
   }
   
@@ -483,28 +481,117 @@ function StepCard({
   );
 }
 
-// Step types that are metadata/branching, not message content
-const BRANCHING_TYPES = ['delay', 'wait', 'decision_split', 'branch', 'filter', 'audience_paths', 'action_paths', 'experiment_paths'];
+// Step types that are metadata/branching, not message content (Braze naming varies by workspace/version)
+const BRANCHING_TYPES = [
+  'delay',
+  'wait',
+  'decision_split',
+  'branch',
+  'filter',
+  'audience_paths',
+  'action_paths',
+  'experiment_paths',
+  'experiment_step',
+  'split',
+  'multi_criteria_split',
+  'criteria_split',
+  'routing_split',
+];
+
+function getOutgoingStepIds(step: CanvasStep): string[] {
+  const out: string[] = [];
+  if (Array.isArray(step.next_step_ids)) {
+    for (const id of step.next_step_ids) {
+      const s = String(id ?? '').trim();
+      if (s) out.push(s);
+    }
+  }
+  if (Array.isArray(step.next_paths)) {
+    for (const p of step.next_paths) {
+      const id = String(
+        (p as { next_step_id?: string; nextStepId?: string; next_canvas_step_id?: string }).next_step_id ??
+          (p as { nextStepId?: string }).nextStepId ??
+          (p as { next_canvas_step_id?: string }).next_canvas_step_id ??
+          '',
+      ).trim();
+      if (id) out.push(id);
+    }
+  }
+  return out;
+}
+
+/** Braze often sends links only on `next_paths[]`; linear flow must follow those too. */
+function getNextLinearStepId(step: CanvasStep): string | null {
+  if (step.next_step_ids?.length) {
+    const id = String(step.next_step_ids[0] ?? '').trim();
+    if (id) return id;
+  }
+  if (step.next_paths?.length) {
+    const p = step.next_paths[0] as {
+      next_step_id?: string;
+      nextStepId?: string;
+      next_canvas_step_id?: string;
+    };
+    const id = String(p.next_step_id ?? p.nextStepId ?? p.next_canvas_step_id ?? '').trim();
+    if (id) return id;
+  }
+  return null;
+}
+
+/** First step(s) have no incoming edge from any other step (canvas entry). */
+function findEntryStepId(allSteps: Record<string, CanvasStep>): string | null {
+  const ids = Object.keys(allSteps);
+  if (ids.length === 0) return null;
+  const hasIncoming = new Set<string>();
+  for (const s of Object.values(allSteps)) {
+    for (const t of getOutgoingStepIds(s)) {
+      hasIncoming.add(t);
+    }
+  }
+  const entries = ids.filter((id) => !hasIncoming.has(id));
+  return entries.length > 0 ? entries[0] : ids[0];
+}
+
+function normalizeFlowStepType(step: CanvasStep): string {
+  const raw = (step.type || 'message').toLowerCase();
+  if (raw.includes('/')) {
+    const head = raw.split('/')[0];
+    if (head === 'delay' || head === 'wait') return head;
+  }
+  return raw;
+}
+
+function isDelayOnlyStep(step: CanvasStep): boolean {
+  const t = normalizeFlowStepType(step);
+  return t === 'delay' || t === 'wait';
+}
+
+function isBranchOnlyStep(step: CanvasStep): boolean {
+  const t = normalizeFlowStepType(step);
+  if (t === 'delay' || t === 'wait') return false;
+  if (BRANCHING_TYPES.includes(t)) return true;
+  if (t.includes('split') && !t.includes('email') && !t.includes('sms') && !t.includes('push')) return true;
+  return false;
+}
 
 // Build linear path from variant, following the first branch through splits
 function buildLinearPath(firstStepId: string | null, allSteps: Record<string, CanvasStep>): CanvasStep[] {
   if (!firstStepId) return [];
-  
+
   const path: CanvasStep[] = [];
   const visited = new Set<string>();
   let currentId: string | null = firstStepId;
-  
+
   while (currentId && !visited.has(currentId)) {
     visited.add(currentId);
     const step = allSteps[currentId];
     if (!step) break;
-    
+
     path.push(step);
-    
-    // Follow first available path
-    currentId = step.next_step_ids?.[0] || null;
+
+    currentId = getNextLinearStepId(step);
   }
-  
+
   return path;
 }
 
@@ -533,18 +620,13 @@ function VariantRow({
     let pendingSplitStep: CanvasStep | undefined;
     
     for (const s of path) {
-      const type = s.type?.toLowerCase() || 'message';
-      
-      if (type === 'delay' || type === 'wait') {
-        // Accumulate delay seconds
+      if (isDelayOnlyStep(s)) {
         accumulatedDelaySeconds += s.delay_seconds || 0;
-      } else if (BRANCHING_TYPES.includes(type)) {
-        // Capture split step to show full path details
+      } else if (isBranchOnlyStep(s)) {
         pendingSplitStep = s;
       } else {
-        // This is a message step - attach accumulated metadata
-        result.push({ 
-          step: s, 
+        result.push({
+          step: s,
           delaySeconds: accumulatedDelaySeconds > 0 ? accumulatedDelaySeconds : undefined,
           splitStep: pendingSplitStep,
         });
@@ -643,29 +725,31 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
   // Step preview modal state
   const [previewStep, setPreviewStep] = useState<CanvasStep | null>(null);
   
-  // If no variants but has steps, create a default path
+  // If no variants but has steps, create a default path; if variants omit first_step_id, infer entry
   const effectiveVariants = useMemo(() => {
+    const entryFallback = hasSteps ? findEntryStepId(canvas.steps) : null;
+
     if (hasVariants) {
-      // Filter out control variants
-      return canvas.variants.filter(v => !v.name.toLowerCase().includes('control'));
+      const filtered = canvas.variants.filter((v) => !v.name.toLowerCase().includes('control'));
+      return filtered.map((v) => ({
+        ...v,
+        first_step_id:
+          v.first_step_id ||
+          (filtered.length === 1 ? entryFallback : null) ||
+          null,
+      }));
     }
-    
-    if (hasSteps) {
-      const allNextIds = new Set<string>();
-      Object.values(canvas.steps).forEach(s => {
-        s.next_step_ids?.forEach(id => allNextIds.add(id));
-      });
-      
-      const entrySteps = Object.keys(canvas.steps).filter(id => !allNextIds.has(id));
-      if (entrySteps.length > 0) {
-        return [{
+
+    if (hasSteps && entryFallback) {
+      return [
+        {
           name: 'Main Path',
           percentage: 100,
-          first_step_id: entrySteps[0],
-        }];
-      }
+          first_step_id: entryFallback,
+        },
+      ];
     }
-    
+
     return [];
   }, [canvas.variants, canvas.steps, hasVariants, hasSteps]);
   
@@ -783,10 +867,9 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
               {selectedSplit?.next_paths?.map((path, idx) => {
                 // Build the path content for this branch
                 const pathSteps = buildLinearPath(path.next_step_id, canvas.steps);
-                const messageSteps = pathSteps.filter(s => {
-                  const type = s.type?.toLowerCase() || 'message';
-                  return !BRANCHING_TYPES.includes(type);
-                });
+                const messageSteps = pathSteps.filter(
+                  (s) => !isDelayOnlyStep(s) && !isBranchOnlyStep(s),
+                );
                 
                 // Calculate delays between steps
                 const stepsWithDelays = messageSteps.map((step, stepIdx) => {

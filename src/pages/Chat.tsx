@@ -102,7 +102,7 @@ export default function Chat() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <h1 className="text-4xl sm:text-5xl font-heading font-bold tracking-tight">
+                    <h1 className="text-4xl sm:text-5xl font-heading font-bold tracking-tight leading-snug pt-0.5 pb-0.5">
                       How can we help today?
                     </h1>
                     {loadError ? (

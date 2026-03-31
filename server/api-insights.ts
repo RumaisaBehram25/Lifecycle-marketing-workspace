@@ -36,22 +36,24 @@ export function insightsApi(): Plugin {
             return;
           }
 
-          const apiKey = env.OPENAI_API_KEY;
+          const apiKey = env.ANTHROPIC_API_KEY;
           if (!apiKey) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'OPENAI_API_KEY not set in .env' }));
+            res.end(JSON.stringify({ error: 'ANTHROPIC_API_KEY not set in .env' }));
             return;
           }
 
-          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'Content-Type': 'application/json',
+            },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [
-                {
-                  role: 'system',
-                  content: `You are a lifecycle marketing analytics expert. Analyze the specific campaign data provided and return exactly 3-4 actionable insights.
+              model: 'claude-haiku-4-5-20251001',
+              max_tokens: 1024,
+              system: `You are a lifecycle marketing analytics expert. Analyze the specific campaign data provided and return exactly 3-4 actionable insights.
 
 CRITICAL RULES:
 - Every insight MUST reference specific campaigns or flows BY NAME from the data.
@@ -72,26 +74,25 @@ Return ONLY valid JSON — an array of objects with these fields:
   - "Benchmark" -> "bg-purple-500/10 text-purple-600"
   - "Warning" -> "bg-orange-500/10 text-orange-600"
   - "Opportunity" -> "bg-cyan-500/10 text-cyan-600"`,
-                },
+              messages: [
                 {
                   role: 'user',
                   content: `Analyze these ${campaigns.length} campaigns/flows:\n${JSON.stringify(campaigns, null, 2)}`,
                 },
               ],
-              temperature: 0.7,
             }),
           });
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error('OpenAI error:', errorText);
+            console.error('Anthropic error:', errorText);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'AI generation failed' }));
             return;
           }
 
           const data = await response.json();
-          const content = data.choices[0].message.content;
+          const content = data.content[0].text;
           const jsonMatch = content.match(/\[[\s\S]*\]/);
 
           if (!jsonMatch) {

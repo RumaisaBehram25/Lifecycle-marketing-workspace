@@ -125,7 +125,7 @@ export default function Brand() {
                   <span className="text-2xl">🍿</span>
                 </div>
                 <div>
-                  <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">Double Good</h1>
+                  <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-snug pt-0.5 pb-0.5">Double Good</h1>
                   <p className="text-sm text-muted-foreground">CRM Brand Guidelines</p>
                 </div>
               </div>

@@ -8,14 +8,18 @@ import {
   dashboardSurfaceCard,
   dashboardTopAccentClass,
 } from '@/lib/dashboard-surface';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import {
+  useDoubleGoodClient,
+  useDoubleGoodPlatforms,
+  useResolvedClientId,
+} from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { LoadingPage } from '@/components/ui/loading-spinner';
+import { LoadingPage, LoadingSpinner } from '@/components/ui/loading-spinner';
 import {
   Tooltip,
   TooltipContent,
@@ -65,10 +69,16 @@ import {
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  brazeSyncPartialDescription,
+  formatBrazeSyncInvokeError,
+} from '@/lib/brazeSyncInvoke';
+import { logger } from '@/lib/logger';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import {
   countMessagingTouchpoints,
+  formatLifecycleStepBadge,
   getLifecycleStepChannel,
   isMessagingTouchpointStep,
   normalizeRawSteps,
@@ -190,7 +200,11 @@ function LifecycleMetricTile({
 export default function Lifecycle() {
   const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
   const { data: platforms } = useDoubleGoodPlatforms();
-  
+  const { clientId: workspaceClientId } = useResolvedClientId();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [syncing, setSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState('All');
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
@@ -203,6 +217,36 @@ export default function Lifecycle() {
   const hasBrazeApi = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
   const brazeJsonCache = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
+
+  const handleSyncFromBraze = async () => {
+    if (!workspaceClientId || !brazePlatform?.id) return;
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-braze', {
+        body: { clientId: workspaceClientId, platformId: brazePlatform.id },
+      });
+      if (error) throw error;
+      const partialDesc = brazeSyncPartialDescription(data);
+      toast({
+        title: data?.partial ? 'Synced from Braze (partial)' : 'Synced from Braze',
+        description: partialDesc,
+      });
+      queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
+      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    } catch (error: unknown) {
+      logger.error('Sync error:', error);
+      const description = await formatBrazeSyncInvokeError(error);
+      toast({
+        title: 'Failed to sync from Braze',
+        description,
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Fetch canvases from normalized table (synced rows only — avoids flooding the tab with schema_cache dumps)
   const { data: normalizedCanvases, isLoading: canvasesLoading } = useQuery({
@@ -314,6 +358,11 @@ export default function Lifecycle() {
         variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
         steps: stepsRecord,
         total_steps: messageStepCount,
+        /** DB column when Phase 3 stored counts but `raw_steps` empty or UI can't classify messaging */
+        db_total_steps:
+          typeof canvas.total_steps === 'number' && !Number.isNaN(canvas.total_steps)
+            ? canvas.total_steps
+            : undefined,
         entry_type: canvas.entry_type as string | undefined,
         entry_segment_name: canvas.entry_segment_name as string | undefined,
         trigger_event_name: canvas.trigger_event_name as string | undefined,
@@ -399,14 +448,18 @@ export default function Lifecycle() {
     [filteredJourneys],
   );
 
-  const messagingStepsTotal = useMemo(
-    () =>
-      filteredJourneys.reduce(
-        (s, j) => s + countMessagingTouchpoints(normalizeRawSteps(j.steps)),
-        0,
-      ),
-    [filteredJourneys],
-  );
+  const messagingStepsTotal = useMemo(() => {
+    return filteredJourneys.reduce((s, j) => {
+      const steps = normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined);
+      const m = countMessagingTouchpoints(steps);
+      if (m > 0) return s + m;
+      const all = Object.keys(steps).length;
+      if (all > 0) return s + all;
+      const db = (j as { db_total_steps?: number }).db_total_steps;
+      if (typeof db === 'number' && db > 0) return s + db;
+      return s;
+    }, 0);
+  }, [filteredJourneys]);
 
   return (
     <AppLayout>
@@ -430,11 +483,19 @@ export default function Lifecycle() {
             actions={
               hasBrazeApi ? (
                 <>
-                  <Button variant="outline" asChild className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20">
-                    <Link to="/campaigns" className="inline-flex items-center gap-2">
-                      <RefreshCw className="h-4 w-4" />
-                      Sync via Campaigns
-                    </Link>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={syncing || !brazePlatform}
+                    onClick={handleSyncFromBraze}
+                    className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20"
+                  >
+                    {syncing ? (
+                      <LoadingSpinner size="sm" className="mr-2" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Sync from Braze
                   </Button>
                   <Badge className="border border-teal-500/20 bg-teal-500/10 text-xs font-normal text-teal-800 dark:text-teal-200">
                     Braze connected
@@ -578,7 +639,7 @@ export default function Lifecycle() {
               />
               <LifecycleMetricTile
                 icon={GitBranch}
-                label="Messaging steps"
+                label="Steps (touchpoints + flow)"
                 value={String(messagingStepsTotal)}
                 color="bg-amber-500/15 text-amber-800 dark:text-amber-300"
                 glowClass="from-amber-500/45"
@@ -689,7 +750,11 @@ export default function Lifecycle() {
                 const j = selectedJourney as Record<string, unknown>;
                 const title = String(j.displayName ?? j.name ?? 'Journey');
                 const { Icon, gradient, shadow } = getJourneyVisuals(String(j.name ?? ''));
-                const stepCount = countMessagingTouchpoints(normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined));
+                const hdrSteps = normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined);
+                const hdrBadge = formatLifecycleStepBadge(
+                  hdrSteps,
+                  (j as { db_total_steps?: number }).db_total_steps,
+                );
                 const firstEntry = j.first_entry ? String(j.first_entry) : '';
                 let entryLine = '';
                 if (firstEntry) {
@@ -723,7 +788,7 @@ export default function Lifecycle() {
                       )}
                     </DialogTitle>
                     <DialogDescription>
-                      {stepCount} message step{stepCount !== 1 ? 's' : ''}
+                      {hdrBadge.line}
                       {entryLine}
                     </DialogDescription>
                   </DialogHeader>
@@ -993,7 +1058,11 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
   const channels = journey.channels as string[] | undefined;
   const primaryCh = journeyCardPrimaryUiChannel(channels);
   const dateLabel = journeyCardDateLabel(journey);
-  const touchCount = countMessagingTouchpoints(normalizeRawSteps(journey.steps));
+  const stepsRecord = normalizeRawSteps(journey.steps) as Record<string, LifecycleCanvasStep>;
+  const stepBadge = formatLifecycleStepBadge(
+    stepsRecord,
+    (journey as { db_total_steps?: number }).db_total_steps,
+  );
   const channelPills = journeyCardChannelPillList(channels);
 
   const titleIconBadge = (
@@ -1015,9 +1084,17 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
   const isDisabled = journey.enabled === false;
 
   const touchpointBadge = (
-    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-teal-500/25 bg-gradient-to-r from-teal-500/[0.08] to-emerald-500/[0.06] px-2.5 py-1 text-xs font-medium text-teal-800 dark:text-teal-200">
-      <GitBranch className="h-3.5 w-3.5 opacity-80" aria-hidden />
-      {touchCount} touchpoint{touchCount !== 1 ? 's' : ''}
+    <span
+      className={cn(
+        'inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
+        stepBadge.variant === 'db_only'
+          ? 'border-amber-500/35 bg-amber-500/[0.08] text-amber-900 dark:text-amber-200'
+          : 'border-teal-500/25 bg-gradient-to-r from-teal-500/[0.08] to-emerald-500/[0.06] text-teal-800 dark:text-teal-200',
+      )}
+      title={stepBadge.variant === 'db_only' ? 'Step JSON not loaded for this canvas yet — use Sync from Braze' : undefined}
+    >
+      <GitBranch className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+      <span className="min-w-0 text-left leading-snug">{stepBadge.line}</span>
     </span>
   );
 
@@ -1230,6 +1307,10 @@ function JourneyDetail({
       last_entry: detailRow.last_entry ?? journey.last_entry,
       schedule_type: detailRow.schedule_type ?? journey.schedule_type,
       total_steps: effectiveMsgCount,
+      db_total_steps:
+        typeof detailRow.total_steps === 'number' && !Number.isNaN(detailRow.total_steps)
+          ? detailRow.total_steps
+          : (journey as { db_total_steps?: number }).db_total_steps,
       draft: Boolean(detailRow.draft ?? journey.draft),
       enabled: Boolean(detailRow.enabled ?? journey.enabled),
     };
@@ -1260,7 +1341,10 @@ function JourneyDetail({
   const { Icon, gradient, shadow } = getJourneyVisuals(String(merged.name ?? ''));
 
   const stepsRecord = normalizeRawSteps(merged.steps as Record<string, LifecycleCanvasStep> | undefined);
-  const messageStepCount = countMessagingTouchpoints(stepsRecord);
+  const stepSummaryBadge = formatLifecycleStepBadge(
+    stepsRecord,
+    (merged as { db_total_steps?: number }).db_total_steps,
+  );
   const channelCounts = Object.values(stepsRecord).reduce((acc: Record<string, number>, step: LifecycleCanvasStep) => {
     if (!isMessagingTouchpointStep(step)) return acc;
     const ch = getLifecycleStepChannel(step) || 'email';
@@ -1331,7 +1415,7 @@ function JourneyDetail({
                     <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>{ch}</Badge>
                   ))}
                   <Badge variant="secondary" className={cn(dashPill, 'border-0 font-normal normal-case tracking-normal')}>
-                    {messageStepCount} message step{messageStepCount !== 1 ? 's' : ''}
+                    {stepSummaryBadge.line}
                   </Badge>
                 </div>
               </div>

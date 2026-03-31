@@ -82,7 +82,22 @@ export function getLifecycleStepChannel(step: LifecycleCanvasStep): string {
  */
 function looksLikeBrazeSendStepType(type: string): boolean {
   if (!type || NON_MESSAGE_STEP_TYPES.has(type)) return false;
-  if (type === 'message' || type === 'full') return true;
+  const t = type.toLowerCase();
+  // Braze composite types: "full/email", "full/android_push", etc. (not full/webhook for touchpoint count)
+  if (t.includes('/')) {
+    if (t.includes('webhook') || t.includes('audience_paths') || t.includes('action_paths')) return false;
+    if (
+      t.includes('email') ||
+      t.includes('sms') ||
+      t.includes('push') ||
+      t.includes('in_app') ||
+      t.includes('in-app') ||
+      t.includes('content_card')
+    ) {
+      return true;
+    }
+  }
+  if (type === 'message' || t === 'full') return true;
   if (/^(email|sms|push|iam|in_app|in-app|android_push|ios_push|web_push)/i.test(type)) return true;
   if (type.includes('in_app_message') || type.includes('in-app')) return true;
   return false;
@@ -95,6 +110,20 @@ export function isMessagingTouchpointStep(step: LifecycleCanvasStep): boolean {
   const type = (step.type || '').toLowerCase();
   if (NON_MESSAGE_STEP_TYPES.has(type)) return false;
   if (type === 'delay' || type === 'wait') return false;
+
+  // Braze composite send types: full/email, full/android_push, etc. (not full/webhook)
+  if (type.includes('/') && !type.includes('webhook')) {
+    if (
+      type.includes('email') ||
+      type.includes('sms') ||
+      type.includes('push') ||
+      type.includes('in_app') ||
+      type.includes('in-app') ||
+      type.includes('content_card')
+    ) {
+      return true;
+    }
+  }
 
   const ch = getLifecycleStepChannel(step);
   if (isMessagingChannel(ch)) return true;
@@ -152,4 +181,41 @@ export function normalizeRawSteps(raw: unknown): Record<string, LifecycleCanvasS
 
 export function countMessagingTouchpoints(steps: Record<string, LifecycleCanvasStep>): number {
   return Object.values(steps).filter(isMessagingTouchpointStep).length;
+}
+
+/** All step objects in `raw_steps` (includes delays/splits — not only messaging). */
+export function countAllSyncedSteps(steps: Record<string, LifecycleCanvasStep>): number {
+  return Object.keys(steps).length;
+}
+
+/**
+ * Card / list label: prefer messaging touchpoints; if none counted (types mismatch) use all synced steps;
+ * if `raw_steps` is empty but DB still has `total_steps`, show that as a hint until the next sync fills JSON.
+ */
+export function formatLifecycleStepBadge(
+  steps: Record<string, LifecycleCanvasStep>,
+  dbTotalSteps?: number | null,
+): { line: string; variant: 'messaging' | 'all' | 'db_only' } {
+  const messaging = countMessagingTouchpoints(steps);
+  const all = countAllSyncedSteps(steps);
+  if (messaging > 0) {
+    return {
+      line: `${messaging} touchpoint${messaging !== 1 ? 's' : ''}`,
+      variant: 'messaging',
+    };
+  }
+  if (all > 0) {
+    return {
+      line: `${all} step${all !== 1 ? 's' : ''}`,
+      variant: 'all',
+    };
+  }
+  const db = typeof dbTotalSteps === 'number' && !Number.isNaN(dbTotalSteps) ? dbTotalSteps : 0;
+  if (db > 0) {
+    return {
+      line: `${db} steps · run Sync from Braze`,
+      variant: 'db_only',
+    };
+  }
+  return { line: '0 touchpoints', variant: 'messaging' };
 }

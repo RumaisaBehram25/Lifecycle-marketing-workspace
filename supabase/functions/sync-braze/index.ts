@@ -485,16 +485,43 @@ function isMessagingChannelForSync(raw: string): boolean {
  * One Braze `steps` (or similar) field: array of step objects, or id-keyed object where
  * inner objects may omit `id` (id is the map key).
  */
+/** Braze step rows may use `id`, `api_id`, `canvas_step_id`, etc. */
+function ensureStepRowHasId(row: Record<string, unknown>, mapKey?: string): Record<string, unknown> {
+  const pick = (): string => {
+    for (const k of [
+      "id",
+      "api_id",
+      "step_api_id",
+      "canvas_step_id",
+      "step_id",
+      "identifier",
+      "step_identifier",
+    ] as const) {
+      const v = row[k];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+    if (mapKey != null && String(mapKey).trim() !== "") return String(mapKey).trim();
+    return "";
+  };
+  const id = pick();
+  if (id && (row.id == null || String(row.id).trim() === "")) {
+    row.id = id;
+  }
+  return row;
+}
+
 function stepRowsFromUnknown(raw: unknown): Array<Record<string, unknown>> {
   if (raw == null) return [];
   if (Array.isArray(raw)) {
-    return raw.filter((x): x is Record<string, unknown> => x != null && typeof x === "object");
+    return raw
+      .filter((x): x is Record<string, unknown> => x != null && typeof x === "object")
+      .map((row) => ensureStepRowHasId({ ...row }));
   }
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const acc: Array<Record<string, unknown>> = [];
     for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
       if (v == null || typeof v !== "object" || Array.isArray(v)) continue;
-      const row = { ...(v as Record<string, unknown>) };
+      const row = ensureStepRowHasId({ ...(v as Record<string, unknown>) }, k);
       if (row.id == null || String(row.id).trim() === "") {
         row.id = k;
       }
@@ -503,6 +530,21 @@ function stepRowsFromUnknown(raw: unknown): Array<Record<string, unknown>> {
     return acc;
   }
   return [];
+}
+
+/** Steps often live under each Canvas variant, not on the canvas root (Braze export shape). */
+function pushStepsFromVariantsInto(
+  sources: unknown[],
+  container: Record<string, unknown> | undefined,
+): void {
+  if (!container || typeof container !== "object") return;
+  const vars = container.variants;
+  if (!Array.isArray(vars)) return;
+  for (const v of vars) {
+    if (v == null || typeof v !== "object" || Array.isArray(v)) continue;
+    const vr = v as Record<string, unknown>;
+    sources.push(vr.steps, vr.scheduled_steps);
+  }
 }
 
 /**
@@ -518,6 +560,11 @@ function collectCanvasDetailStepRows(
 ): Array<Record<string, unknown>> {
   const dataObj = details.data as Record<string, unknown> | undefined;
   const dataCanvas = dataObj?.canvas as Record<string, unknown> | undefined;
+  /** Some responses use `data` as the canvas document without a nested `canvas` key. */
+  const dataAsCanvas =
+    dataObj && typeof dataObj === "object" && dataCanvas == null
+      ? dataObj
+      : undefined;
 
   const sources: unknown[] = [
     details.steps,
@@ -530,18 +577,39 @@ function collectCanvasDetailStepRows(
       : undefined,
     dataCanvas?.steps,
     dataCanvas?.scheduled_steps,
+    dataAsCanvas?.steps,
+    dataAsCanvas && typeof dataAsCanvas === "object"
+      ? (dataAsCanvas as { scheduled_steps?: unknown }).scheduled_steps
+      : undefined,
+    (details as { message?: unknown }).message &&
+    typeof (details as { message?: unknown }).message === "object"
+      ? ((details as { message: Record<string, unknown> }).message.steps)
+      : undefined,
+    (details as { message?: unknown }).message &&
+    typeof (details as { message?: unknown }).message === "object"
+      ? ((details as { message: Record<string, unknown> }).message as { scheduled_steps?: unknown })
+          .scheduled_steps
+      : undefined,
   ];
+
+  pushStepsFromVariantsInto(sources, details as Record<string, unknown>);
+  pushStepsFromVariantsInto(sources, canvasNested);
+  pushStepsFromVariantsInto(sources, dataObj);
+  pushStepsFromVariantsInto(sources, dataCanvas);
+  pushStepsFromVariantsInto(sources, dataAsCanvas);
 
   const legacyBlobs: unknown[] = [
     (details as { legacy_response?: unknown }).legacy_response,
     dataObj?.legacy_response,
     dataCanvas?.legacy_response,
     canvasNested?.legacy_response,
+    dataAsCanvas?.legacy_response,
   ];
   for (const leg of legacyBlobs) {
     if (leg && typeof leg === "object" && !Array.isArray(leg)) {
       const o = leg as Record<string, unknown>;
       sources.push(o.steps, o.scheduled_steps);
+      pushStepsFromVariantsInto(sources, o);
     }
   }
 
@@ -549,7 +617,14 @@ function collectCanvasDetailStepRows(
   const out: Array<Record<string, unknown>> = [];
   for (const raw of sources) {
     for (const row of stepRowsFromUnknown(raw)) {
-      const id = String(row.id ?? "").trim();
+      const id = String(
+        row.id ??
+          row.api_id ??
+          (row as { step_api_id?: unknown }).step_api_id ??
+          row.step_id ??
+          (row as { canvas_step_id?: unknown }).canvas_step_id ??
+          "",
+      ).trim();
       if (!id) continue;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -1545,23 +1620,52 @@ Deno.serve(async (req) => {
               }));
             }
 
-            // Parse variants
+            // Parse variants (Braze field names vary: first_step_id, firstStepId, first_canvas_step_id)
             if (details.variants?.length > 0) {
+              const rootFirst =
+                (details as { first_step_id?: string }).first_step_id ||
+                (canvasNested as { first_step_id?: string } | undefined)?.first_step_id ||
+                "";
               for (const v of details.variants) {
+                const vr = v as Record<string, unknown>;
+                const fid =
+                  (vr.first_step_id as string | undefined) ||
+                  (vr.firstStepId as string | undefined) ||
+                  (vr.first_canvas_step_id as string | undefined) ||
+                  (vr.first_step_api_id as string | undefined) ||
+                  (typeof rootFirst === "string" && rootFirst ? rootFirst : undefined);
                 variants.push({
-                  name: v.name || 'Variant',
-                  percentage: v.percentage || 100,
-                  first_step_id: v.first_step_id || null,
+                  name: (v.name as string) || "Variant",
+                  percentage: typeof v.percentage === "number" ? v.percentage : 100,
+                  first_step_id: fid ? String(fid).trim() : null,
                 });
               }
             }
 
             // Parse steps (skip HTML to save memory - store template IDs)
             const detailStepRows = collectCanvasDetailStepRows(details, canvasNested);
+
+            const detailKeys = Object.keys(details).sort();
+            console.log(
+              `[Braze Sync][Phase3][parse-debug] name=${JSON.stringify(c.name)} canvas_id=${c.id} ` +
+                `detailStepRows=${detailStepRows.length} details.top_level_keys=${JSON.stringify(detailKeys)}`,
+            );
+            if (detailStepRows.length > 0) {
+              const first = detailStepRows[0] as Record<string, unknown>;
+              console.log(
+                `[Braze Sync][Phase3][parse-debug] first_step_sample=${JSON.stringify(first).slice(0, 1200)}`,
+              );
+            }
+
             if (detailStepRows.length > 0) {
               for (const s of detailStepRows) {
                 const stepId = String(
-                  s.id ?? s.step_id ?? (s as { canvas_step_id?: unknown }).canvas_step_id ?? "",
+                  s.id ??
+                    s.api_id ??
+                    s.step_id ??
+                    (s as { canvas_step_id?: unknown }).canvas_step_id ??
+                    (s as { step_api_id?: unknown }).step_api_id ??
+                    "",
                 ).trim();
                 if (!stepId) {
                   console.warn(
@@ -1652,25 +1756,62 @@ Deno.serve(async (req) => {
                 const nextPaths: Array<{ name: string; next_step_id: string; percentage?: number }> = [];
                 if (s.next_paths?.length > 0) {
                   for (const p of s.next_paths) {
+                    const pr = p as Record<string, unknown>;
+                    const nid = String(
+                      pr.next_step_id ??
+                        pr.nextStepId ??
+                        pr.next_canvas_step_id ??
+                        "",
+                    ).trim();
                     nextPaths.push({
-                      name: p.name || 'Path',
-                      next_step_id: p.next_step_id || '',
-                      percentage: p.percentage,
+                      name: (p.name as string) || "Path",
+                      next_step_id: nid,
+                      percentage: typeof p.percentage === "number" ? p.percentage : undefined,
                     });
                   }
                 }
 
+                const delayObj = s.delay as { value?: number } | undefined;
+                const delaySecondsParsed =
+                  typeof delayObj?.value === "number"
+                    ? delayObj.value
+                    : typeof (s as { delay_seconds?: number }).delay_seconds === "number"
+                      ? (s as { delay_seconds: number }).delay_seconds
+                      : typeof (s as { wait_seconds?: number }).wait_seconds === "number"
+                        ? (s as { wait_seconds: number }).wait_seconds
+                        : undefined;
+
+                const nextStepIdsFromPaths = nextPaths.map((p) => p.next_step_id).filter(Boolean);
                 const nextStepIds = Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
-                  ? s.next_step_ids
-                  : nextPaths.map(p => p.next_step_id).filter(Boolean);
+                  ? (s.next_step_ids as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+                  : nextStepIdsFromPaths;
+
+                const rawStepType = String(s.type ?? "message");
+                let resolvedChannel = (s.channels?.[0] || messages[0]?.channel) as string | undefined;
+                if (!resolvedChannel && rawStepType.includes("/")) {
+                  const tail = rawStepType.split("/").pop()?.toLowerCase() ?? "";
+                  if (
+                    tail === "email" ||
+                    tail === "sms" ||
+                    tail === "webhook" ||
+                    tail.includes("push") ||
+                    tail.includes("in_app") ||
+                    tail.includes("in-app")
+                  ) {
+                    resolvedChannel = tail;
+                  }
+                }
 
                 steps[stepId] = {
                   id: stepId,
                   name: (s.name || s.type || 'Step') as string,
-                  type: (s.type || 'message') as string,
-                  channel: (s.channels?.[0] || messages[0]?.channel) as string | undefined,
-                  delay_seconds: s.delay?.value,
-                  delay_formatted: s.delay ? formatDelay(s.delay.value) : undefined,
+                  type: rawStepType,
+                  channel: resolvedChannel,
+                  delay_seconds: delaySecondsParsed,
+                  delay_formatted:
+                    typeof delaySecondsParsed === "number"
+                      ? formatDelay(delaySecondsParsed)
+                      : undefined,
                   next_step_ids: nextStepIds,
                   next_paths: nextPaths.length > 0 ? nextPaths : undefined,
                   messages: messages.length > 0 ? messages : undefined,

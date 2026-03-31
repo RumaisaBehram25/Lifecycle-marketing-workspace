@@ -33,11 +33,11 @@ serve(async (req) => {
       return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
     }
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY not configured');
+    if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -70,15 +70,17 @@ serve(async (req) => {
       conversion_events: c.conversion_events || [],
     }));
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a lifecycle marketing analytics expert. Analyze campaign data and return exactly 3-4 actionable insights.
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: `You are a lifecycle marketing analytics expert. Analyze campaign data and return exactly 3-4 actionable insights.
 
 Return ONLY valid JSON — an array of objects with these fields:
 - "title": short insight heading (5-10 words)
@@ -92,25 +94,24 @@ Return ONLY valid JSON — an array of objects with these fields:
   - "Warning" -> "bg-orange-500/10 text-orange-600"
   - "Opportunity" -> "bg-cyan-500/10 text-cyan-600"
 
-Focus on: performance patterns, underperforming flows, engagement gaps, and growth opportunities.`
-          },
+Focus on: performance patterns, underperforming flows, engagement gaps, and growth opportunities.`,
+        messages: [
           {
             role: 'user',
             content: `Analyze these ${canvases.length} campaigns/flows:\n${JSON.stringify(campaignSummary, null, 2)}`
           }
         ],
-        temperature: 0.7,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error('OpenAI error:', errorText);
+      logger.error('Anthropic error:', errorText);
       throw new Error('AI generation failed');
     }
 
     const data = await response.json();
-    const content = data.choices[0].message.content;
+    const content = data.content[0].text;
     const jsonMatch = content.match(/\[[\s\S]*\]/);
 
     let insights;

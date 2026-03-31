@@ -14,7 +14,16 @@ export function PageHeader({ title, description, actions, className, titleClassN
   return (
     <div className={cn("flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between", className)}>
       <div className="min-w-0 flex-1">
-        <h1 className={cn('font-heading font-black tracking-tight truncate', titleClassName ?? 'text-4xl sm:text-5xl')}>{title}</h1>
+        {/* No overflow:hidden on h1 — Tailwind `truncate` clips ascenders on large display type */}
+        <h1
+          className={cn(
+            'font-heading font-black tracking-tight leading-snug text-balance break-words',
+            'pt-0.5 pb-0.5',
+            titleClassName ?? 'text-4xl sm:text-5xl',
+          )}
+        >
+          {title}
+        </h1>
         {description && (
           <p className="text-muted-foreground mt-1 truncate">{description}</p>
         )}
