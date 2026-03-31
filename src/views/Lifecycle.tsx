@@ -77,7 +77,7 @@ import {
 import { logger } from '@/lib/logger';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import {
-  countMessagingTouchpoints,
+  computeLifecycleDisplayTouchpoints,
   formatLifecycleStepBadge,
   getLifecycleStepChannel,
   isMessagingTouchpointStep,
@@ -106,18 +106,34 @@ interface BrazeSchemaCache {
   last_sync?: string;
 }
 
+/** Same display count as cards / metrics — used to order journeys by touchpoints (highest first). */
+function touchpointSortKey(row: {
+  raw_steps?: unknown;
+  total_steps?: number | null;
+}): number {
+  return computeLifecycleDisplayTouchpoints(
+    normalizeRawSteps(row.raw_steps),
+    typeof row.total_steps === 'number' && !Number.isNaN(row.total_steps) ? row.total_steps : null,
+  );
+}
+
 /**
- * Mirrors PostgREST order: entries_last_60d desc nulls last, last_entry desc nulls first, name asc.
- * Sorting in-app avoids fragile multi-column ORDER BY (can surface as HTTP 500 on some DB/PostgREST setups).
+ * Primary: touchpoint count (desc). Then entries_last_60d, last_entry, name — in-app avoids fragile PostgREST ORDER BY.
  */
 function sortLifecycleCanvases<
   T extends {
+    raw_steps?: unknown;
+    total_steps?: number | null;
     entries_last_60d?: number | null;
     last_entry?: string | null;
     name?: string | null;
   },
 >(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
+    const aTp = touchpointSortKey(a);
+    const bTp = touchpointSortKey(b);
+    if (bTp !== aTp) return bTp - aTp;
+
     const aE =
       typeof a.entries_last_60d === 'number' && !Number.isNaN(a.entries_last_60d)
         ? a.entries_last_60d
@@ -330,7 +346,10 @@ export default function Lifecycle() {
         if (inferredChannels.length === 0) inferredChannels.push('email');
       }
 
-      const messageStepCount = countMessagingTouchpoints(stepsRecord);
+      const dbTotalRaw =
+        typeof canvas.total_steps === 'number' && !Number.isNaN(canvas.total_steps)
+          ? canvas.total_steps
+          : undefined;
 
       const dbRowId = String(canvas.id ?? '');
       const brazeCanvasIdRaw = canvas.braze_canvas_id;
@@ -357,12 +376,9 @@ export default function Lifecycle() {
         taxonomy: { ...taxonomy, type: 'lifecycle' as const },
         variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
         steps: stepsRecord,
-        total_steps: messageStepCount,
+        total_steps: computeLifecycleDisplayTouchpoints(stepsRecord, dbTotalRaw),
         /** DB column when Phase 3 stored counts but `raw_steps` empty or UI can't classify messaging */
-        db_total_steps:
-          typeof canvas.total_steps === 'number' && !Number.isNaN(canvas.total_steps)
-            ? canvas.total_steps
-            : undefined,
+        db_total_steps: dbTotalRaw,
         entry_type: canvas.entry_type as string | undefined,
         entry_segment_name: canvas.entry_segment_name as string | undefined,
         trigger_event_name: canvas.trigger_event_name as string | undefined,
@@ -414,8 +430,19 @@ export default function Lifecycle() {
 
       return matchesSearch && matchesChannel && matchesLaunchDate;
     }).sort((a, b) => {
-      const aEntries = (a as any).entries_last_60d ?? 0;
-      const bEntries = (b as any).entries_last_60d ?? 0;
+      const aTp =
+        typeof (a as { total_steps?: number }).total_steps === 'number' &&
+        !Number.isNaN((a as { total_steps?: number }).total_steps)
+          ? (a as { total_steps: number }).total_steps
+          : 0;
+      const bTp =
+        typeof (b as { total_steps?: number }).total_steps === 'number' &&
+        !Number.isNaN((b as { total_steps?: number }).total_steps)
+          ? (b as { total_steps: number }).total_steps
+          : 0;
+      if (bTp !== aTp) return bTp - aTp;
+      const aEntries = (a as { entries_last_60d?: number }).entries_last_60d ?? 0;
+      const bEntries = (b as { entries_last_60d?: number }).entries_last_60d ?? 0;
       return bEntries - aEntries;
     });
   }, [journeys, searchQuery, channelFilter, launchDateFilter, visibilityMap]);
@@ -451,13 +478,8 @@ export default function Lifecycle() {
   const messagingStepsTotal = useMemo(() => {
     return filteredJourneys.reduce((s, j) => {
       const steps = normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined);
-      const m = countMessagingTouchpoints(steps);
-      if (m > 0) return s + m;
-      const all = Object.keys(steps).length;
-      if (all > 0) return s + all;
       const db = (j as { db_total_steps?: number }).db_total_steps;
-      if (typeof db === 'number' && db > 0) return s + db;
-      return s;
+      return s + computeLifecycleDisplayTouchpoints(steps, db);
     }, 0);
   }, [filteredJourneys]);
 
@@ -1285,11 +1307,13 @@ function JourneyDetail({
     if (!detailRow) return journey;
     const stepsRecord = normalizeRawSteps(detailRow.raw_steps);
     const variants = (detailRow.raw_variants ?? journey.variants) as CanvasVariant[];
-    const msgCount = countMessagingTouchpoints(stepsRecord);
     const priorSteps = normalizeRawSteps(journey.steps);
-    const priorCount = countMessagingTouchpoints(priorSteps);
-    const effectiveMsgCount =
-      Object.keys(stepsRecord).length > 0 ? msgCount : priorCount;
+    const stepsForCount =
+      Object.keys(stepsRecord).length > 0 ? stepsRecord : priorSteps;
+    const dbTotalMerged =
+      typeof detailRow.total_steps === 'number' && !Number.isNaN(detailRow.total_steps)
+        ? detailRow.total_steps
+        : (journey as { db_total_steps?: number }).db_total_steps;
 
     return {
       ...journey,
@@ -1306,11 +1330,8 @@ function JourneyDetail({
       first_entry: detailRow.first_entry ?? journey.first_entry,
       last_entry: detailRow.last_entry ?? journey.last_entry,
       schedule_type: detailRow.schedule_type ?? journey.schedule_type,
-      total_steps: effectiveMsgCount,
-      db_total_steps:
-        typeof detailRow.total_steps === 'number' && !Number.isNaN(detailRow.total_steps)
-          ? detailRow.total_steps
-          : (journey as { db_total_steps?: number }).db_total_steps,
+      total_steps: computeLifecycleDisplayTouchpoints(stepsForCount, dbTotalMerged),
+      db_total_steps: dbTotalMerged,
       draft: Boolean(detailRow.draft ?? journey.draft),
       enabled: Boolean(detailRow.enabled ?? journey.enabled),
     };

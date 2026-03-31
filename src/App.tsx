@@ -5,18 +5,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { LoadingPage } from "@/components/ui/loading-spinner";
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
-import Briefs from "./pages/Briefs";
-import Campaigns from "./pages/Campaigns";
-import Lifecycle from "./pages/Lifecycle";
-import ResourceCenter from "./pages/ResourceCenter";
-import Onboarding from "./pages/Onboarding";
-import Settings from "./pages/Settings";
-import Chat from "./pages/Chat";
-import Analytics from "./pages/Analytics";
-import NotFound from "./pages/NotFound";
-import PendingApproval from "./pages/PendingApproval";
+import Auth from "./views/Auth";
+import Dashboard from "./views/Dashboard";
+import Briefs from "./views/Briefs";
+import Campaigns from "./views/Campaigns";
+import Lifecycle from "./views/Lifecycle";
+import ResourceCenter from "./views/ResourceCenter";
+import Onboarding from "./views/Onboarding";
+import Settings from "./views/Settings";
+import Chat from "./views/Chat";
+import Analytics from "./views/Analytics";
+import NotFound from "./views/NotFound";
+import PendingApproval from "./views/PendingApproval";
 
 const queryClient = new QueryClient({
   defaultOptions: {

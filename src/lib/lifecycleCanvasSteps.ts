@@ -111,6 +111,11 @@ export function isMessagingTouchpointStep(step: LifecycleCanvasStep): boolean {
   if (NON_MESSAGE_STEP_TYPES.has(type)) return false;
   if (type === 'delay' || type === 'wait') return false;
 
+  // Large canvases: Braze often attaches message slots even when `type` is nonstandard — count as touchpoint.
+  if ((step.messages?.length ?? 0) > 0) {
+    return true;
+  }
+
   // Braze composite send types: full/email, full/android_push, etc. (not full/webhook)
   if (type.includes('/') && !type.includes('webhook')) {
     if (
@@ -127,15 +132,6 @@ export function isMessagingTouchpointStep(step: LifecycleCanvasStep): boolean {
 
   const ch = getLifecycleStepChannel(step);
   if (isMessagingChannel(ch)) return true;
-
-  if ((step.messages?.length ?? 0) > 0) {
-    if (step.messages!.some((m) => m.channel && isMessagingChannel(String(m.channel)))) {
-      return true;
-    }
-    if (step.messages!.some((m) => messageHasCreativePayload(m))) {
-      return true;
-    }
-  }
 
   if (looksLikeBrazeSendStepType(type)) {
     return true;
@@ -186,6 +182,23 @@ export function countMessagingTouchpoints(steps: Record<string, LifecycleCanvasS
 /** All step objects in `raw_steps` (includes delays/splits — not only messaging). */
 export function countAllSyncedSteps(steps: Record<string, LifecycleCanvasStep>): number {
   return Object.keys(steps).length;
+}
+
+/**
+ * Single number for cards and totals: messaging touchpoints → else all synced step keys → else DB `total_steps`
+ * (Braze-reported step count when Phase 3 has not filled `raw_steps` yet — avoids “0” on large journeys).
+ */
+export function computeLifecycleDisplayTouchpoints(
+  steps: Record<string, LifecycleCanvasStep>,
+  dbTotalSteps?: number | null,
+): number {
+  const messaging = countMessagingTouchpoints(steps);
+  if (messaging > 0) return messaging;
+  const all = countAllSyncedSteps(steps);
+  if (all > 0) return all;
+  const db =
+    typeof dbTotalSteps === 'number' && !Number.isNaN(dbTotalSteps) ? dbTotalSteps : 0;
+  return db > 0 ? db : 0;
 }
 
 /**
