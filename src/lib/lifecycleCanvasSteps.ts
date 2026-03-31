@@ -1,6 +1,6 @@
 /**
  * Normalize Braze canvas steps for Lifecycle UI. Sync stores `raw_steps` as a JSON object
- * keyed by step id; some payloads may use arrays.
+ * keyed by step id; some payloads may use arrays or id-keyed objects without `id` on each value.
  */
 
 export type LifecycleCanvasStep = {
@@ -13,7 +13,7 @@ export type LifecycleCanvasStep = {
   next_step_ids: string[];
   next_paths?: Array<{ name: string; next_step_id: string; percentage?: number }>;
   messages?: Array<{
-    channel: string;
+    channel?: string;
     subject?: string;
     preheader?: string;
     title?: string;
@@ -41,17 +41,32 @@ const NON_MESSAGE_STEP_TYPES = new Set([
   'customer_update',
   'canvas_entry',
   'rate_limit',
+  'audience_split',
+  'feature_flag',
 ]);
 
 function isMessagingChannel(raw: string): boolean {
-  const c = raw.toLowerCase();
+  const c = raw.toLowerCase().trim();
   if (!c) return false;
   if (c === 'email') return true;
   if (c.includes('push')) return true;
   if (c.includes('sms')) return true;
   if (c.includes('in_app') || c.includes('in-app')) return true;
   if (c === 'trigger_in_app_message') return true;
+  if (c.includes('content_card')) return true;
+  if (c === 'iam' || c.startsWith('iam_')) return true;
   return false;
+}
+
+function messageHasCreativePayload(m: NonNullable<LifecycleCanvasStep['messages']>[number]): boolean {
+  const s = (v: unknown) => (typeof v === 'string' ? v.trim().length > 0 : false);
+  return (
+    s(m.subject) ||
+    s(m.title) ||
+    s(m.body) ||
+    s(m.html_content) ||
+    s(m.preheader)
+  );
 }
 
 /** Prefer step.channel, then first message channel. */
@@ -63,22 +78,50 @@ export function getLifecycleStepChannel(step: LifecycleCanvasStep): string {
 }
 
 /**
- * Message touchpoints only: email, push, in-app, SMS — not delays, splits, filters, webhooks.
+ * Braze `type` strings for send steps (not exhaustive; combined with channel / messages).
+ */
+function looksLikeBrazeSendStepType(type: string): boolean {
+  if (!type || NON_MESSAGE_STEP_TYPES.has(type)) return false;
+  if (type === 'message' || type === 'full') return true;
+  if (/^(email|sms|push|iam|in_app|in-app|android_push|ios_push|web_push)/i.test(type)) return true;
+  if (type.includes('in_app_message') || type.includes('in-app')) return true;
+  return false;
+}
+
+/**
+ * Message touchpoints only: email, push, in-app, SMS, content cards — not delays, splits, filters, webhooks.
  */
 export function isMessagingTouchpointStep(step: LifecycleCanvasStep): boolean {
-  const type = (step.type || 'message').toLowerCase();
+  const type = (step.type || '').toLowerCase();
   if (NON_MESSAGE_STEP_TYPES.has(type)) return false;
   if (type === 'delay' || type === 'wait') return false;
 
   const ch = getLifecycleStepChannel(step);
   if (isMessagingChannel(ch)) return true;
 
-  // Braze message step with nested messages but channel only on message payloads
-  if (type === 'message' && (step.messages?.length ?? 0) > 0) {
-    return step.messages!.some((m) => m.channel && isMessagingChannel(String(m.channel)));
+  if ((step.messages?.length ?? 0) > 0) {
+    if (step.messages!.some((m) => m.channel && isMessagingChannel(String(m.channel)))) {
+      return true;
+    }
+    if (step.messages!.some((m) => messageHasCreativePayload(m))) {
+      return true;
+    }
+  }
+
+  if (looksLikeBrazeSendStepType(type)) {
+    return true;
   }
 
   return false;
+}
+
+function coerceStep(row: LifecycleCanvasStep): LifecycleCanvasStep {
+  const next = Array.isArray(row.next_step_ids) ? row.next_step_ids : [];
+  return {
+    ...row,
+    id: String(row.id),
+    next_step_ids: next,
+  };
 }
 
 export function normalizeRawSteps(raw: unknown): Record<string, LifecycleCanvasStep> {
@@ -87,14 +130,22 @@ export function normalizeRawSteps(raw: unknown): Record<string, LifecycleCanvasS
     const out: Record<string, LifecycleCanvasStep> = {};
     for (const item of raw) {
       if (!item || typeof item !== 'object') continue;
-      const id = String((item as { id?: string }).id ?? '');
+      const id = String((item as { id?: string }).id ?? '').trim();
       if (!id) continue;
-      out[id] = item as LifecycleCanvasStep;
+      out[id] = coerceStep(item as LifecycleCanvasStep);
     }
     return out;
   }
-  if (typeof raw === 'object') {
-    return raw as Record<string, LifecycleCanvasStep>;
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const out: Record<string, LifecycleCanvasStep> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (v == null || typeof v !== 'object' || Array.isArray(v)) continue;
+      const item = v as LifecycleCanvasStep;
+      const id = String(item.id ?? k ?? '').trim();
+      if (!id) continue;
+      out[id] = coerceStep({ ...item, id } as LifecycleCanvasStep);
+    }
+    return out;
   }
   return {};
 }

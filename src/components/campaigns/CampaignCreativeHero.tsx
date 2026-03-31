@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useState, type ReactNode } from 'react';
 import { Mail, Bell, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CampaignChannelUi } from '@/lib/campaignDisplay';
@@ -31,6 +31,13 @@ const iconPlaceholderRing: Record<CampaignChannelUi, string> = {
 
 export type CampaignCreativeHeroVariant = 'card' | 'modal';
 
+/** Lifecycle / journey cards: replace channel mail/push placeholder with title-based icon + matching tint */
+export interface JourneyHeroPlaceholder {
+  surfaceGradient: string;
+  largeIcon: ReactNode;
+  iconContainerClassName: string;
+}
+
 export interface CampaignCreativeHeroProps {
   channel: CampaignChannelUi;
   /** Always non-empty resolved preview line */
@@ -40,6 +47,7 @@ export interface CampaignCreativeHeroProps {
   campaignName: string;
   variant?: CampaignCreativeHeroVariant;
   className?: string;
+  journeyPlaceholder?: JourneyHeroPlaceholder | null;
 }
 
 /**
@@ -52,13 +60,14 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
   campaignName,
   variant = 'card',
   className,
+  journeyPlaceholder,
 }: CampaignCreativeHeroProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const url = typeof previewImageUrl === 'string' && previewImageUrl.trim() ? previewImageUrl.trim() : undefined;
   const showImg = Boolean(url && !imgFailed);
 
-  const gradient = creativeGradients[channel];
+  const gradient = journeyPlaceholder?.surfaceGradient ?? creativeGradients[channel];
   const iconSm = channelIconsSm[channel];
   const iconLg = channelIconsLg[channel];
 
@@ -125,6 +134,13 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
             )}
           >
             {iconSm}
+          </div>
+        ) : journeyPlaceholder ? (
+          <div
+            className={journeyPlaceholder.iconContainerClassName}
+            aria-label={`${campaignName} — journey preview`}
+          >
+            {journeyPlaceholder.largeIcon}
           </div>
         ) : (
           <div

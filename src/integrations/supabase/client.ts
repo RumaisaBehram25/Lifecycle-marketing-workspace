@@ -3,14 +3,47 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-/** Supabase anon (public) JWT — same value as Dashboard → API → anon. Alias: VITE_SUPABASE_ANON_KEY. */
-const SUPABASE_PUBLISHABLE_KEY =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+const RAW_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const RAW_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+function parseJwtRole(token?: string): string | null {
+  if (!token || !token.startsWith('eyJ')) return null;
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = JSON.parse(atob(padded)) as { role?: unknown };
+    return typeof decoded.role === 'string' ? decoded.role : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Select a safe client-side key: prefer anon JWT, avoid service_role in browser. */
+function resolveClientKey(): string {
+  const publishableRole = parseJwtRole(RAW_PUBLISHABLE_KEY);
+  const anonRole = parseJwtRole(RAW_ANON_KEY);
+
+  if (anonRole === 'anon') return RAW_ANON_KEY;
+  if (publishableRole === 'anon') return RAW_PUBLISHABLE_KEY;
+
+  // Fallback for setups that only define one key, while warning loudly in dev.
+  const fallback = RAW_PUBLISHABLE_KEY || RAW_ANON_KEY || '';
+  if (import.meta.env.DEV) {
+    console.warn(
+      '[supabase] Expected anon JWT (role=anon) in VITE_SUPABASE_PUBLISHABLE_KEY or VITE_SUPABASE_ANON_KEY.',
+    );
+  }
+  return fallback;
+}
+
+const SUPABASE_CLIENT_KEY = resolveClientKey();
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_CLIENT_KEY, {
   auth: {
     storage: localStorage,
     persistSession: true,

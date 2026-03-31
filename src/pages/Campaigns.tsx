@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -68,7 +68,7 @@ import {
   endOfQuarter,
   startOfYear,
 } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -493,6 +493,17 @@ export default function Campaigns() {
   const [channelFilter, setChannelFilter] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'calendar'>('grid');
   const [selectedCampaign, setSelectedCampaign] = useState<CampaignViewModel | null>(null);
+  const campaignDetailScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selectedCampaign) return;
+    const el = campaignDetailScrollRef.current;
+    if (!el) return;
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = 0;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [selectedCampaign?.id]);
   const [dateFilter, setDateFilter] = useState('All Time');
   const [sortBy, setSortBy] = useState<CampaignSortKey>('sent_desc');
   const [page, setPage] = useState(1);
@@ -1146,7 +1157,10 @@ export default function Campaigns() {
                   variant="outline"
                   size="sm"
                   disabled={page <= 1}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => {
+                    setPage(p => Math.max(1, p - 1));
+                    scrollAppMainToTopAfterLayout('smooth');
+                  }}
                   aria-label="Previous page"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -1159,7 +1173,10 @@ export default function Campaigns() {
                   variant="outline"
                   size="sm"
                   disabled={page >= totalPages}
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => {
+                    setPage(p => Math.min(totalPages, p + 1));
+                    scrollAppMainToTopAfterLayout('smooth');
+                  }}
                   aria-label="Next page"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -1173,10 +1190,10 @@ export default function Campaigns() {
       </TooltipProvider>
 
       <Dialog open={!!selectedCampaign} onOpenChange={open => !open && setSelectedCampaign(null)}>
-        <DialogContent className="max-w-lg gap-0 overflow-hidden p-0 duration-300 sm:max-w-xl">
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 duration-300 sm:max-w-xl">
           {selectedCampaign && (
             <>
-              <DialogHeader className="space-y-2 px-6 pb-2 pt-6">
+              <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">
                 <DialogTitle className="flex items-start gap-3 pr-8 text-left leading-snug">
                   <div
                     className={cn(
@@ -1202,7 +1219,13 @@ export default function Campaigns() {
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-5 px-6 pb-6">
+              <div
+                ref={campaignDetailScrollRef}
+                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pb-6 [scrollbar-gutter:stable]"
+                tabIndex={-1}
+                aria-label="Campaign details"
+              >
+                <div className="space-y-5">
                 {selectedCampaign.channel === 'email' ? (
                   <EmailModalCreative
                     key={selectedCampaign.id}
@@ -1392,6 +1415,7 @@ export default function Campaigns() {
                       </p>
                     </div>
                   )}
+                </div>
                 </div>
               </div>
             </>

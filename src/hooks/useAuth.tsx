@@ -41,12 +41,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   /** Avoid treating another user's profile/role as the current user's (e.g. fast account switch). */
   const lastLoadedUserIdRef = useRef<string | null>(null);
+  /**
+   * After the first successful profile/role load for this user, ignore duplicate `SIGNED_IN` events.
+   * Supabase calls `_recoverAndRefresh()` on tab focus → `SIGNED_IN` (not only `TOKEN_REFRESHED`),
+   * which was re-triggering full-screen loading on every visibility change.
+   */
+  const fullProfileLoadCompletedForUserIdRef = useRef<string | null>(null);
+  /** Prevents overlapping full-screen loads (e.g. Strict Mode + getSession racing INITIAL_SESSION). */
+  const fullProfileLoadInFlightRef = useRef<Promise<void> | null>(null);
 
   const loadProfileAndRole = useCallback(
     async (userId: string, options: { withFullScreenLoading: boolean }) => {
       if (options.withFullScreenLoading) {
         if (lastLoadedUserIdRef.current !== userId) {
           lastLoadedUserIdRef.current = userId;
+          fullProfileLoadCompletedForUserIdRef.current = null;
           setProfile(null);
           setRole(null);
         }
@@ -79,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } finally {
         if (options.withFullScreenLoading) {
           setIsLoading(false);
+          fullProfileLoadCompletedForUserIdRef.current = userId;
         }
       }
     },
@@ -87,7 +97,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUserData = useCallback(
     async (userId: string) => {
-      await loadProfileAndRole(userId, { withFullScreenLoading: true });
+      const existing = fullProfileLoadInFlightRef.current;
+      if (existing) {
+        await existing;
+        if (fullProfileLoadCompletedForUserIdRef.current === userId) return;
+      }
+      const run = loadProfileAndRole(userId, { withFullScreenLoading: true });
+      fullProfileLoadInFlightRef.current = run;
+      try {
+        await run;
+      } finally {
+        if (fullProfileLoadInFlightRef.current === run) {
+          fullProfileLoadInFlightRef.current = null;
+        }
+      }
     },
     [loadProfileAndRole]
   );
@@ -101,25 +124,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadProfileAndRole]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        void fetchUserData(session.user.id);
-      } else {
+    // Hydrate session for first paint only. Profile/role load runs from onAuthStateChange
+    // (INITIAL_SESSION + SIGNED_IN) so we do not race duplicate fetches or skip the first load
+    // when SIGNED_IN dedupes against a stale ref.
+    supabase.auth
+      .getSession()
+      .then(({ data: { session }, error }) => {
+        if (error) {
+          logger.error('getSession error:', error);
+          setIsLoading(false);
+          return;
+        }
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (!session?.user) {
+          setIsLoading(false);
+        }
+      })
+      .catch((err) => {
+        logger.error('getSession failed:', err);
         setIsLoading(false);
-      }
-    });
+      });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        void fetchUserData(session.user.id);
+        const uid = session.user.id;
+
+        // Background JWT refresh — do not re-fetch profile behind the global spinner.
+        if (event === 'TOKEN_REFRESHED') {
+          return;
+        }
+
+        // Tab visibility: GoTrueClient._recoverAndRefresh() emits SIGNED_IN with the same session.
+        // Only skip when a full load already finished for this user and none is in flight (avoids
+        // sticking on Loading if we dedupe during an incomplete load).
+        if (
+          event === 'SIGNED_IN' &&
+          fullProfileLoadCompletedForUserIdRef.current === uid &&
+          fullProfileLoadInFlightRef.current == null
+        ) {
+          return;
+        }
+
+        // Metadata / user row changed — refresh without blocking the app shell.
+        if (event === 'USER_UPDATED') {
+          void loadProfileAndRole(uid, { withFullScreenLoading: false });
+          return;
+        }
+
+        void fetchUserData(uid);
       } else {
         lastLoadedUserIdRef.current = null;
+        fullProfileLoadCompletedForUserIdRef.current = null;
         setProfile(null);
         setRole(null);
         setIsLoading(false);
@@ -127,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchUserData]);
+  }, [fetchUserData, loadProfileAndRole]);
 
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -151,6 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut();
     lastLoadedUserIdRef.current = null;
+    fullProfileLoadCompletedForUserIdRef.current = null;
     setUser(null);
     setSession(null);
     setProfile(null);

@@ -18,7 +18,14 @@ import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 import PendingApproval from "./pages/PendingApproval";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Tab focus otherwise refetches every mounted query and can feel like a full reload.
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isApproved } = useAuth();

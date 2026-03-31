@@ -1,16 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
-import { cn } from '@/lib/utils';
+import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
+import { getJourneyVisuals } from '@/lib/lifecycleJourneyVisuals';
 import {
   dashPill,
-  dashSectionTitleBorder,
-  dashIconChip,
   dashStickinessPanel,
-  dashSubtitleRule,
-  dashboardMetricTile,
-  dashboardSectionHeadingClass,
   dashboardSurfaceCard,
-  dashboardSurfaceCardInteractive,
   dashboardTopAccentClass,
 } from '@/lib/dashboard-surface';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
@@ -21,6 +16,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { LoadingPage } from '@/components/ui/loading-spinner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -35,19 +36,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { 
-  Search, 
-  Mail, 
-  Smartphone, 
-  Bell, 
+import { format } from 'date-fns';
+import {
+  Search,
+  Mail,
+  Smartphone,
+  Bell,
   ArrowRight,
   ArrowLeft,
-  Sparkles,
-  TrendingUp,
-  Gift,
-  Heart,
   Zap,
   Calendar,
+  ChevronLeft,
   ChevronRight,
   LayoutGrid,
   List,
@@ -59,8 +58,9 @@ import {
   Timer,
   GitBranch,
   Filter,
-  ShoppingCart,
   Star,
+  RefreshCw,
+  TrendingUp,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -76,6 +76,11 @@ import {
 } from '@/lib/lifecycleCanvasSteps';
 import { HorizontalFlowChart } from '@/components/creative/HorizontalFlowChart';
 import { BRCGIcon } from '@/components/BRCGLogo';
+import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
+import {
+  normalizeCampaignChannel,
+  type CampaignChannelUi,
+} from '@/lib/campaignDisplay';
 
 // Type definitions
 type CanvasStep = LifecycleCanvasStep;
@@ -133,58 +138,50 @@ function sortLifecycleCanvases<
   });
 }
 
-/** Match Analytics page section styling. */
-const lifecycleSectionHeadingClass = cn(
-  dashboardSectionHeadingClass,
-  'text-2xl sm:text-3xl font-bold tracking-tight',
-);
-
-const lifecycleCardClass = cn(dashboardSurfaceCard, 'shadow-md');
-
-const lifecycleCardHeaderClass = cn(
-  'pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent',
-  dashSectionTitleBorder,
-);
-
-const lifecycleSubtitleClass = cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule);
-
-type LifecycleMetricAccent = 'primary' | 'violet' | 'emerald' | 'amber';
-
-const lifecycleMetricRail: Record<LifecycleMetricAccent, string> = {
-  primary: 'border-l-primary/55',
-  violet: 'border-l-violet-500/50',
-  emerald: 'border-l-emerald-500/50',
-  amber: 'border-l-amber-500/50',
-};
+/** Journey cards per page (between 25–30 for readable grids). */
+const JOURNEY_PAGE_SIZE = 27;
 
 function LifecycleMetricTile({
   icon: Icon,
   label,
   value,
   color,
-  accent = 'primary',
+  glowClass,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   color: string;
-  accent?: LifecycleMetricAccent;
+  /** Tailwind `from-*` (+ optional `to-*`) for soft corner glow */
+  glowClass?: string;
 }) {
   return (
-    <div className={cn(dashboardMetricTile, 'border-l-[3px]', lifecycleMetricRail[accent])}>
-      <div className="p-4 sm:p-5">
-        <div className="mb-2 flex items-start justify-between gap-2">
+    <div
+      className={cn(
+        'group relative overflow-hidden rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm backdrop-blur-sm',
+        'ring-1 ring-black/[0.03] transition-shadow hover:shadow-md dark:ring-white/[0.06]',
+      )}
+    >
+      <div
+        className={cn(
+          'pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br to-transparent opacity-[0.14] blur-2xl transition-opacity group-hover:opacity-[0.22]',
+          glowClass ?? 'from-primary/30',
+        )}
+        aria-hidden
+      />
+      <div className="relative">
+        <div className="mb-2 flex items-center gap-2">
           <div
             className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-black/5 dark:ring-white/10',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-black/5 dark:ring-white/10',
               color,
             )}
           >
             <Icon className="h-4 w-4" />
           </div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
         </div>
-        <p className="text-xs font-medium uppercase tracking-wide leading-snug text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
+        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
       </div>
     </div>
   );
@@ -198,6 +195,7 @@ export default function Lifecycle() {
   const [channelFilter, setChannelFilter] = useState('All');
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [journeyPage, setJourneyPage] = useState(1);
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
 
@@ -290,10 +288,18 @@ export default function Lifecycle() {
 
       const messageStepCount = countMessagingTouchpoints(stepsRecord);
 
-      const canvasId = (canvas.braze_canvas_id ?? canvas.id ?? '') as string;
+      const dbRowId = String(canvas.id ?? '');
+      const brazeCanvasIdRaw = canvas.braze_canvas_id;
+      const brazeCanvasId =
+        brazeCanvasIdRaw != null && String(brazeCanvasIdRaw).trim() !== ''
+          ? String(brazeCanvasIdRaw).trim()
+          : dbRowId;
 
       return {
-        id: canvasId,
+        /** DB primary key — unique per row for list keys and detail fetch. */
+        dbId: dbRowId,
+        /** Braze canvas id when present; used for visibility map (Settings) and display. */
+        id: brazeCanvasId,
         name,
         displayName: taxonomy.displayName,
         description: (canvas.description as string | undefined) || 'Automated lifecycle journey',
@@ -319,8 +325,8 @@ export default function Lifecycle() {
     });
   }, [normalizedCanvases, brazeJsonCache?.canvases, hasBrazeApi]);
 
-  const isItemVisible = (canvasId: string) => {
-    const explicitSetting = visibilityMap.get(canvasId);
+  const isItemVisible = (brazeOrVisibilityId: string) => {
+    const explicitSetting = visibilityMap.get(brazeOrVisibilityId);
     if (explicitSetting !== undefined) return explicitSetting;
     return true;
   };
@@ -363,6 +369,22 @@ export default function Lifecycle() {
     });
   }, [journeys, searchQuery, channelFilter, launchDateFilter, visibilityMap]);
 
+  const journeyTotalPages = Math.max(1, Math.ceil(filteredJourneys.length / JOURNEY_PAGE_SIZE));
+
+  useEffect(() => {
+    setJourneyPage(1);
+  }, [searchQuery, channelFilter, launchDateFilter]);
+
+  useEffect(() => {
+    setJourneyPage((p) => Math.min(p, journeyTotalPages));
+  }, [journeyTotalPages]);
+
+  const paginatedJourneys = useMemo(() => {
+    const safePage = Math.min(journeyPage, journeyTotalPages);
+    const start = (safePage - 1) * JOURNEY_PAGE_SIZE;
+    return filteredJourneys.slice(start, start + JOURNEY_PAGE_SIZE);
+  }, [filteredJourneys, journeyPage, journeyTotalPages]);
+
   const listLoading =
     hasBrazeApi && (clientLoading || (!!client?.id && canvasesLoading));
 
@@ -386,26 +408,49 @@ export default function Lifecycle() {
 
   return (
     <AppLayout>
-      <div className="min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
-        <div className="mx-auto max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-            <PageHeader
-              title="Lifecycle"
-              description={
-                hasBrazeApi
-                  ? 'Multi-touch journeys from Braze canvases synced to your workspace (not from sample data).'
-                  : 'Synced journeys from Braze appear here after you connect.'
-              }
-              titleClassName="text-4xl sm:text-5xl"
-            />
-            {hasBrazeApi && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className={cn(dashPill, 'border-0 text-[10px]')}>
-                  Braze connected
-                </Badge>
-              </div>
+      <TooltipProvider delayDuration={300}>
+      <div className="relative mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+        <div
+          className="pointer-events-none absolute inset-x-0 -top-px h-72 max-w-7xl rounded-b-[2rem] bg-gradient-to-b from-teal-500/[0.07] via-violet-500/[0.04] to-transparent dark:from-teal-950/35 dark:via-violet-950/25 dark:to-transparent"
+          aria-hidden
+        />
+
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+          <div
+            className={cn(
+              'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br shadow-lg ring-2 ring-white/20 dark:ring-black/30',
+              'from-teal-500 via-emerald-600 to-cyan-700 text-white shadow-teal-500/30',
             )}
+            aria-hidden
+          >
+            <Workflow className="h-7 w-7 drop-shadow" strokeWidth={1.5} />
           </div>
+          <PageHeader
+            className="min-w-0 flex-1"
+            title="Lifecycle"
+            titleClassName="text-2xl sm:text-3xl bg-gradient-to-r from-teal-700 via-emerald-700 to-violet-700 bg-clip-text text-transparent dark:from-teal-300 dark:via-emerald-300 dark:to-violet-300"
+            description={
+              hasBrazeApi
+                ? 'Browse synced Braze canvases as journeys — same card layout as Campaigns.'
+                : 'Connect Braze to sync multi-touch journeys into this workspace.'
+            }
+            actions={
+              hasBrazeApi ? (
+                <>
+                  <Button variant="outline" asChild className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20">
+                    <Link to="/campaigns" className="inline-flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4" />
+                      Sync via Campaigns
+                    </Link>
+                  </Button>
+                  <Badge className="border border-teal-500/20 bg-teal-500/10 text-xs font-normal text-teal-800 dark:text-teal-200">
+                    Braze connected
+                  </Badge>
+                </>
+              ) : undefined
+            }
+          />
+        </div>
 
           {!hasBrazeApi && (
             <div
@@ -448,92 +493,71 @@ export default function Lifecycle() {
             </div>
           )}
 
-          {/* Filters — only when API connected */}
           {hasBrazeApi && (
-            <Card className={lifecycleCardClass}>
-              <div className={dashboardTopAccentClass} aria-hidden />
-              <CardHeader className={lifecycleCardHeaderClass}>
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <CardTitle
-                      className={cn(
-                        lifecycleSectionHeadingClass,
-                        'flex flex-wrap items-center gap-2 text-foreground/95',
-                      )}
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-500/12 text-violet-600 ring-1 ring-violet-500/20 dark:text-violet-400">
-                        <Filter className="h-4 w-4" />
-                      </span>
-                      Find journeys
-                    </CardTitle>
-                    <p className={lifecycleSubtitleClass}>Search and filter by channel or launch window</p>
-                  </div>
+            <div
+              className={cn(
+                'flex flex-col justify-between gap-4 rounded-2xl border border-border/60 bg-card/85 p-4 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:p-5',
+                'ring-1 ring-teal-500/[0.06] dark:ring-violet-500/10',
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative min-w-[200px] max-w-md flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-teal-600/70 dark:text-teal-400/70" />
+                  <Input
+                    placeholder="Search journeys..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="border-border/70 pl-10 shadow-inner dark:bg-background/50"
+                    aria-label="Search journeys"
+                  />
                 </div>
-              </CardHeader>
-              <CardContent className="border-t border-primary/5 bg-muted/10 pb-5 pt-4">
-                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                  <div className="flex flex-wrap gap-3">
-                    <div className="relative min-w-[200px] max-w-md flex-1">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary/50" />
-                      <Input
-                        placeholder="Search journeys..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-10 border-primary/15 bg-background/80 pl-10 shadow-sm focus-visible:ring-primary/25"
-                      />
-                    </div>
-
-                    <Select value={channelFilter} onValueChange={setChannelFilter}>
-                      <SelectTrigger className="h-10 w-[140px] border-primary/15 bg-background/80 shadow-sm">
-                        <SelectValue placeholder="Channel" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="All">All Channels</SelectItem>
-                        <SelectItem value="email">Email</SelectItem>
-                        <SelectItem value="push">Push</SelectItem>
-                        <SelectItem value="sms">SMS</SelectItem>
-                        <SelectItem value="inapp">In-App</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    <Select value={launchDateFilter} onValueChange={setLaunchDateFilter}>
-                      <SelectTrigger className="h-10 w-[150px] border-primary/15 bg-background/80 shadow-sm">
-                        <SelectValue placeholder="Date range" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="All">All Time</SelectItem>
-                        <SelectItem value="7days">Last 7 Days</SelectItem>
-                        <SelectItem value="15days">Last 15 Days</SelectItem>
-                        <SelectItem value="30days">Last 30 Days</SelectItem>
-                        <SelectItem value="90days">Last 90 Days</SelectItem>
-                        <SelectItem value="year">Last 12 Months</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex items-center gap-2 rounded-xl border border-primary/10 bg-card/60 p-1 shadow-inner">
-                    <Button
-                      variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                      size="icon"
-                      className={cn(viewMode === 'grid' && 'shadow-sm')}
-                      onClick={() => setViewMode('grid')}
-                      aria-pressed={viewMode === 'grid'}
-                    >
-                      <LayoutGrid className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant={viewMode === 'list' ? 'default' : 'ghost'}
-                      size="icon"
-                      className={cn(viewMode === 'list' && 'shadow-sm')}
-                      onClick={() => setViewMode('list')}
-                      aria-pressed={viewMode === 'list'}
-                    >
-                      <List className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                <Select value={channelFilter} onValueChange={setChannelFilter}>
+                  <SelectTrigger className="w-[140px] border-border/70 bg-background/80">
+                    <SelectValue placeholder="Channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Channels</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="push">Push</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="inapp">In-App</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={launchDateFilter} onValueChange={setLaunchDateFilter}>
+                  <SelectTrigger className="w-[150px] border-border/70 bg-background/80">
+                    <SelectValue placeholder="Date range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Time</SelectItem>
+                    <SelectItem value="7days">Last 7 Days</SelectItem>
+                    <SelectItem value="15days">Last 15 Days</SelectItem>
+                    <SelectItem value="30days">Last 30 Days</SelectItem>
+                    <SelectItem value="90days">Last 90 Days</SelectItem>
+                    <SelectItem value="year">Last 12 Months</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/40 p-1 dark:bg-muted/20">
+                <Button
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                  size="icon"
+                  onClick={() => setViewMode('grid')}
+                  aria-label="Grid view"
+                  className={cn(viewMode === 'grid' && 'bg-gradient-to-br from-teal-600 to-emerald-700 text-white shadow-md hover:from-teal-600 hover:to-emerald-700')}
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'ghost'}
+                  size="icon"
+                  onClick={() => setViewMode('list')}
+                  aria-label="List view"
+                  className={cn(viewMode === 'list' && 'bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-md hover:from-violet-600 hover:to-indigo-700')}
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           )}
 
           {hasBrazeApi && !listLoading && journeys.length > 0 && (
@@ -542,105 +566,181 @@ export default function Lifecycle() {
                 icon={Workflow}
                 label="Synced journeys"
                 value={String(journeys.length)}
-                color="bg-primary/12 text-primary"
-                accent="primary"
+                color="bg-teal-500/15 text-teal-700 dark:text-teal-300"
+                glowClass="from-teal-500/50"
               />
               <LifecycleMetricTile
                 icon={Filter}
                 label="Showing (filters)"
                 value={String(filteredJourneys.length)}
-                color="bg-violet-500/12 text-violet-600 dark:text-violet-400"
-                accent="violet"
+                color="bg-violet-500/15 text-violet-700 dark:text-violet-300"
+                glowClass="from-violet-500/50"
               />
               <LifecycleMetricTile
                 icon={Users}
                 label="Entries (60d)"
                 value={entries60dTotal.toLocaleString()}
-                color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-                accent="emerald"
+                color="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                glowClass="from-emerald-500/50"
               />
               <LifecycleMetricTile
                 icon={GitBranch}
                 label="Messaging steps"
                 value={String(messagingStepsTotal)}
-                color="bg-amber-500/12 text-amber-600 dark:text-amber-400"
-                accent="amber"
+                color="bg-amber-500/15 text-amber-800 dark:text-amber-300"
+                glowClass="from-amber-500/45"
               />
             </div>
           )}
 
-          {/* Journeys Grid/List */}
-          {selectedJourney ? (
-            <JourneyDetail
-              journey={selectedJourney}
-              clientId={client?.id}
-              onBack={() => setSelectedJourney(null)}
-              onViewTouchpoint={(step: unknown) => setSelectedTouchpoint(step)}
-            />
-          ) : !hasBrazeApi ? null : listLoading ? (
+          {!hasBrazeApi ? null : listLoading ? (
             <div className="flex min-h-[45vh] flex-col items-center justify-center gap-4 p-6">
               <LoadingPage message="Loading journeys…" />
             </div>
           ) : (
-            <Card className={lifecycleCardClass}>
-              <div className={dashboardTopAccentClass} aria-hidden />
-              <CardHeader className={lifecycleCardHeaderClass}>
-                <CardTitle className={cn(lifecycleSectionHeadingClass, 'flex flex-wrap items-center gap-2 text-foreground/95')}>
-                  <span className={cn(dashIconChip, 'h-9 w-9 shrink-0')}>
-                    <Workflow className="h-4 w-4" />
-                  </span>
-                  Your journeys
-                </CardTitle>
-                <p className={lifecycleSubtitleClass}>
-                  Open a journey to explore steps, triggers, and message previews. Counts reflect the filtered list below.
-                </p>
-              </CardHeader>
-              <CardContent className="bg-muted/10 pb-6 pt-2">
-                <div className={viewMode === 'grid' ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3'}>
-                  {journeys.length === 0 ? (
-                    <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-dashed border-primary/20 bg-gradient-to-br from-muted/30 via-card to-primary/[0.04] py-14 px-6 text-center">
-                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
-                        <Workflow className="h-7 w-7 text-primary" />
-                      </div>
-                      <p className="font-heading text-lg font-semibold text-foreground">No journeys synced yet</p>
-                      <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-                        This list only includes canvases stored after a Braze sync. Run sync from Campaigns (or your
-                        pipeline) so rows appear in{' '}
-                        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">braze_canvases</code>.
-                      </p>
-                      <Button variant="outline" size="sm" className="mt-4" asChild>
-                        <Link to="/campaigns" className="inline-flex items-center gap-2">
-                          Open Campaigns to sync
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </Link>
-                      </Button>
-                    </div>
-                  ) : filteredJourneys.length === 0 ? (
-                    <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-dashed border-primary/20 bg-gradient-to-br from-muted/30 via-card to-primary/[0.04] py-14 px-6 text-center">
-                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
-                        <Filter className="h-7 w-7 text-primary" />
-                      </div>
-                      <p className="font-heading text-lg font-semibold text-foreground">No journeys match</p>
-                      <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Try adjusting search or filters. Hidden canvases can be controlled from Settings → data visibility.
-                      </p>
-                    </div>
-                  ) : (
-                    filteredJourneys.map((journey) => (
-                      <JourneyCard
-                        key={journey.id}
-                        journey={journey}
-                        viewMode={viewMode}
-                        onClick={() => setSelectedJourney(journey)}
-                      />
-                    ))
-                  )}
+            <>
+              <div
+                className={
+                  viewMode === 'grid'
+                    ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3'
+                    : 'space-y-3'
+                }
+              >
+                {journeys.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+                    <Workflow className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
+                    <p className="font-medium text-foreground">No journeys synced yet</p>
+                    <p className="max-w-md text-sm text-muted-foreground">
+                      Run sync from Campaigns so rows appear in{' '}
+                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">braze_canvases</code>.
+                    </p>
+                    <Button variant="outline" size="sm" className="mt-2" asChild>
+                      <Link to="/campaigns" className="inline-flex items-center gap-2">
+                        Open Campaigns
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  </div>
+                ) : filteredJourneys.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+                    <Filter className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
+                    <p className="font-medium text-foreground">No journeys match</p>
+                    <p className="max-w-md text-sm text-muted-foreground">
+                      Try adjusting search or filters. Visibility is controlled in Settings.
+                    </p>
+                  </div>
+                ) : (
+                  paginatedJourneys.map((journey) => (
+                    <JourneyCard
+                      key={journey.dbId}
+                      journey={journey}
+                      viewMode={viewMode}
+                      onClick={() => setSelectedJourney(journey)}
+                    />
+                  ))
+                )}
+              </div>
+              {filteredJourneys.length > 0 && journeyTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-3 border-t border-border/60 pt-5">
+                  <div className="flex items-center gap-2 rounded-full border border-border/70 bg-muted/30 px-2 py-1.5 shadow-inner dark:bg-muted/15">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={journeyPage <= 1}
+                      onClick={() => {
+                        setJourneyPage((p) => Math.max(1, p - 1));
+                        scrollAppMainToTopAfterLayout('smooth');
+                      }}
+                      aria-label="Previous page"
+                      className="h-9 w-9 shrink-0 rounded-full p-0 hover:bg-teal-500/15"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="min-w-[7rem] text-center text-sm tabular-nums font-medium text-muted-foreground">
+                      Page {Math.min(journeyPage, journeyTotalPages)} of {journeyTotalPages}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={journeyPage >= journeyTotalPages}
+                      onClick={() => {
+                        setJourneyPage((p) => Math.min(journeyTotalPages, p + 1));
+                        scrollAppMainToTopAfterLayout('smooth');
+                      }}
+                      aria-label="Next page"
+                      className="h-9 w-9 shrink-0 rounded-full p-0 hover:bg-teal-500/15"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </>
           )}
-        </div>
       </div>
+      </TooltipProvider>
+
+      {/* Journey detail — same modal pattern as Campaigns */}
+      <Dialog
+        open={!!selectedJourney}
+        onOpenChange={(open) => {
+          if (!open) setSelectedJourney(null);
+        }}
+      >
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden border-primary/15 bg-card p-0 shadow-xl duration-300 sm:max-w-4xl">
+          {selectedJourney && (
+            <>
+              {(() => {
+                const j = selectedJourney as Record<string, unknown>;
+                const title = String(j.displayName ?? j.name ?? 'Journey');
+                const { Icon, gradient, shadow } = getJourneyVisuals(String(j.name ?? ''));
+                const stepCount = countMessagingTouchpoints(normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined));
+                const firstEntry = j.first_entry ? String(j.first_entry) : '';
+                let entryLine = '';
+                if (firstEntry) {
+                  const d = new Date(firstEntry);
+                  if (!Number.isNaN(d.getTime())) entryLine = ` · First entry ${format(d, 'MMMM d, yyyy')}`;
+                }
+                return (
+                  <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">
+                    <DialogTitle className="flex items-start gap-3 pr-8 text-left text-lg font-semibold leading-snug">
+                      <div
+                        className={cn(
+                          'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10',
+                          `bg-gradient-to-br ${gradient}`,
+                          shadow,
+                        )}
+                      >
+                        <Icon className="h-4 w-4 text-white drop-shadow" />
+                      </div>
+                      <span className="line-clamp-3 break-words">{title}</span>
+                    </DialogTitle>
+                    <DialogDescription>
+                      {stepCount} message step{stepCount !== 1 ? 's' : ''}
+                      {entryLine}
+                    </DialogDescription>
+                  </DialogHeader>
+                );
+              })()}
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pb-6 [scrollbar-gutter:stable]"
+                tabIndex={-1}
+                aria-label="Journey details"
+              >
+                <JourneyDetail
+                  journey={selectedJourney}
+                  clientId={client?.id}
+                  inDialog
+                  onBack={() => setSelectedJourney(null)}
+                  onViewTouchpoint={(step: unknown) => setSelectedTouchpoint(step)}
+                />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Touchpoint Creative Modal */}
       <Dialog open={!!selectedTouchpoint} onOpenChange={() => setSelectedTouchpoint(null)}>
@@ -794,70 +894,187 @@ export default function Lifecycle() {
   );
 }
 
-/** Icon + gradient ring for journey cards — aligns with dashboard primary/emerald/violet accents. */
-function getJourneyVisuals(name: string): { Icon: typeof Workflow; gradient: string; shadow: string } {
-  const n = name.toLowerCase();
-  if (n.includes('welcome') || n.includes('onboard'))
-    return { Icon: Sparkles, gradient: 'from-emerald-500 via-emerald-600 to-teal-700', shadow: 'shadow-emerald-500/25' };
-  if (n.includes('re-engage') || n.includes('winback') || n.includes('win-back'))
-    return { Icon: TrendingUp, gradient: 'from-sky-500 via-blue-600 to-indigo-700', shadow: 'shadow-blue-500/25' };
-  if (n.includes('upgrade') || n.includes('upsell'))
-    return { Icon: Zap, gradient: 'from-violet-500 via-purple-600 to-fuchsia-700', shadow: 'shadow-violet-500/25' };
-  if (n.includes('milestone') || n.includes('anniversary'))
-    return { Icon: Heart, gradient: 'from-pink-500 via-rose-600 to-red-700', shadow: 'shadow-pink-500/20' };
-  if (n.includes('purchase') || n.includes('order'))
-    return { Icon: ShoppingCart, gradient: 'from-amber-500 via-orange-600 to-amber-800', shadow: 'shadow-amber-500/25' };
-  if (n.includes('feature') || n.includes('announce'))
-    return { Icon: Gift, gradient: 'from-cyan-500 to-blue-600', shadow: 'shadow-cyan-500/20' };
-  return { Icon: Workflow, gradient: 'from-primary via-primary to-primary/80', shadow: 'shadow-primary/25' };
+function generateJourneyDescription(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes('welcome') || lower.includes('onboard'))
+    return 'Guides new users through their first experience and drives initial engagement.';
+  if (lower.includes('re-engage') || lower.includes('winback') || lower.includes('win-back'))
+    return 'Reactivates inactive users and brings them back to the platform.';
+  if (lower.includes('upgrade') || lower.includes('upsell'))
+    return 'Encourages users to upgrade to premium features or paid plans.';
+  if (lower.includes('purchase') || lower.includes('order'))
+    return 'Follows up after a purchase to build loyalty and drive repeat orders.';
+  if (lower.includes('milestone'))
+    return 'Celebrates user milestones and anniversaries to strengthen engagement.';
+  return 'Automated multi-touch journey delivering targeted messages across channels.';
 }
 
-// Journey Card Component
+function journeyCardPreviewLine(journey: {
+  description?: string;
+  name?: string;
+}): string {
+  const d = typeof journey.description === 'string' ? journey.description.trim() : '';
+  if (d && d !== 'Automated lifecycle journey') return d;
+  return generateJourneyDescription(String(journey.name ?? ''));
+}
+
+function journeyCardPrimaryUiChannel(channels: string[] | undefined): CampaignChannelUi {
+  if (!channels?.length) return 'email';
+  return normalizeCampaignChannel(channels[0]);
+}
+
+function journeyCardDateLabel(journey: { first_entry?: string; last_entry?: string }): string {
+  const raw = journey.first_entry || journey.last_entry;
+  if (!raw) return '—';
+  const dt = new Date(String(raw));
+  if (Number.isNaN(dt.getTime())) return '—';
+  return format(dt, 'MMM d');
+}
+
+/** One pill per channel: Push → Push, Email/SMS/In-App as before; unknown raw strings get a muted pill. */
+function journeyCardChannelPillList(channels: string[] | undefined): Array<{
+  key: string;
+  label: string;
+  colorArg: string | null;
+}> {
+  const seen = new Map<string, { label: string; colorArg: string | null }>();
+  for (const raw of channels ?? []) {
+    const s = String(raw ?? '').trim();
+    if (!s) continue;
+    const normalized = s.toLowerCase().replace(/[-_\s]/g, '');
+    let label: string;
+    let colorArg: string | null;
+    if (normalized.includes('email')) {
+      label = 'Email';
+      colorArg = 'email';
+    } else if (normalized.includes('sms')) {
+      label = 'SMS';
+      colorArg = 'sms';
+    } else if (normalized.includes('push')) {
+      label = 'Push';
+      colorArg = 'push';
+    } else if (normalized.includes('inapp') || normalized.includes('contentcard')) {
+      label = 'In-App';
+      colorArg = 'in_app_message';
+    } else {
+      label = s.replace(/_/g, ' ');
+      colorArg = null;
+    }
+    if (!seen.has(label)) seen.set(label, { label, colorArg });
+  }
+  if (seen.size === 0) {
+    return [{ key: 'email', label: 'Email', colorArg: 'email' }];
+  }
+  const order = ['Email', 'SMS', 'Push', 'In-App'];
+  return [...seen.entries()]
+    .map(([k, v]) => ({ key: k, label: v.label, colorArg: v.colorArg }))
+    .sort((a, b) => {
+      const ia = order.indexOf(a.label);
+      const ib = order.indexOf(b.label);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    });
+}
+
+// Journey Card Component — Campaigns-style hero + touchpoints + per-channel pills + View journey
 function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: 'grid' | 'list'; onClick: () => void }) {
-  const { Icon, gradient, shadow } = getJourneyVisuals(String(journey.name ?? ''));
-  
+  const titleText = String(journey.displayName || journey.name || 'Journey');
+  const titleForVisual = String(journey.name ?? journey.displayName ?? '');
+  const { Icon: TitleIcon, gradient: titleGradient, shadow: titleShadow, heroSurface } =
+    getJourneyVisuals(titleForVisual);
+  const previewLine = journeyCardPreviewLine(journey);
+  const channels = journey.channels as string[] | undefined;
+  const primaryCh = journeyCardPrimaryUiChannel(channels);
+  const dateLabel = journeyCardDateLabel(journey);
+  const touchCount = countMessagingTouchpoints(normalizeRawSteps(journey.steps));
+  const channelPills = journeyCardChannelPillList(channels);
+
+  const titleIconBadge = (
+    <div
+      className={cn(
+        'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white/30 dark:ring-black/25',
+        titleGradient,
+        titleShadow,
+      )}
+      aria-hidden
+    >
+      <TitleIcon className="h-5 w-5 drop-shadow" strokeWidth={2} />
+    </div>
+  );
+
+  const open = () => onClick();
+
+  const touchpointBadge = (
+    <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-teal-500/25 bg-gradient-to-r from-teal-500/[0.08] to-emerald-500/[0.06] px-2.5 py-1 text-xs font-medium text-teal-800 dark:text-teal-200">
+      <GitBranch className="h-3.5 w-3.5 opacity-80" aria-hidden />
+      {touchCount} touchpoint{touchCount !== 1 ? 's' : ''}
+    </span>
+  );
+
+  const channelPillRow = (
+    <div className="flex flex-wrap gap-1.5">
+      {channelPills.map((pill) => (
+        <Badge
+          key={pill.key}
+          variant="outline"
+          className={cn('text-xs font-normal', getChannelColor(pill.colorArg))}
+        >
+          {pill.label}
+        </Badge>
+      ))}
+    </div>
+  );
+
   if (viewMode === 'list') {
     return (
       <Card
+        role="button"
+        tabIndex={0}
+        aria-label={`Open journey ${titleText}`}
         className={cn(
-          dashboardSurfaceCardInteractive,
-          'cursor-pointer border-primary/15 bg-gradient-to-br from-card via-card to-muted/20',
+          'group flex cursor-pointer flex-col overflow-hidden border-border/70 transition-all duration-200 hover:border-teal-500/35 hover:shadow-lg motion-safe:hover:-translate-y-0.5 dark:hover:border-teal-400/25',
         )}
-        onClick={onClick}
+        onClick={open}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            open();
+          }
+        }}
       >
-        <div className={dashboardTopAccentClass} aria-hidden />
-        <CardContent className="p-4 pt-3">
-          <div className="flex items-center gap-4">
-            <div
-              className={cn(
-                'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white/10',
-                `bg-gradient-to-br ${gradient}`,
-                shadow,
-              )}
-            >
-              <Icon className="h-5 w-5 text-white drop-shadow-sm" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-medium line-clamp-1">{journey.displayName || journey.name}</h3>
-              <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                {[...new Set(journey.channels?.map((ch: string) => {
-                  const normalized = ch.toLowerCase().replace(/[-_]/g, '');
-                  if (normalized.includes('email')) return 'Email';
-                  if (normalized.includes('push')) return 'Push';
-                  if (normalized.includes('inapp')) return 'In-App';
-                  if (normalized.includes('sms')) return 'SMS';
-                  return null;
-                }).filter(Boolean))]?.map((ch: string) => (
-                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>{ch}</Badge>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className={cn(dashPill, 'border-0 font-normal normal-case tracking-normal')}>
-                {countMessagingTouchpoints(normalizeRawSteps(journey.steps))} touchpoints
-              </Badge>
-              <ChevronRight className="h-5 w-5 text-primary/40" />
-            </div>
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:gap-4">
+          {titleIconBadge}
+          <div className="min-w-0 flex-1 space-y-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <h3 className="line-clamp-2 text-left text-sm font-medium leading-snug">{titleText}</h3>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-sm">
+                {titleText}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">{previewLine}</p>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-sm">
+                {previewLine}
+              </TooltipContent>
+            </Tooltip>
+            {touchpointBadge}
+            {channelPillRow}
+          </div>
+          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+            <span className="flex items-center justify-end gap-1 text-xs tabular-nums text-muted-foreground sm:justify-start">
+              <Calendar className="h-3 w-3 shrink-0" aria-hidden />
+              {dateLabel}
+            </span>
+            <span className="flex items-center gap-1 text-sm font-medium text-teal-700 dark:text-teal-300 sm:justify-end">
+              View journey
+              <ArrowRight className="h-3.5 w-3.5 opacity-90" aria-hidden />
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -866,97 +1083,99 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
 
   return (
     <Card
+      role="button"
+      tabIndex={0}
+      aria-label={`Open journey ${titleText}`}
       className={cn(
-        dashboardSurfaceCardInteractive,
-        'group cursor-pointer overflow-hidden border-primary/15 bg-gradient-to-b from-card via-card/98 to-muted/15',
+        'group flex h-full min-h-0 cursor-pointer flex-col overflow-hidden border-border/70 transition-all duration-200 hover:border-teal-500/35 hover:shadow-lg motion-safe:hover:-translate-y-0.5 dark:hover:border-teal-400/25',
       )}
-      onClick={onClick}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      }}
     >
-      <div className={dashboardTopAccentClass} aria-hidden />
-      <CardContent className="p-5 pt-4">
-        <div className="flex items-start gap-3 mb-4">
-          <div
-            className={cn(
-              'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white/15',
-              `bg-gradient-to-br ${gradient}`,
-              shadow,
-            )}
-          >
-            <Icon className="h-5 w-5 text-white drop-shadow" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold leading-snug tracking-tight text-foreground group-hover:text-primary transition-colors line-clamp-2">
-              {journey.displayName || journey.name}
-            </h3>
-          </div>
-        </div>
-
-        <div className="mb-4 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/[0.06] px-2.5 py-1 text-xs font-medium text-primary">
-            <Workflow className="h-3.5 w-3.5 opacity-80" />
-            {countMessagingTouchpoints(normalizeRawSteps(journey.steps))} touchpoints
+      <CampaignCreativeHero
+        channel={primaryCh}
+        previewText={previewLine}
+        campaignName={titleText}
+        variant="card"
+        journeyPlaceholder={{
+          surfaceGradient: heroSurface,
+          largeIcon: <TitleIcon className="h-8 w-8 text-white drop-shadow" strokeWidth={2} aria-hidden />,
+          iconContainerClassName: cn(
+            'mb-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl shadow-lg ring-2 ring-white/40 dark:ring-black/25',
+            `bg-gradient-to-br ${titleGradient}`,
+            titleShadow,
+          ),
+        }}
+      />
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-2 p-4">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <h3 className="line-clamp-2 text-left text-sm font-medium leading-snug">{titleText}</h3>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-sm">
+            {titleText}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">{previewLine}</p>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-sm">
+            {previewLine}
+          </TooltipContent>
+        </Tooltip>
+        {touchpointBadge}
+        {channelPillRow}
+        <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
+          <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+            <Calendar className="h-3 w-3 shrink-0" aria-hidden />
+            {dateLabel}
           </span>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          {[...new Set(journey.channels?.map((ch: string) => {
-            const normalized = ch.toLowerCase().replace(/[-_]/g, '');
-            if (normalized.includes('email')) return 'Email';
-            if (normalized.includes('push')) return 'Push';
-            if (normalized.includes('inapp')) return 'In-App';
-            if (normalized.includes('sms')) return 'SMS';
-            return null;
-          }).filter(Boolean))]?.map((ch: string) => (
-            <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>{ch}</Badge>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-end border-t border-primary/10 pt-3 mt-1">
-          <Button variant="ghost" size="sm" className="gap-1 text-primary hover:text-primary hover:bg-primary/10">
+          <span className="flex items-center gap-1 text-sm font-medium text-teal-700 dark:text-teal-300">
             View journey
-            <ArrowRight className="h-3 w-3" />
-          </Button>
+            <ArrowRight className="h-3.5 w-3.5 opacity-90" aria-hidden />
+          </span>
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function generateJourneyDescription(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower.includes('welcome') || lower.includes('onboard')) return 'Guides new users through their first experience and drives initial engagement.';
-  if (lower.includes('re-engage') || lower.includes('winback') || lower.includes('win-back')) return 'Reactivates inactive users and brings them back to the platform.';
-  if (lower.includes('upgrade') || lower.includes('upsell')) return 'Encourages users to upgrade to premium features or paid plans.';
-  if (lower.includes('purchase') || lower.includes('order')) return 'Follows up after a purchase to build loyalty and drive repeat orders.';
-  if (lower.includes('milestone')) return 'Celebrates user milestones and anniversaries to strengthen engagement.';
-  return 'Automated multi-touch journey delivering targeted messages across channels.';
-}
-
 // Journey Detail Component
 function JourneyDetail({
   journey,
   clientId,
+  inDialog = false,
   onBack,
   onViewTouchpoint,
 }: {
   journey: Record<string, unknown>;
   clientId?: string;
+  /** When true, render for a modal (no back row; header lives in Dialog). */
+  inDialog?: boolean;
   onBack: () => void;
   onViewTouchpoint: (step: unknown) => void;
 }) {
+  const journeyDbId = String((journey as { dbId?: string }).dbId ?? journey.id ?? '');
+
   const { data: detailRow } = useQuery({
-    queryKey: ['lifecycle-braze-canvas-detail', clientId, journey.id],
+    queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('braze_canvases')
         .select('*')
         .eq('client_id', clientId!)
-        .eq('braze_canvas_id', String(journey.id))
+        .eq('id', journeyDbId)
         .maybeSingle();
       if (error) throw error;
       return data as Record<string, unknown> | null;
     },
-    enabled: !!clientId && !!journey?.id,
+    enabled: !!clientId && !!journeyDbId,
   });
 
   const merged = useMemo(() => {
@@ -1035,51 +1254,61 @@ function JourneyDetail({
   };
 
   return (
-    <div className="space-y-4">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onBack}
-        className="gap-2 rounded-lg border-primary/20 bg-background/90 shadow-sm hover:bg-primary/[0.06] hover:border-primary/35"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to journeys
-      </Button>
+    <div className={cn(!inDialog && 'space-y-4')}>
+      {!inDialog && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onBack}
+          className="gap-2 rounded-lg border-primary/20 bg-background/90 shadow-sm hover:bg-primary/[0.06] hover:border-primary/35"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to journeys
+        </Button>
+      )}
 
-      <Card className={cn(dashboardSurfaceCard, 'overflow-hidden shadow-md shadow-primary/[0.05]')}>
+      <Card
+        className={cn(
+          dashboardSurfaceCard,
+          'overflow-hidden shadow-md shadow-primary/[0.05]',
+          inDialog && 'rounded-xl border-border/80',
+        )}
+      >
         <div className={dashboardTopAccentClass} aria-hidden />
-        <CardContent className="p-4 sm:p-6">
-          <div className="flex items-center gap-3 mb-4 rounded-xl bg-gradient-to-r from-primary/[0.06] via-transparent to-muted/20 p-3 ring-1 ring-primary/10">
-            <div
-              className={cn(
-                'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white/15',
-                `bg-gradient-to-br ${gradient}`,
-                shadow,
-              )}
-            >
-              <Icon className="h-6 w-6 text-white drop-shadow" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="font-heading text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl">
-                {merged.displayName || merged.name}
-              </h2>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                {[...new Set(Object.keys(channelCounts).map((channel) => {
-                  const normalized = channel.toLowerCase().replace(/[-_]/g, '');
-                  if (normalized.includes('email')) return 'Email';
-                  if (normalized.includes('push')) return 'Push';
-                  if (normalized.includes('inapp')) return 'In-App';
-                  if (normalized.includes('sms')) return 'SMS';
-                  return null;
-                }).filter(Boolean))]?.map((ch: string) => (
-                  <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>{ch}</Badge>
-                ))}
-                <Badge variant="secondary" className={cn(dashPill, 'border-0 font-normal normal-case tracking-normal')}>
-                  {messageStepCount} message step{messageStepCount !== 1 ? 's' : ''}
-                </Badge>
+        <CardContent className={cn('p-4 sm:p-6', inDialog && 'pt-4')}>
+          {!inDialog && (
+            <div className="mb-4 flex items-center gap-3 rounded-xl bg-gradient-to-r from-primary/[0.06] via-transparent to-muted/20 p-3 ring-1 ring-primary/10">
+              <div
+                className={cn(
+                  'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white/15',
+                  `bg-gradient-to-br ${gradient}`,
+                  shadow,
+                )}
+              >
+                <Icon className="h-6 w-6 text-white drop-shadow" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="font-heading text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl">
+                  {merged.displayName || merged.name}
+                </h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {[...new Set(Object.keys(channelCounts).map((channel) => {
+                    const normalized = channel.toLowerCase().replace(/[-_]/g, '');
+                    if (normalized.includes('email')) return 'Email';
+                    if (normalized.includes('push')) return 'Push';
+                    if (normalized.includes('inapp')) return 'In-App';
+                    if (normalized.includes('sms')) return 'SMS';
+                    return null;
+                  }).filter(Boolean))]?.map((ch: string) => (
+                    <Badge key={ch} variant="outline" className={`text-xs ${getChannelColor(ch.toLowerCase())}`}>{ch}</Badge>
+                  ))}
+                  <Badge variant="secondary" className={cn(dashPill, 'border-0 font-normal normal-case tracking-normal')}>
+                    {messageStepCount} message step{messageStepCount !== 1 ? 's' : ''}
+                  </Badge>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* TLDR Section */}
           <div className={cn(dashStickinessPanel, 'mb-4 space-y-3 border-primary/10 bg-gradient-to-br from-muted/40 to-muted/10')}>
