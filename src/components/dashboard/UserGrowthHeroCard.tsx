@@ -330,9 +330,7 @@ export function UserGrowthHeroCard() {
 
     const new30 = windowSeries(sorted, anchor, 30, 'new_users');
     const nuVals = new30.map((d) => d.value);
-    const sortedNu = [...nuVals].sort((a, b) => a - b);
-    const q1 = sortedNu[Math.floor(sortedNu.length * 0.25)] ?? 0;
-    const q3 = sortedNu[Math.floor(sortedNu.length * 0.75)] ?? 0;
+    const maxNu = Math.max(...nuVals, 1);
 
     const weekTotals: { label: string; total: number }[] = [];
     for (let w = 0; w < 4; w++) {
@@ -425,16 +423,23 @@ export function UserGrowthHeroCard() {
         ...r,
         label: format(new Date(`${r.date}T12:00:00`), 'MMM d'),
       })),
-      new30: new30.map((d) => ({
-        ...d,
-        label: format(new Date(`${d.date}T12:00:00`), 'MMM d'),
-        fill:
-          d.value >= q3
-            ? 'hsl(var(--success))'
-            : d.value <= q1 && q1 > 0
-              ? 'hsl(var(--destructive))'
-              : 'hsl(var(--muted-foreground) / 0.35)',
-      })),
+      new30: new30.map((d) => {
+        const intensity = maxNu > 0 ? d.value / maxNu : 0;
+        // Single teal ramp: quiet days = soft mint, busy days = deep teal (readable in light & dark).
+        const fill =
+          intensity >= 0.75
+            ? 'hsl(168 72% 38%)'
+            : intensity >= 0.5
+              ? 'hsl(168 58% 46%)'
+              : intensity >= 0.25
+                ? 'hsl(168 42% 58%)'
+                : 'hsl(168 28% 72%)';
+        return {
+          ...d,
+          label: format(new Date(`${d.date}T12:00:00`), 'MMM d'),
+          fill,
+        };
+      }),
       weekendBands,
       rolling7,
       bestDau,
@@ -801,16 +806,43 @@ export function UserGrowthHeroCard() {
                   )}
                 </section>
 
-                <section className="space-y-3">
-                  <SectionTitle>New users — daily (30 days)</SectionTitle>
-                  <div className="h-56 w-full">
+                <section className="space-y-4 rounded-2xl border border-border/50 bg-gradient-to-b from-teal-500/[0.06] via-card to-card p-4 sm:p-5 ring-1 ring-inset ring-teal-500/10">
+                  <div>
+                    <SectionTitle>New signups by day</SectionTitle>
+                    <p className="text-xs text-muted-foreground pl-5 -mt-1 leading-relaxed">
+                      Last 30 days · darker bars = more new users that day
+                    </p>
+                  </div>
+                  <div className="h-52 w-full rounded-xl border border-border/40 bg-card/80 p-1">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={derived.new30} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" />
-                        <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={4} />
-                        <YAxis tick={{ fontSize: 10 }} width={32} />
-                        <Tooltip formatter={(v: number) => [v.toLocaleString(), 'New users']} />
-                        <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+                      <BarChart data={derived.new30} margin={{ top: 10, right: 6, left: 4, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="hsl(var(--border))" strokeOpacity={0.6} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          tickLine={false}
+                          axisLine={false}
+                          interval={4}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          width={40}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <Tooltip
+                          cursor={{ fill: 'hsl(var(--muted) / 0.35)' }}
+                          contentStyle={{
+                            borderRadius: 10,
+                            border: '1px solid hsl(var(--border))',
+                            background: 'hsl(var(--card))',
+                            fontSize: 12,
+                            boxShadow: '0 4px 14px rgb(0 0 0 / 0.08)',
+                          }}
+                          labelStyle={{ fontWeight: 600, marginBottom: 4 }}
+                          formatter={(v: number) => [v.toLocaleString(), 'New users']}
+                        />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={28}>
                           {derived.new30.map((e, i) => (
                             <Cell key={i} fill={e.fill} />
                           ))}
@@ -818,60 +850,106 @@ export function UserGrowthHeroCard() {
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className={dashTableShell}>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                          <th className="p-2 pl-3">Week</th>
-                          <th className="p-2 text-right">Total new users</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {derived.weekTotals.map((w) => (
-                          <tr key={w.label} className="border-t border-border/60">
-                            <td className="p-2 pl-3">{w.label}</td>
-                            <td className="p-2 text-right tabular-nums font-medium">{w.total.toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div>
+                    <p className="text-xs font-semibold text-foreground mb-2">Four-week totals</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {derived.weekTotals.map((w) => (
+                        <div
+                          key={w.label}
+                          className="rounded-xl border border-teal-500/15 bg-teal-500/[0.06] px-3 py-3 text-center shadow-sm"
+                        >
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-800/80 dark:text-teal-200/90">
+                            {w.label}
+                          </p>
+                          <p className="mt-1.5 text-base sm:text-lg font-bold tabular-nums text-foreground">
+                            {w.total.toLocaleString()}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">signups</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Week-on-week (W3→W4):{' '}
-                    {derived.wowPct == null
-                      ? '—'
-                      : `${derived.wowPct >= 0 ? '+' : ''}${derived.wowPct.toFixed(1)}%`}
-                  </p>
+                  <div
+                    className={cn(
+                      'flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5 text-sm',
+                      derived.wowPct == null
+                        ? 'border-border/60 bg-muted/30 text-muted-foreground'
+                        : derived.wowPct >= 0
+                          ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-foreground'
+                          : 'border-amber-500/25 bg-amber-500/[0.08] text-foreground',
+                    )}
+                  >
+                    {derived.wowPct != null && derived.wowPct >= 0 ? (
+                      <TrendingUp className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                    ) : derived.wowPct != null ? (
+                      <TrendingDown className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                    ) : null}
+                    <span>
+                      <span className="font-semibold">Week 4 vs week 3:</span>{' '}
+                      {derived.wowPct == null ? (
+                        'not enough data'
+                      ) : (
+                        <span className="tabular-nums font-bold">
+                          {derived.wowPct >= 0 ? '+' : ''}
+                          {derived.wowPct.toFixed(1)}%
+                        </span>
+                      )}
+                    </span>
+                    {derived.wowPct != null && (
+                      <span className="text-xs text-muted-foreground">(last week compared to the week before)</span>
+                    )}
+                  </div>
                 </section>
 
-                <section className="space-y-3">
-                  <SectionTitle>Day of week pattern</SectionTitle>
-                  <p className="text-xs text-muted-foreground">Based on last 30 days</p>
-                  <div className="h-64 w-full">
+                <section className="space-y-4 rounded-2xl border border-border/50 bg-gradient-to-b from-sky-500/[0.05] via-card to-card p-4 sm:p-5 ring-1 ring-inset ring-sky-500/10">
+                  <div>
+                    <SectionTitle>Busiest days of the week</SectionTitle>
+                    <p className="text-xs text-muted-foreground pl-5 -mt-1 leading-relaxed">
+                      Average DAU per weekday · last 30 days · longer bar = more daily active users
+                    </p>
+                  </div>
+                  <div className="h-56 w-full rounded-xl border border-border/40 bg-card/80 p-1">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         layout="vertical"
                         data={derived.dowAvgs}
-                        margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                        margin={{ top: 8, right: 20, left: 4, bottom: 8 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" horizontal={false} />
-                        <XAxis type="number" tick={{ fontSize: 10 }} />
-                        <YAxis type="category" dataKey="day" width={36} tick={{ fontSize: 11 }} />
-                        <Tooltip formatter={(v: number) => [v.toFixed(1), 'Avg DAU']} />
-                        <Bar dataKey="avg" radius={[0, 4, 4, 0]}>
+                        <CartesianGrid strokeDasharray="4 4" horizontal={false} stroke="hsl(var(--border))" strokeOpacity={0.6} />
+                        <XAxis
+                          type="number"
+                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="day"
+                          width={40}
+                          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <Tooltip
+                          cursor={{ fill: 'hsl(var(--muted) / 0.25)' }}
+                          contentStyle={{
+                            borderRadius: 10,
+                            border: '1px solid hsl(var(--border))',
+                            background: 'hsl(var(--card))',
+                            fontSize: 12,
+                            boxShadow: '0 4px 14px rgb(0 0 0 / 0.08)',
+                          }}
+                          formatter={(v: number) => [v.toLocaleString(undefined, { maximumFractionDigits: 0 }), 'Avg DAU']}
+                        />
+                        <Bar dataKey="avg" radius={[0, 6, 6, 0]} maxBarSize={22}>
                           {derived.dowAvgs.map((e, i) => {
                             const avgs = derived.dowAvgs.map((d) => d.avg);
-                            const max = Math.max(...avgs, 0);
-                            const positive = avgs.filter((x) => x > 0);
-                            const min = positive.length ? Math.min(...positive) : max;
-                            const isBest = max > 0 && e.avg === max;
-                            const isWorst = max > 0 && e.avg === min && min < max;
-                            const fill = isBest
-                              ? 'hsl(var(--success))'
-                              : isWorst
-                                ? 'hsl(var(--destructive))'
-                                : 'hsl(var(--primary))';
-                            return <Cell key={i} fill={fill} fillOpacity={isBest || isWorst ? 1 : 0.65} />;
+                            const max = Math.max(...avgs, 1);
+                            const t = max > 0 ? e.avg / max : 0;
+                            const s = 52 + t * 28;
+                            const l = 58 - t * 22;
+                            const fill = `hsl(210 ${Math.round(s)}% ${Math.round(l)}%)`;
+                            return <Cell key={i} fill={fill} />;
                           })}
                         </Bar>
                       </BarChart>

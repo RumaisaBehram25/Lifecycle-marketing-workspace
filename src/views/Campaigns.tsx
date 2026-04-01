@@ -124,7 +124,23 @@ type CampaignViewModel = PlaceholderCampaign & {
   clickRateSort: number;
 };
 
-type CampaignSortKey = 'sent_desc' | 'updated_desc' | 'created_desc' | 'performance_desc';
+type CampaignSortKey = 'data_desc' | 'sent_desc' | 'updated_desc' | 'created_desc' | 'performance_desc';
+
+function sortMetricNumber(v: unknown): number {
+  if (v == null || v === '') return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Higher = more row-level metrics (volume + engagement). */
+function campaignDataRichnessScore(c: CampaignViewModel): number {
+  return (
+    sortMetricNumber(c.deliveries) +
+    sortMetricNumber(c.opens) +
+    sortMetricNumber(c.clicks) +
+    sortMetricNumber(c.unsubs)
+  );
+}
 
 const PAGE_SIZE = 24;
 
@@ -389,6 +405,11 @@ function sortCampaigns(list: CampaignViewModel[], sortKey: CampaignSortKey): Cam
 
   out.sort((a, b) => {
     switch (sortKey) {
+      case 'data_desc': {
+        const byData = campaignDataRichnessScore(b) - campaignDataRichnessScore(a);
+        if (byData !== 0) return byData;
+        return new Date(b.sent_date).getTime() - new Date(a.sent_date).getTime();
+      }
       case 'sent_desc':
         return new Date(b.sent_date).getTime() - new Date(a.sent_date).getTime();
       case 'updated_desc':
@@ -535,7 +556,7 @@ export default function Campaigns() {
     return () => cancelAnimationFrame(id);
   }, [selectedCampaign?.id]);
   const [dateFilter, setDateFilter] = useState('All Time');
-  const [sortBy, setSortBy] = useState<CampaignSortKey>('sent_desc');
+  const [sortBy, setSortBy] = useState<CampaignSortKey>('data_desc');
   const [page, setPage] = useState(1);
   const [devRawJsonOpen, setDevRawJsonOpen] = useState(false);
   const [rawJsonCopied, setRawJsonCopied] = useState(false);
@@ -949,6 +970,7 @@ export default function Campaigns() {
                 <SelectValue placeholder="Sort" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="data_desc">Most data (deliveries, opens, clicks)</SelectItem>
                 <SelectItem value="sent_desc">Sent date (newest)</SelectItem>
                 <SelectItem value="updated_desc">Last updated</SelectItem>
                 <SelectItem value="created_desc">Created date</SelectItem>

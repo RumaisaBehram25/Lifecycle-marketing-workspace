@@ -26,12 +26,14 @@ function clampIntEnv(key: string, fallback: number, min: number, max: number): n
 /** Stored HTML in canvas/campaign payloads (raw_steps, templates). Lower = smaller DB; min 2000, max 50000. */
 const MAX_HTML_SIZE = clampIntEnv("BRAZE_SYNC_MAX_HTML_CHARS", 14000, 2000, 50000);
 
-/** Full detail + analytics fetch for top N canvases (list still syncs all). Default 200. Override via BRAZE_SYNC_MAX_CANVAS_DETAIL; raise wall time if you bump this. */
-const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 200, 1, 300);
+/** Full detail fetch for up to N non-archived canvases (after forced IDs). Default 5000. Override via BRAZE_SYNC_MAX_CANVAS_DETAIL; raise BRAZE_SYNC_MAX_WALL_MS if needed. */
+const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 5000, 1, 20000);
 /** When true, skip Phase 3 detail fetch for draft canvases (legacy behavior). Default: drafts compete for the same detail cap as live canvases so `raw_steps` / touchpoints can populate. */
 const EXCLUDE_DRAFT_FROM_CANVAS_DETAIL =
   Deno.env.get("BRAZE_SYNC_EXCLUDE_DRAFT_CANVAS_DETAIL") === "true";
-const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 35, 1, 200);
+const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 500, 1, 5000);
+/** Rolled-up daily row from campaigns/data_series (one row per campaign per day; merges with CSV by conflict key). */
+const BRAZE_SYNC_CAMPAIGN_ANALYTICS_VARIATION = "__braze_sync_aggregate__";
 const MAX_SEGMENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_PAGES", 40, 1, 200);
 const MAX_EMAIL_EVENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EMAIL_PAGES", 35, 1, 120);
 /** Per-client retention deletes at start of each sync (0 = disabled). Frees rows in braze_email_events / braze_sync_runs / braze_kpi_series. */
@@ -245,6 +247,10 @@ interface ProcessedCanvas {
   entries_last_30d?: number;
   entries_last_60d?: number;
   sends_last_30d?: number;
+  revenue_last_30d?: number;
+  conversions_last_30d?: number;
+  opens_last_30d?: number;
+  clicks_last_30d?: number;
   last_activity_at?: string;
 }
 
@@ -415,6 +421,246 @@ function aggregateCampaignDayFromBraze(day: Record<string, unknown>): {
   return { sends, deliveries, opens, clicks, bounces, spam_reports, unsubs };
 }
 
+/** UTC calendar date arithmetic for Braze daily buckets (YYYY-MM-DD). */
+function addCalendarDaysUtc(ymd: string, deltaDays: number): string {
+  const parts = ymd.split("-").map((x) => parseInt(x, 10));
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return ymd;
+  const [y, m, d] = parts;
+  const t = Date.UTC(y, m - 1, d) + deltaDays * 86400000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+function dateKeyFromCanvasDataSeriesDay(day: Record<string, unknown>): string | null {
+  return seriesDateFromBrazeKpi(
+    day.time ?? day.date ?? (day as { day?: unknown }).day,
+  );
+}
+
+/** Braze allows at most 14 days per `length`; use 13 and two windows to approximate a 30d rollup. */
+const CANVAS_DATA_SERIES_LENGTH = 13;
+
+function buildCanvasDataSeriesPath(canvasId: string, endingAtYmd: string): string {
+  const sp = new URLSearchParams();
+  sp.set("canvas_id", canvasId);
+  sp.set("length", String(CANVAS_DATA_SERIES_LENGTH));
+  sp.set("ending_at", `${endingAtYmd}T00:00:00Z`);
+  sp.set("include_variant_breakdown", "false");
+  return `canvas/data_series?${sp.toString()}`;
+}
+
+/** Revenue + conversions on a canvas data_series day (top-level or messages.*). */
+function canvasDayRevenueAndConversions(day: Record<string, unknown>): { revenue: number; conversions: number } {
+  const topRev = numFromDay(day, ["revenue", "total_revenue", "purchase_revenue", "money_spent", "total_money_spent"]);
+  const topConv = numFromDay(day, [
+    "conversions",
+    "total_conversions",
+    "primary_conversions",
+    "unique_conversions",
+  ]);
+  let msgRev = 0;
+  let msgConv = 0;
+  const messages = day.messages;
+  if (messages && typeof messages === "object" && !Array.isArray(messages)) {
+    for (const channelList of Object.values(messages as Record<string, unknown>)) {
+      const arr = Array.isArray(channelList) ? channelList : [];
+      for (const raw of arr) {
+        if (!raw || typeof raw !== "object") continue;
+        const v = raw as Record<string, unknown>;
+        msgRev += firstFiniteNumber(v, ["revenue", "purchase_revenue", "total_revenue"]);
+        msgConv += firstFiniteNumber(v, ["conversions", "total_conversions"]);
+      }
+    }
+  }
+  return {
+    revenue: Math.max(topRev, msgRev),
+    conversions: Math.max(topConv, msgConv),
+  };
+}
+
+function canvasTotalStatNumber(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v.trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+/** Largest numeric value among keys (Braze sometimes uses alternate field names or string numbers in `total_stats`). */
+function maxCanvasTotalStatForKeys(o: Record<string, unknown>, keys: readonly string[]): number {
+  let m = 0;
+  for (const k of keys) {
+    m = Math.max(m, canvasTotalStatNumber(o[k]));
+  }
+  return m;
+}
+
+const CANVAS_TOTAL_STATS_REVENUE_KEYS = [
+  "revenue",
+  "total_revenue",
+  "purchase_revenue",
+  "money_spent",
+  "total_money_spent",
+] as const;
+
+const CANVAS_TOTAL_STATS_CONVERSION_KEYS = [
+  "conversions",
+  "total_conversions",
+  "primary_conversions",
+  "unique_conversions",
+] as const;
+
+const CANVAS_TOTAL_STATS_ENTRY_KEYS = [
+  "entries",
+  "unique_recipients",
+  "messages_sent",
+  "sent",
+] as const;
+
+/**
+ * One canvas/data_series JSON body. Braze returns daily rows under `data.stats[]` with metrics in
+ * `total_stats` (e.g. `total_stats.revenue`). Also merges top-level / `messages.*` revenue when
+ * `total_stats` is sparse, so sync → `braze_canvases.revenue_last_30d` → Analytics stays aligned.
+ */
+function parseCanvasDataSeriesResponse(analyticsData: unknown): {
+  revenue: number;
+  entries: number;
+  conversions: number;
+  opens: number;
+  clicks: number;
+  last_activity_at: string | undefined;
+} {
+  const j = analyticsData as Record<string, unknown>;
+  let stats: Array<Record<string, unknown>> = [];
+  const data = j.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const s = (data as Record<string, unknown>).stats;
+    if (Array.isArray(s)) stats = s as Array<Record<string, unknown>>;
+  }
+  if (stats.length === 0 && Array.isArray(j.stats)) {
+    stats = j.stats as Array<Record<string, unknown>>;
+  }
+
+  let revenue = 0;
+  let entries = 0;
+  let conversions = 0;
+  let opens = 0;
+  let clicks = 0;
+  let last_activity_at: string | undefined;
+  let latestDay = "";
+
+  for (const day of stats) {
+    const ts = day.total_stats;
+    const tso =
+      ts && typeof ts === "object" && !Array.isArray(ts)
+        ? (ts as Record<string, unknown>)
+        : null;
+
+    const revFromTs = tso ? maxCanvasTotalStatForKeys(tso, CANVAS_TOTAL_STATS_REVENUE_KEYS) : 0;
+    const convFromTs = tso ? maxCanvasTotalStatForKeys(tso, CANVAS_TOTAL_STATS_CONVERSION_KEYS) : 0;
+    const { revenue: revFromDay, conversions: convFromDay } = canvasDayRevenueAndConversions(day);
+    revenue += Math.max(revFromTs, revFromDay);
+    conversions += Math.max(convFromTs, convFromDay);
+
+    let ent = 0;
+    if (tso) {
+      ent = maxCanvasTotalStatForKeys(tso, CANVAS_TOTAL_STATS_ENTRY_KEYS);
+      entries += ent;
+      opens += maxCanvasTotalStatForKeys(tso, ["unique_opens", "opens"]);
+      clicks += maxCanvasTotalStatForKeys(tso, ["unique_clicks", "clicks"]);
+    } else {
+      const d = day as Record<string, unknown>;
+      ent = maxCanvasTotalStatForKeys(d, CANVAS_TOTAL_STATS_ENTRY_KEYS);
+      entries += ent;
+      opens += maxCanvasTotalStatForKeys(d, ["unique_opens", "opens"]);
+      clicks += maxCanvasTotalStatForKeys(d, ["unique_clicks", "clicks"]);
+    }
+
+    if (ent > 0) {
+      const dk = dateKeyFromCanvasDataSeriesDay(day);
+      if (dk && dk >= latestDay) {
+        latestDay = dk;
+        last_activity_at =
+          typeof day.time === "string" && day.time ? day.time : dk;
+      }
+    }
+  }
+
+  return { revenue, entries, conversions, opens, clicks, last_activity_at };
+}
+
+function pickLatestIsoTime(a?: string, b?: string): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isNaN(ta)) return b;
+  if (Number.isNaN(tb)) return a;
+  return ta >= tb ? a : b;
+}
+
+/** Two 13-day windows (ending today vs ending 13d ago) merged into braze_canvases rollup columns. */
+async function fetchMergedCanvasDataSeriesForDb(
+  canvasId: string,
+  apiKey: string,
+  brazeRestEndpoint: string,
+): Promise<{
+  entries_last_30d: number;
+  entries_last_60d: number;
+  sends_last_30d: number;
+  revenue_last_30d: number;
+  conversions_last_30d: number;
+  opens_last_30d: number;
+  clicks_last_30d: number;
+  last_activity_at: string | undefined;
+}> {
+  const end1 = new Date().toISOString().slice(0, 10);
+  const end2 = addCalendarDaysUtc(end1, -13);
+
+  let a = {
+    revenue: 0,
+    entries: 0,
+    conversions: 0,
+    opens: 0,
+    clicks: 0,
+    last_activity_at: undefined as string | undefined,
+  };
+  let b = { ...a };
+
+  try {
+    const body1 = await brazeFetch(
+      buildCanvasDataSeriesPath(canvasId, end1),
+      apiKey,
+      brazeRestEndpoint,
+    );
+    a = parseCanvasDataSeriesResponse(body1);
+  } catch (e) {
+    console.warn(`[Braze Sync] canvas/data_series first window failed id=${canvasId}:`, e);
+  }
+  try {
+    const body2 = await brazeFetch(
+      buildCanvasDataSeriesPath(canvasId, end2),
+      apiKey,
+      brazeRestEndpoint,
+    );
+    b = parseCanvasDataSeriesResponse(body2);
+  } catch (e) {
+    console.warn(`[Braze Sync] canvas/data_series second window failed id=${canvasId}:`, e);
+  }
+
+  const entriesTot = a.entries + b.entries;
+  return {
+    entries_last_30d: entriesTot,
+    entries_last_60d: entriesTot,
+    sends_last_30d: entriesTot,
+    revenue_last_30d: a.revenue + b.revenue,
+    conversions_last_30d: a.conversions + b.conversions,
+    opens_last_30d: a.opens + b.opens,
+    clicks_last_30d: a.clicks + b.clicks,
+    last_activity_at: pickLatestIsoTime(a.last_activity_at, b.last_activity_at),
+  };
+}
+
 function isoDateOnly(time: string | undefined): string | null {
   if (!time) return null;
   const d = time.slice(0, 10);
@@ -440,6 +686,13 @@ function seriesDateFromBrazeKpi(time: unknown): string | null {
   const ms = Date.parse(s);
   if (!Number.isNaN(ms)) return new Date(ms).toISOString().slice(0, 10);
   return null;
+}
+
+/** YYYY-MM-DD for a `campaigns/data_series` day object. */
+function campaignDataSeriesDayDate(day: Record<string, unknown>): string | null {
+  return seriesDateFromBrazeKpi(
+    day.time ?? day.date ?? (day as { day?: unknown }).day,
+  );
 }
 
 function campaignIdFromListItem(c: Record<string, unknown>): string {
@@ -634,6 +887,274 @@ function collectCanvasDetailStepRows(
     }
   }
   return out;
+}
+
+const CANVAS_STEP_CONTAINER_KEYS = new Set([
+  "steps",
+  "scheduled_steps",
+  "canvas_steps",
+  "flow_steps",
+  "message_steps",
+  "all_steps",
+]);
+
+function mergeCanvasStepRows(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): Record<string, unknown> {
+  const keyCount = (r: Record<string, unknown>) => Object.keys(r).length;
+  const msgLen = (x: unknown): number =>
+    Array.isArray(x)
+      ? x.length
+      : x && typeof x === "object"
+        ? Object.keys(x as object).length
+        : 0;
+  const base =
+    keyCount(a) + msgLen(a.messages) >= keyCount(b) + msgLen(b.messages)
+      ? { ...b, ...a }
+      : { ...a, ...b };
+  const ma = a.messages;
+  const mb = b.messages;
+  if (ma != null && mb != null) {
+    base.messages = msgLen(mb) >= msgLen(ma) ? mb : ma;
+  }
+  return ensureStepRowHasId(base);
+}
+
+function mergeStepRowIntoMap(
+  map: Map<string, Record<string, unknown>>,
+  row: Record<string, unknown>,
+): void {
+  const id = String(
+    row.id ??
+      row.api_id ??
+      (row as { step_api_id?: unknown }).step_api_id ??
+      row.step_id ??
+      (row as { canvas_step_id?: unknown }).canvas_step_id ??
+      "",
+  ).trim();
+  if (!id) return;
+  const normalized = ensureStepRowHasId({ ...row });
+  const prev = map.get(id);
+  if (!prev) {
+    map.set(id, normalized);
+    return;
+  }
+  map.set(id, mergeCanvasStepRows(prev, normalized));
+}
+
+function deepHarvestCanvasStepsIntoMap(
+  node: unknown,
+  map: Map<string, Record<string, unknown>>,
+  visited: WeakSet<object>,
+  depth: number,
+): void {
+  if (depth > 22 || node == null) return;
+  if (typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    for (const x of node) deepHarvestCanvasStepsIntoMap(x, map, visited, depth + 1);
+    return;
+  }
+  const o = node as Record<string, unknown>;
+  if (visited.has(o)) return;
+  visited.add(o);
+  for (const [k, v] of Object.entries(o)) {
+    if (v == null || typeof v !== "object") continue;
+    const lk = k.toLowerCase();
+    const looksLikeStepContainer =
+      CANVAS_STEP_CONTAINER_KEYS.has(k) ||
+      (lk.endsWith("_steps") && k !== "total_steps");
+    if (looksLikeStepContainer) {
+      for (const row of stepRowsFromUnknown(v)) {
+        mergeStepRowIntoMap(map, row);
+      }
+    }
+    deepHarvestCanvasStepsIntoMap(v, map, visited, depth + 1);
+  }
+}
+
+function neighborStepIdsFromRow(s: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const push = (x: unknown) => {
+    if (x == null) return;
+    if (Array.isArray(x)) {
+      for (const y of x) {
+        const t = String(y).trim();
+        if (t) out.push(t);
+      }
+      return;
+    }
+    const t = String(x).trim();
+    if (t) out.push(t);
+  };
+  push(s.next_step_ids);
+  push((s as { nextStepIds?: unknown }).nextStepIds);
+  push(s.next_step_id);
+  push((s as { nextStepId?: unknown }).nextStepId);
+  const paths = s.next_paths;
+  if (Array.isArray(paths)) {
+    for (const p of paths) {
+      if (!p || typeof p !== "object") continue;
+      const pr = p as Record<string, unknown>;
+      push(
+        pr.next_step_id ??
+          pr.nextStepId ??
+          pr.next_canvas_step_id ??
+          pr.step_id,
+      );
+    }
+  }
+  const branches = (s as { branches?: unknown }).branches;
+  if (Array.isArray(branches)) {
+    for (const b of branches) {
+      if (!b || typeof b !== "object") continue;
+      const br = b as Record<string, unknown>;
+      push(br.next_step_id);
+      push(br.next_step_ids);
+    }
+  }
+  return [...new Set(out)];
+}
+
+function bfsOrderedStepsFromStepMap(
+  stepMap: Map<string, Record<string, unknown>>,
+  entryIds: string[],
+): Array<Record<string, unknown>> {
+  const ordered: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+  const queue = [...new Set(entryIds.map((x) => String(x).trim()).filter(Boolean))];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const row = stepMap.get(id);
+    if (row) {
+      ordered.push(row);
+      for (const n of neighborStepIdsFromRow(row)) {
+        if (!seen.has(n)) queue.push(n);
+      }
+    }
+  }
+  const orphanKeys = [...stepMap.keys()].filter((k) => !seen.has(k)).sort();
+  for (const k of orphanKeys) {
+    const row = stepMap.get(k);
+    if (row) ordered.push(row);
+  }
+  return ordered;
+}
+
+function collectVariantEntryStepIdsFromDetails(
+  details: Record<string, unknown>,
+  canvasNested: Record<string, unknown> | undefined,
+): string[] {
+  const out: string[] = [];
+  const pushFromVariant = (vr: Record<string, unknown>) => {
+    const multi = vr.first_step_ids ?? vr.firstStepIds;
+    if (Array.isArray(multi)) {
+      for (const x of multi) {
+        const t = String(x).trim();
+        if (t) out.push(t);
+      }
+    }
+    const one =
+      vr.first_step_id ??
+      vr.firstStepId ??
+      vr.first_canvas_step_id ??
+      vr.first_step_api_id ??
+      vr.entry_step_id;
+    if (one != null && String(one).trim()) out.push(String(one).trim());
+  };
+  const walkContainer = (container: Record<string, unknown> | undefined) => {
+    if (!container) return;
+    const vars = container.variants;
+    if (!Array.isArray(vars)) return;
+    for (const v of vars) {
+      if (v != null && typeof v === "object" && !Array.isArray(v)) {
+        pushFromVariant(v as Record<string, unknown>);
+      }
+    }
+  };
+  const rootFirst = (c: Record<string, unknown>) => {
+    const multi = c.first_step_ids ?? c.firstStepIds;
+    if (Array.isArray(multi)) {
+      for (const x of multi) {
+        const t = String(x).trim();
+        if (t) out.push(t);
+      }
+    }
+    const one =
+      c.first_step_id ??
+      c.firstStepId ??
+      c.first_canvas_step_id ??
+      c.entry_step_id;
+    if (one != null && String(one).trim()) out.push(String(one).trim());
+  };
+
+  walkContainer(details);
+  walkContainer(canvasNested);
+  const dataObj = details.data as Record<string, unknown> | undefined;
+  const dataCanvas = dataObj?.canvas as Record<string, unknown> | undefined;
+  const dataAsCanvas =
+    dataObj && typeof dataObj === "object" && dataCanvas == null
+      ? dataObj
+      : undefined;
+  walkContainer(dataObj);
+  walkContainer(dataCanvas);
+  walkContainer(dataAsCanvas);
+  rootFirst(details);
+  if (canvasNested) rootFirst(canvasNested);
+  if (dataObj) rootFirst(dataObj);
+  if (dataCanvas) rootFirst(dataCanvas);
+  if (dataAsCanvas) rootFirst(dataAsCanvas);
+
+  const legacyBlobs: unknown[] = [
+    (details as { legacy_response?: unknown }).legacy_response,
+    dataObj?.legacy_response,
+    dataCanvas?.legacy_response,
+    canvasNested?.legacy_response,
+    dataAsCanvas?.legacy_response,
+  ];
+  for (const leg of legacyBlobs) {
+    if (leg && typeof leg === "object" && !Array.isArray(leg)) {
+      const o = leg as Record<string, unknown>;
+      walkContainer(o);
+      rootFirst(o);
+    }
+  }
+  return [...new Set(out.map((x) => x.trim()).filter(Boolean))];
+}
+
+/**
+ * Like {@link collectCanvasDetailStepRows} but also harvests id-keyed step maps from nested JSON
+ * and walks the full graph from variant `first_step_id` / `first_step_ids` via `next_step_ids` /
+ * `next_paths`, so canvases with 100+ steps are not reduced to a single array element.
+ */
+function collectCanvasDetailStepRowsExpanded(
+  details: Record<string, unknown>,
+  canvasNested: Record<string, unknown> | undefined,
+): Array<Record<string, unknown>> {
+  const linear = collectCanvasDetailStepRows(details, canvasNested);
+  const map = new Map<string, Record<string, unknown>>();
+  for (const row of linear) {
+    mergeStepRowIntoMap(map, row);
+  }
+  const visited = new WeakSet<object>();
+  deepHarvestCanvasStepsIntoMap(details, map, visited, 0);
+  if (canvasNested) {
+    const visitedCanvas = new WeakSet<object>();
+    deepHarvestCanvasStepsIntoMap(canvasNested, map, visitedCanvas, 0);
+  }
+
+  const entryIds = collectVariantEntryStepIdsFromDetails(details, canvasNested);
+  if (entryIds.length > 0 && map.size > 0) {
+    return bfsOrderedStepsFromStepMap(map, entryIds);
+  }
+  if (map.size > 0) {
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, v]) => v);
+  }
+  return linear;
 }
 
 /**
@@ -1209,6 +1730,7 @@ Deno.serve(async (req) => {
     let canvasMinimalUpserted = 0;
     let campaignsProcessedCount = 0;
     let campaignsEnabledCount = 0;
+    let campaignAnalyticsRowsUpserted = 0;
     let allCampaignList: CampaignListItem[] = [];
     let kpiSeriesPoints = 0;
     let kpiLatestDau = 0;
@@ -1405,7 +1927,8 @@ Deno.serve(async (req) => {
     );
 
     // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
-    if (!skipHeavySyncPhases) {
+    // Runs even when FORCE_CANVAS_FAST_PATH (so canvas/data_series .update has rows to target).
+    if (!touchpointsOnly) {
     const minimalChunks: CanvasListItem[][] = [];
     for (let i = 0; i < allCanvasList.length; i += 40) {
       minimalChunks.push(allCanvasList.slice(i, i + 40));
@@ -1620,6 +2143,12 @@ Deno.serve(async (req) => {
         ? Math.max(0, Math.floor(b.canvas_offset as number))
         : dbLast;
       touchpointsStartOffsetForChunk = Math.min(resolvedOffset, allCanvasList.length);
+      if (allCanvasList.length > 0 && touchpointsStartOffsetForChunk >= allCanvasList.length) {
+        console.warn(
+          "[Braze Sync] TOUCHPOINTS_ONLY: stored offset >= canvas list length — resetting to 0 (complete a full cycle or clear client_sync_progress)",
+        );
+        touchpointsStartOffsetForChunk = 0;
+      }
       const sliceEnd = Math.min(
         touchpointsStartOffsetForChunk + TOUCHPOINTS_CHUNK_SIZE,
         allCanvasList.length,
@@ -1768,8 +2297,9 @@ Deno.serve(async (req) => {
             brazeRestEndpoint,
           )) as Record<string, unknown>;
           const canvasNested = details.canvas as Record<string, unknown> | undefined;
-          const detailStepRows = collectCanvasDetailStepRows(details, canvasNested);
+          const detailStepRows = collectCanvasDetailStepRowsExpanded(details, canvasNested);
           let stepsObj: Record<string, unknown> = buildMinimalTouchpointStepsFromRows(detailStepRows);
+          const stepsFound = detailStepRows.length;
           detailStepRows.length = 0;
           details = null;
 
@@ -1787,7 +2317,7 @@ Deno.serve(async (req) => {
             phase3DbWritesWithRawSteps++;
             phase3CanvasesWithRawSteps++;
             console.log(
-              `[Braze Sync][Phase3][touchpoints] upsert ok id=${c.id} total_steps=${totalSteps}`,
+              `[Sync] Canvas ${JSON.stringify(c.name ?? "Canvas")}: ${stepsFound} steps found, ${totalSteps} touchpoints upserted`,
             );
           } else {
             console.warn(
@@ -1799,7 +2329,7 @@ Deno.serve(async (req) => {
         } catch (e) {
           console.warn(`[Braze Sync][Phase3][touchpoints] canvas id=${c.id} failed:`, e);
         }
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 200));
       }
     } else {
     // Process canvases in batches
@@ -1842,14 +2372,18 @@ Deno.serve(async (req) => {
           let conversionEvents: ProcessedCanvas['conversion_events'] = [];
           let entryFilters: ProcessedCanvas['entry_filters'] = [];
 
-          // Activity metrics
+          // Activity metrics (canvas/data_series — also persisted for Analytics revenue merge)
           let entries_last_30d = 0;
           let entries_last_60d = 0;
           let sends_last_30d = 0;
+          let revenue_last_30d = 0;
+          let conversions_last_30d = 0;
+          let opens_last_30d = 0;
+          let clicks_last_30d = 0;
           let last_activity_at: string | undefined;
 
           try {
-            // Braze REST: GET {restEndpoint}/canvas/details?canvas_id={id} (JSON body; steps parsed via collectCanvasDetailStepRows)
+            // Braze REST: GET {restEndpoint}/canvas/details?canvas_id={id} (JSON body; steps via collectCanvasDetailStepRowsExpanded)
             const details = (await brazeFetch(
               `canvas/details?canvas_id=${encodeURIComponent(c.id)}`,
               apiKey,
@@ -1936,7 +2470,7 @@ Deno.serve(async (req) => {
             }
 
             // Parse steps (skip HTML to save memory - store template IDs)
-            const detailStepRows = collectCanvasDetailStepRows(details, canvasNested);
+            const detailStepRows = collectCanvasDetailStepRowsExpanded(details, canvasNested);
 
             const detailKeys = Object.keys(details).sort();
             console.log(
@@ -2112,7 +2646,7 @@ Deno.serve(async (req) => {
               }
             } else {
               console.warn(
-                `[Braze Sync][Phase3] canvas/details returned 0 step rows: id=${c.id} name=${JSON.stringify(c.name)} — check collectCanvasDetailStepRows / nested legacy_response`,
+                `[Braze Sync][Phase3] canvas/details returned 0 step rows: id=${c.id} name=${JSON.stringify(c.name)} — check collectCanvasDetailStepRowsExpanded / nested legacy_response`,
               );
             }
 
@@ -2133,40 +2667,7 @@ Deno.serve(async (req) => {
             );
           }
 
-          // Fetch activity data if canvas is enabled (skipped in touchpoints_only)
-          if (enabled && !touchpointsOnly) {
-            try {
-              const now = new Date();
-              const end = now.toISOString().split('T')[0];
-              const start60 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-              const analyticsData = await brazeFetch(
-                `canvas/data_series?canvas_id=${c.id}&length=60&ending_at=${end}T00:00:00Z`,
-                apiKey,
-                brazeRestEndpoint
-              );
-
-              if (analyticsData.data?.length > 0) {
-                const dataSeries = analyticsData.data as Array<{ time: string; total_stats?: { entries?: number }; entries?: number }>;
-                
-                for (let j = 0; j < dataSeries.length; j++) {
-                  const day = dataSeries[j];
-                  const entries = day.total_stats?.entries ?? day.entries ?? 0;
-                  entries_last_60d += entries;
-                  if (j < 30) entries_last_30d += entries;
-                  
-                  if (entries > 0 && !last_activity_at) {
-                    last_activity_at = day.time;
-                  }
-                }
-
-                // Estimate sends from the data
-                sends_last_30d = Math.floor(entries_last_30d * 0.9); // Rough estimate
-              }
-            } catch (err) {
-              console.warn(`Failed to fetch analytics for canvas ${c.id}:`, err);
-            }
-          }
+          // canvas/data_series metrics are written in the post–Phase 3 sweep (all non-archived canvases).
 
           return {
             id: c.id,
@@ -2193,6 +2694,10 @@ Deno.serve(async (req) => {
             entries_last_30d,
             entries_last_60d,
             sends_last_30d,
+            revenue_last_30d,
+            conversions_last_30d,
+            opens_last_30d,
+            clicks_last_30d,
             last_activity_at,
           };
         })
@@ -2243,6 +2748,10 @@ Deno.serve(async (req) => {
                 entries_last_30d: c.entries_last_30d || 0,
                 entries_last_60d: c.entries_last_60d || 0,
                 sends_last_30d: c.sends_last_30d || 0,
+                revenue_last_30d: c.revenue_last_30d ?? 0,
+                conversions_last_30d: c.conversions_last_30d ?? 0,
+                opens_last_30d: c.opens_last_30d ?? 0,
+                clicks_last_30d: c.clicks_last_30d ?? 0,
                 last_activity_at: c.last_activity_at || null,
                 synced_at: nowIso,
                 ...(hasIncomingSteps
@@ -2299,10 +2808,80 @@ Deno.serve(async (req) => {
     }
     }
 
+    let canvasDataSeriesUpdatedTotal = 0;
+    // canvas/data_series → braze_canvases activity columns (all non-archived list canvases).
+    // Not gated on skipHeavySyncPhases so FORCE_CANVAS_FAST_PATH still gets metrics; excluded for touchpoints_only chunks.
+    if (!touchpointsOnly && allCanvasList.length > 0) {
+      const seriesTargets = allCanvasList.filter((c) => !c.archived);
+      let canvasDataSeriesUpdated = 0;
+      let canvasDataSeriesRevenueSum = 0;
+      console.log(
+        `[Braze Sync] canvas/data_series sweep: ${seriesTargets.length} non-archived canvas(es)`,
+      );
+      const SERIES_CONCURRENCY = 4;
+      for (let si = 0; si < seriesTargets.length; si += SERIES_CONCURRENCY) {
+        if (syncOverBudget()) {
+          syncPartial = true;
+          if (!syncStoppedReason) syncStoppedReason = "time_budget";
+          console.warn("[Braze Sync] canvas/data_series sweep: stopped early (wall time budget)");
+          break;
+        }
+        const slice = seriesTargets.slice(si, si + SERIES_CONCURRENCY);
+        const batchOutcomes = await Promise.all(
+          slice.map(async (c) => {
+            try {
+              const m = await fetchMergedCanvasDataSeriesForDb(
+                c.id,
+                apiKey,
+                brazeRestEndpoint,
+              );
+              console.log(
+                `Canvas ${c.name}: revenue=${m.revenue_last_30d} entries=${m.entries_last_30d}`,
+              );
+              const { error: upErr } = await supabase
+                .from("braze_canvases")
+                .update({
+                  entries_last_30d: m.entries_last_30d,
+                  entries_last_60d: m.entries_last_60d,
+                  sends_last_30d: m.sends_last_30d,
+                  revenue_last_30d: m.revenue_last_30d,
+                  conversions_last_30d: m.conversions_last_30d,
+                  opens_last_30d: m.opens_last_30d,
+                  clicks_last_30d: m.clicks_last_30d,
+                  last_activity_at: m.last_activity_at ?? null,
+                  synced_at: nowIso,
+                })
+                .eq("client_id", clientId)
+                .eq("braze_canvas_id", c.id);
+              if (upErr) {
+                console.warn(`[Braze Sync] canvas/data_series DB update failed id=${c.id}:`, upErr.message);
+                return { ok: false as const };
+              }
+              return { ok: true as const, revenue: Number(m.revenue_last_30d) || 0 };
+            } catch (e) {
+              console.warn(`[Braze Sync] canvas/data_series request failed id=${c.id}:`, e);
+              return { ok: false as const };
+            }
+          }),
+        );
+        for (const o of batchOutcomes) {
+          if (o.ok) {
+            canvasDataSeriesUpdated += 1;
+            canvasDataSeriesRevenueSum += o.revenue;
+          }
+        }
+        await new Promise((r) => setTimeout(r, 80));
+      }
+      console.log(
+        `[Braze Sync] canvas/data_series summary: canvases_updated=${canvasDataSeriesUpdated} total_revenue_last_30d_written=${canvasDataSeriesRevenueSum.toFixed(2)}`,
+      );
+      canvasDataSeriesUpdatedTotal = canvasDataSeriesUpdated;
+    }
+
     console.log(
       `[Braze Sync] Phase 3 done: processed=${processedCount} enabled=${enabledCount} ` +
         `fulfilled_with_step_object=${phase3CanvasesWithRawSteps} db_upserts_with_raw_steps=${phase3DbWritesWithRawSteps} ` +
-        `(list_total=${allCanvasList.length}, priority_detail_cap=${touchpointsOnly ? "none" : MAX_CANVASES_TO_PROCESS}, forced=${forcedCanvases.length})`,
+        `(list_total=${allCanvasList.length}, priority_detail_cap=${touchpointsOnly ? "none" : MAX_CANVASES_TO_PROCESS}, forced=${forcedCanvases.length}) canvas_data_series=${canvasDataSeriesUpdatedTotal}`,
     );
 
     if (touchpointsOnly) {
@@ -2350,7 +2929,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!skipHeavySyncPhases) {
+    // Campaigns / segments / scheduled broadcasts: run on any non–touchpoints-only invocation,
+    // even when FORCE_CANVAS_FAST_PATH skips KPI + email + canvas minimal upsert.
+    if (!touchpointsOnly) {
     // === PHASE 4: Fetch and process campaigns ===
     console.log('Phase 4: Fetching all campaign IDs...');
     const seenCampaignIds = new Set<string>();
@@ -2441,6 +3022,8 @@ Deno.serve(async (req) => {
       }
       const batch = campaignsToProcess.slice(i, i + BATCH_SIZE);
       console.log(`Processing campaign batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(campaignsToProcess.length / BATCH_SIZE)}`);
+
+      const batchCampaignAnalyticsRows: Record<string, unknown>[] = [];
 
       const batchResults = await Promise.allSettled(
         batch.map(async (c): Promise<ProcessedCampaign | null> => {
@@ -2655,6 +3238,30 @@ Deno.serve(async (req) => {
                   bounces += m.bounces;
                   spam_reports += m.spam_reports;
                   unsubs += m.unsubs;
+                  const dateStr = campaignDataSeriesDayDate(day);
+                  if (!dateStr) continue;
+                  const rc = canvasDayRevenueAndConversions(day);
+                  batchCampaignAnalyticsRows.push({
+                    client_id: clientId,
+                    campaign_id: campaignId,
+                    campaign_name: displayName,
+                    variation_api_id: BRAZE_SYNC_CAMPAIGN_ANALYTICS_VARIATION,
+                    channel: channel || "Email",
+                    date: dateStr,
+                    sent: m.sends,
+                    delivered: m.deliveries,
+                    opens: m.opens,
+                    unique_opens: m.opens,
+                    clicks: m.clicks,
+                    unique_clicks: m.clicks,
+                    bounces: m.bounces,
+                    unsubscribes: m.unsubs,
+                    reported_spam: m.spam_reports,
+                    unique_recipients: m.deliveries,
+                    conversions: rc.conversions,
+                    conversions_by_send_time: 0,
+                    revenue: rc.revenue,
+                  });
                 }
               }
             } catch (err) {
@@ -2756,11 +3363,29 @@ Deno.serve(async (req) => {
         }
       }
 
+      if (batchCampaignAnalyticsRows.length > 0) {
+        const CA_CHUNK = 100;
+        for (let ci = 0; ci < batchCampaignAnalyticsRows.length; ci += CA_CHUNK) {
+          const chunk = batchCampaignAnalyticsRows.slice(ci, ci + CA_CHUNK);
+          const { error: caErr } = await supabase.from("braze_campaign_analytics").upsert(chunk, {
+            onConflict: "client_id,campaign_id,date,variation_api_id",
+          });
+          if (caErr) {
+            console.warn("[Braze Sync] braze_campaign_analytics upsert:", caErr.message);
+            pushDbErr("braze_campaign_analytics(batch)", caErr);
+          } else {
+            campaignAnalyticsRowsUpserted += chunk.length;
+          }
+        }
+      }
+
       // Release memory between batches
       await new Promise(r => setTimeout(r, 100));
     }
 
-    console.log(`Processed ${campaignsProcessedCount} campaigns, ${campaignsEnabledCount} enabled/sent`);
+    console.log(
+      `Processed ${campaignsProcessedCount} campaigns, ${campaignsEnabledCount} enabled/sent; braze_campaign_analytics rows upserted=${campaignAnalyticsRowsUpserted}`,
+    );
     }
 
     // === PHASE 6: Segment directory → public.braze_segments_sync (not braze_segments) ===
@@ -2946,7 +3571,7 @@ Deno.serve(async (req) => {
       console.warn('scheduled_broadcasts sync failed:', e);
     }
 
-    } // end !skipHeavySyncPhases (campaigns, segments, scheduled_broadcasts)
+    } // end !touchpointsOnly (campaigns, segments, scheduled_broadcasts)
 
     // === Update schema_cache with summary + lightweight campaign list (Settings + Campaigns fallback) ===
     const schemaCacheCampaigns = allCampaignList.slice(0, 300).map((c) => ({
@@ -2966,6 +3591,8 @@ Deno.serve(async (req) => {
       canvases_enabled_count: enabledCount,
       campaigns_count: campaignsProcessedCount,
       campaigns_enabled_count: campaignsEnabledCount,
+      canvases_data_series_updated: canvasDataSeriesUpdatedTotal,
+      campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
       /** Mirrors legacy shape: used in Settings + Campaigns when braze_campaigns rows are empty (e.g. RLS client mismatch or partial sync). */
       campaigns: schemaCacheCampaigns,
       kpi_series_points: kpiSeriesPoints,
@@ -3009,7 +3636,7 @@ Deno.serve(async (req) => {
       }),
     );
     console.log(
-      `[Braze Sync] Done in ${syncDuration}ms: canvas_list=${allCanvasList.length} minimal=${canvasMinimalUpserted} detail_enriched=${processedCount} enabled=${enabledCount} campaigns=${campaignsProcessedCount}`,
+      `[Braze Sync] Done in ${syncDuration}ms: canvas_list=${allCanvasList.length} minimal=${canvasMinimalUpserted} detail_enriched=${processedCount} canvas_data_series=${canvasDataSeriesUpdatedTotal} enabled=${enabledCount} campaigns=${campaignsProcessedCount} campaign_analytics_rows=${campaignAnalyticsRowsUpserted}`,
     );
     console.log(
       JSON.stringify({
@@ -3019,9 +3646,11 @@ Deno.serve(async (req) => {
         canvas_list_total: allCanvasList.length,
         canvas_minimal_upserted: canvasMinimalUpserted,
         canvases_detail_enriched: processedCount,
+        canvases_data_series_updated: canvasDataSeriesUpdatedTotal,
         canvases_enabled_detail: enabledCount,
         campaigns_processed: campaignsProcessedCount,
         campaigns_found: allCampaignList.length,
+        campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
         kpi_series_points_upserted: kpiSeriesPoints,
         scheduled_broadcasts_inserted: scheduledBroadcastsCount,
         segments_synced: segmentsSynced,
@@ -3037,7 +3666,9 @@ Deno.serve(async (req) => {
       emailEventsSynced > 0 ||
       scheduledBroadcastsCount > 0 ||
       campaignsProcessedCount > 0 ||
-      processedCount > 0;
+      processedCount > 0 ||
+      canvasDataSeriesUpdatedTotal > 0 ||
+      campaignAnalyticsRowsUpserted > 0;
 
     const apiParsedAny =
       apiKpiPointsParsed > 0 ||
@@ -3104,10 +3735,12 @@ Deno.serve(async (req) => {
             canvases_found: allCanvasList.length,
             canvases_minimal_upserted: canvasMinimalUpserted,
             canvases_detail_enriched: processedCount,
+            canvases_data_series_updated: canvasDataSeriesUpdatedTotal,
             canvases_enabled: enabledCount,
             campaigns_found: allCampaignList.length,
             campaigns_processed: campaignsProcessedCount,
             campaigns_enabled: campaignsEnabledCount,
+            campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
             kpi_series_points: schemaCache.kpi_series_points,
             segments_synced: schemaCache.segments_synced,
             email_events_ingested: schemaCache.email_events_ingested,

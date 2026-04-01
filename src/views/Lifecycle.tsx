@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { BRAZE_CANVASES_LIST_SELECT } from '@/lib/brazeCanvasesListSelect';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
 import { getJourneyVisuals } from '@/lib/lifecycleJourneyVisuals';
 import {
@@ -147,6 +148,55 @@ function sortLifecycleCanvases<
       /* tie-break name */
     } else if (aNull && !bNull) return -1;
     else if (!aNull && bNull) return 1;
+    else if ((bMs as number) !== (aMs as number)) return (bMs as number) - (aMs as number);
+
+    return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, {
+      sensitivity: 'base',
+    });
+  });
+}
+
+/**
+ * Order journey **cards** 1 → N: most display touchpoints first (same metric as badges), then activity, recency, name.
+ * Use after mapping DB rows to journey objects so order always matches `total_steps` on each card.
+ */
+function sortJourneysByTouchpointsDesc<
+  T extends {
+    total_steps?: number;
+    entries_last_60d?: number;
+    last_entry?: string;
+    name?: string;
+  },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const aTp =
+      typeof a.total_steps === 'number' && !Number.isNaN(a.total_steps) ? a.total_steps : 0;
+    const bTp =
+      typeof b.total_steps === 'number' && !Number.isNaN(b.total_steps) ? b.total_steps : 0;
+    if (bTp !== aTp) return bTp - aTp;
+
+    const aE =
+      typeof a.entries_last_60d === 'number' && !Number.isNaN(a.entries_last_60d)
+        ? a.entries_last_60d
+        : null;
+    const bE =
+      typeof b.entries_last_60d === 'number' && !Number.isNaN(b.entries_last_60d)
+        ? b.entries_last_60d
+        : null;
+    if (aE == null && bE == null) {
+      /* tie-break last_entry */
+    } else if (aE == null) return 1;
+    else if (bE == null) return -1;
+    else if (bE !== aE) return bE - aE;
+
+    const aMs = a.last_entry ? Date.parse(String(a.last_entry)) : NaN;
+    const bMs = b.last_entry ? Date.parse(String(b.last_entry)) : NaN;
+    const aNull = Number.isNaN(aMs);
+    const bNull = Number.isNaN(bMs);
+    if (aNull && bNull) {
+      /* tie-break name */
+    } else if (aNull && !bNull) return 1;
+    else if (!aNull && bNull) return -1;
     else if ((bMs as number) !== (aMs as number)) return (bMs as number) - (aMs as number);
 
     return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, {
@@ -363,7 +413,7 @@ export default function Lifecycle() {
       if (!brazeReadClientId) return [];
       const { data, error } = await supabase
         .from('braze_canvases')
-        .select('*')
+        .select(BRAZE_CANVASES_LIST_SELECT)
         .eq('client_id', brazeReadClientId)
         .eq('archived', false)
         // Include draft canvases (often enabled=false in Braze) so journeys with synced step data are visible.
@@ -404,75 +454,77 @@ export default function Lifecycle() {
 
     if (rawSource.length === 0) return [];
 
-    return rawSource.map((canvasRaw) => {
-      const canvas = canvasRaw as Record<string, unknown>;
-      const name = (canvas.name as string) ?? '';
-      const taxonomy = parseCampaignTaxonomy(name);
+    return sortJourneysByTouchpointsDesc(
+      rawSource.map((canvasRaw) => {
+        const canvas = canvasRaw as Record<string, unknown>;
+        const name = (canvas.name as string) ?? '';
+        const taxonomy = parseCampaignTaxonomy(name);
 
-      const stepsRecord = normalizeRawSteps(canvas.raw_steps ?? canvas.steps);
+        const stepsRecord = normalizeRawSteps(canvas.raw_steps ?? canvas.steps);
 
-      const stepsList = Object.values(stepsRecord);
+        const stepsList = Object.values(stepsRecord);
 
-      let inferredChannels: string[] = [];
-      if (stepsList.length > 0) {
-        const channels = stepsList
-          .map((s) => getLifecycleStepChannel(s as LifecycleCanvasStep))
-          .filter(Boolean);
-        inferredChannels = [...new Set(channels)];
-      }
-      if (inferredChannels.length === 0) {
-        const nameLower = name.toLowerCase();
-        if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
-        if (nameLower.includes('push')) inferredChannels.push('push');
-        if (nameLower.includes('sms')) inferredChannels.push('sms');
-        if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
-        if (inferredChannels.length === 0) inferredChannels.push('email');
-      }
+        let inferredChannels: string[] = [];
+        if (stepsList.length > 0) {
+          const channels = stepsList
+            .map((s) => getLifecycleStepChannel(s as LifecycleCanvasStep))
+            .filter(Boolean);
+          inferredChannels = [...new Set(channels)];
+        }
+        if (inferredChannels.length === 0) {
+          const nameLower = name.toLowerCase();
+          if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
+          if (nameLower.includes('push')) inferredChannels.push('push');
+          if (nameLower.includes('sms')) inferredChannels.push('sms');
+          if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
+          if (inferredChannels.length === 0) inferredChannels.push('email');
+        }
 
-      const dbTotalRaw =
-        typeof canvas.total_steps === 'number' && !Number.isNaN(canvas.total_steps)
-          ? canvas.total_steps
-          : undefined;
+        const dbTotalRaw =
+          typeof canvas.total_steps === 'number' && !Number.isNaN(canvas.total_steps)
+            ? canvas.total_steps
+            : undefined;
 
-      const dbRowId = String(canvas.id ?? '');
-      const brazeCanvasIdRaw = canvas.braze_canvas_id;
-      const brazeCanvasId =
-        brazeCanvasIdRaw != null && String(brazeCanvasIdRaw).trim() !== ''
-          ? String(brazeCanvasIdRaw).trim()
-          : dbRowId;
+        const dbRowId = String(canvas.id ?? '');
+        const brazeCanvasIdRaw = canvas.braze_canvas_id;
+        const brazeCanvasId =
+          brazeCanvasIdRaw != null && String(brazeCanvasIdRaw).trim() !== ''
+            ? String(brazeCanvasIdRaw).trim()
+            : dbRowId;
 
-      return {
-        /** DB primary key — unique per row for list keys and detail fetch. */
-        dbId: dbRowId,
-        /** Braze canvas id when present; used for visibility map (Settings) and display. */
-        id: brazeCanvasId,
-        name,
-        displayName: taxonomy.displayName,
-        draft: Boolean(canvas.draft),
-        enabled: Boolean(canvas.enabled),
-        description: (canvas.description as string | undefined) || 'Automated lifecycle journey',
-        status: 'active' as const,
-        tags: (canvas.tags as string[] | undefined) || [],
-        channels: inferredChannels,
-        first_entry: canvas.first_entry as string | undefined,
-        last_entry: canvas.last_entry as string | undefined,
-        taxonomy: { ...taxonomy, type: 'lifecycle' as const },
-        variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
-        steps: stepsRecord,
-        total_steps: computeLifecycleDisplayTouchpoints(stepsRecord, dbTotalRaw),
-        /** DB column when Phase 3 stored counts but `raw_steps` empty or UI can't classify messaging */
-        db_total_steps: dbTotalRaw,
-        entry_type: canvas.entry_type as string | undefined,
-        entry_segment_name: canvas.entry_segment_name as string | undefined,
-        trigger_event_name: canvas.trigger_event_name as string | undefined,
-        exception_events: canvas.exception_events as string[] | undefined,
-        conversion_events: canvas.conversion_events,
-        entry_filters: canvas.entry_filters,
-        entries_last_30d: canvas.entries_last_30d as number | undefined,
-        entries_last_60d: canvas.entries_last_60d as number | undefined,
-        schedule_type: canvas.schedule_type as string | undefined,
-      };
-    });
+        return {
+          /** DB primary key — unique per row for list keys and detail fetch. */
+          dbId: dbRowId,
+          /** Braze canvas id when present; used for visibility map (Settings) and display. */
+          id: brazeCanvasId,
+          name,
+          displayName: taxonomy.displayName,
+          draft: Boolean(canvas.draft),
+          enabled: Boolean(canvas.enabled),
+          description: (canvas.description as string | undefined) || 'Automated lifecycle journey',
+          status: 'active' as const,
+          tags: (canvas.tags as string[] | undefined) || [],
+          channels: inferredChannels,
+          first_entry: canvas.first_entry as string | undefined,
+          last_entry: canvas.last_entry as string | undefined,
+          taxonomy: { ...taxonomy, type: 'lifecycle' as const },
+          variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
+          steps: stepsRecord,
+          total_steps: computeLifecycleDisplayTouchpoints(stepsRecord, dbTotalRaw),
+          /** DB column when Phase 3 stored counts but `raw_steps` empty or UI can't classify messaging */
+          db_total_steps: dbTotalRaw,
+          entry_type: canvas.entry_type as string | undefined,
+          entry_segment_name: canvas.entry_segment_name as string | undefined,
+          trigger_event_name: canvas.trigger_event_name as string | undefined,
+          exception_events: canvas.exception_events as string[] | undefined,
+          conversion_events: canvas.conversion_events,
+          entry_filters: canvas.entry_filters,
+          entries_last_30d: canvas.entries_last_30d as number | undefined,
+          entries_last_60d: canvas.entries_last_60d as number | undefined,
+          schedule_type: canvas.schedule_type as string | undefined,
+        };
+      }),
+    );
   }, [normalizedCanvases, canViewLifecycleFromBraze]);
 
   const isItemVisible = (brazeOrVisibilityId: string) => {
@@ -481,21 +533,27 @@ export default function Lifecycle() {
     return true;
   };
 
-  // Filter journeys
+  // Filter journeys (keep same touchpoint-first order as the full list)
   const filteredJourneys = useMemo(() => {
-    return journeys.filter(journey => {
+    const filtered = journeys.filter((journey) => {
       if (!isItemVisible(journey.id)) return false;
 
-      const matchesSearch = journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch =
+        journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
 
       let matchesChannel = true;
       if (channelFilter !== 'All') {
-        matchesChannel = journey.channels?.some(ch => {
-          const normalizedCh = ch.toLowerCase().replace(/[-_]/g, '');
-          const normalizedFilter = channelFilter.toLowerCase().replace(/[-_]/g, '');
-          return normalizedCh === normalizedFilter || normalizedCh.includes(normalizedFilter) || normalizedFilter.includes(normalizedCh);
-        }) || false;
+        matchesChannel =
+          journey.channels?.some((ch) => {
+            const normalizedCh = ch.toLowerCase().replace(/[-_]/g, '');
+            const normalizedFilter = channelFilter.toLowerCase().replace(/[-_]/g, '');
+            return (
+              normalizedCh === normalizedFilter ||
+              normalizedCh.includes(normalizedFilter) ||
+              normalizedFilter.includes(normalizedCh)
+            );
+          }) || false;
       }
 
       let matchesLaunchDate = true;
@@ -512,22 +570,8 @@ export default function Lifecycle() {
       }
 
       return matchesSearch && matchesChannel && matchesLaunchDate;
-    }).sort((a, b) => {
-      const aTp =
-        typeof (a as { total_steps?: number }).total_steps === 'number' &&
-        !Number.isNaN((a as { total_steps?: number }).total_steps)
-          ? (a as { total_steps: number }).total_steps
-          : 0;
-      const bTp =
-        typeof (b as { total_steps?: number }).total_steps === 'number' &&
-        !Number.isNaN((b as { total_steps?: number }).total_steps)
-          ? (b as { total_steps: number }).total_steps
-          : 0;
-      if (bTp !== aTp) return bTp - aTp;
-      const aEntries = (a as { entries_last_60d?: number }).entries_last_60d ?? 0;
-      const bEntries = (b as { entries_last_60d?: number }).entries_last_60d ?? 0;
-      return bEntries - aEntries;
     });
+    return sortJourneysByTouchpointsDesc(filtered);
   }, [journeys, searchQuery, channelFilter, launchDateFilter, visibilityMap]);
 
   const journeyTotalPages = Math.max(1, Math.ceil(filteredJourneys.length / JOURNEY_PAGE_SIZE));

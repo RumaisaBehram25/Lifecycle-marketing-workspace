@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { UserManagementPanel } from '@/components/settings/UserManagementPanel';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
+import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -57,9 +58,15 @@ interface DataVisibility {
   is_visible: boolean;
 }
 
+type ClientRowBrief = { id: string; name: string; slug: string };
+
 export default function Settings() {
   const { profile, role, isAdmin } = useAuth();
-  const { clientId: brazeDashboardClientId } = useBrazeDashboardClientId();
+  const { clientId: driveClientId, isClientLoading: driveClientResolving } = useResolvedClientId();
+  const {
+    clientId: brazeDashboardClientId,
+    isLoading: brazeDashboardClientResolving,
+  } = useBrazeDashboardClientId();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -68,6 +75,38 @@ export default function Settings() {
   const [canvasSearch, setCanvasSearch] = useState('');
   const [segmentSearch, setSegmentSearch] = useState('');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+
+  const profileWorkspaceClientIds = useMemo(() => {
+    const s = new Set<string>();
+    if (driveClientId) s.add(driveClientId);
+    if (brazeDashboardClientId) s.add(brazeDashboardClientId);
+    return [...s];
+  }, [driveClientId, brazeDashboardClientId]);
+
+  const { data: profileWorkspaceClients } = useQuery({
+    queryKey: ['settings-profile-workspace-clients', profileWorkspaceClientIds.slice().sort().join(',')],
+    queryFn: async () => {
+      if (profileWorkspaceClientIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id,name,slug')
+        .in('id', profileWorkspaceClientIds);
+      if (error) throw error;
+      return (data ?? []) as ClientRowBrief[];
+    },
+    enabled: profileWorkspaceClientIds.length > 0,
+    staleTime: 60_000,
+  });
+
+  const workspaceClientLabel = (id: string | undefined) => {
+    if (!id) return '—';
+    const row = profileWorkspaceClients?.find((c) => c.id === id);
+    if (row?.name) {
+      const slug = row.slug ? ` · ${row.slug}` : '';
+      return `${row.name}${slug}`;
+    }
+    return `${id.slice(0, 8)}…`;
+  };
 
   /** Same Braze client as Analytics / KPIs — admins see schema from the workspace that actually synced (not only DoubleGood). */
   const { data: dashboardBrazePlatform } = useQuery({
@@ -298,6 +337,60 @@ export default function Settings() {
                   <Label>Email</Label>
                   <Input value={profile?.email || ''} disabled />
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Workflow className="h-5 w-5" />
+                  Workspace &amp; data
+                </CardTitle>
+                <CardDescription>
+                  Same rules as Dashboard <span className="font-medium text-foreground">Campaign Hygiene</span>: Braze-backed metrics and hygiene use the{' '}
+                  <span className="font-medium text-foreground">analytics workspace</span> below. Drive, briefs, and onboarding CSV storage use your{' '}
+                  <span className="font-medium text-foreground">resolved workspace</span>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {driveClientResolving || brazeDashboardClientResolving ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoadingSpinner size="sm" className="shrink-0" />
+                    Resolving workspaces…
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                      <Label className="text-xs font-medium text-muted-foreground">Drive, briefs &amp; onboarding</Label>
+                      <p className="text-sm font-medium text-foreground">{workspaceClientLabel(driveClientId)}</p>
+                      {driveClientId ? (
+                        <p className="text-[11px] font-mono text-muted-foreground break-all">{driveClientId}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No workspace resolved yet.</p>
+                      )}
+                    </div>
+                    <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                      <Label className="text-xs font-medium text-muted-foreground">
+                        Analytics, KPIs, Campaign Hygiene, Lifecycle (Braze)
+                      </Label>
+                      <p className="text-sm font-medium text-foreground">{workspaceClientLabel(brazeDashboardClientId)}</p>
+                      {brazeDashboardClientId ? (
+                        <p className="text-[11px] font-mono text-muted-foreground break-all">{brazeDashboardClientId}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Connect Braze on Platforms to attach analytics to a workspace.</p>
+                      )}
+                    </div>
+                    {isAdmin &&
+                      driveClientId &&
+                      brazeDashboardClientId &&
+                      driveClientId !== brazeDashboardClientId && (
+                        <p className="text-xs text-muted-foreground border-l-2 border-primary/35 pl-3 leading-relaxed">
+                          As an admin, KPIs and campaign lists follow the workspace where Braze last synced, which can differ from Drive&apos;s workspace
+                          (same behavior as the Dashboard).
+                        </p>
+                      )}
+                  </>
+                )}
               </CardContent>
             </Card>
 

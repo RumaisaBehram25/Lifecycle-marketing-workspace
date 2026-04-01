@@ -123,3 +123,28 @@ export async function invokeTouchpointsChunk(options: {
 
   return invokeSyncBrazeTouchpoints(body);
 }
+
+const FULL_BRAZE_SYNC_TIMEOUT_MS = 300_000;
+
+/**
+ * Full `sync-braze` run (not touchpoints_only): KPI, canvas list, Phase 3 detail, Phase 1c canvas/data_series
+ * metrics (revenue_last_30d, conversions, opens, clicks, entries, sends), campaigns, etc.
+ * Use this to backfill `braze_canvases` analytics columns for the Lifecycle Flow Performance chart.
+ */
+export async function invokeFullBrazeSync(options: {
+  clientId: string;
+  platformId: string;
+}): Promise<{ data: Record<string, unknown> | null; error: Error | null }> {
+  const { clientId, platformId } = options;
+  const { data, error } = await supabase.functions.invoke('sync-braze', {
+    body: { clientId, platformId },
+    timeout: FULL_BRAZE_SYNC_TIMEOUT_MS,
+  });
+  if (error) {
+    return { data: null, error: error as Error };
+  }
+  if (data == null || typeof data !== 'object') {
+    return { data: null, error: new Error('sync-braze returned an empty response') };
+  }
+  return { data: data as Record<string, unknown>, error: null };
+}

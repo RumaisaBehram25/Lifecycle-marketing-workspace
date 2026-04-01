@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -7,7 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useAnalyticsData } from '@/hooks/useAnalyticsData';
+import { useAnalyticsData, type LifecycleFlowPerformanceRow } from '@/hooks/useAnalyticsData';
+import { useResolvedClientId, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useToast } from '@/hooks/use-toast';
+import { invokeFullBrazeSync } from '@/lib/touchpointsSyncClient';
+import {
+  brazeSyncPartialDescription,
+  formatBrazeSyncInvokeError,
+  type BrazeSyncInvokeBody,
+} from '@/lib/brazeSyncInvoke';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { supabase } from '@/integrations/supabase/client';
 import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
@@ -18,14 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   ResponsiveContainer,
   BarChart,
@@ -43,14 +44,13 @@ import {
   Legend,
 } from 'recharts';
 import {
-  Send, Workflow, UserPlus, Sparkles, Search, DollarSign, ChevronDown, ChevronUp,
-  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers, Loader2,
+  Send, Workflow, UserPlus, Sparkles, DollarSign, ChevronDown, ChevronUp,
+  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers, Loader2, AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   dashSectionTitleBorder,
   dashSubtitleRule,
-  dashTableShell,
   dashPill,
   dashboardMetricTile,
   dashboardSectionHeadingClass,
@@ -59,6 +59,7 @@ import {
   dashIconChip,
   dashboardEmptyWarningCard,
 } from '@/lib/dashboard-surface';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 /** Match Dashboard section titles (e.g. Performance & connections). */
 const analyticsSectionHeadingClass = cn(
@@ -93,8 +94,6 @@ const statRail: Record<StatAccent, string> = {
   orange: 'border-l-orange-500/50',
   purple: 'border-l-purple-500/50',
 };
-
-type SortKey = 'name' | 'revenue' | 'orders' | 'ctr' | 'date' | 'channel' | 'segment';
 
 type BenchmarkTooltipPayload = { campaignRev?: number; crmPct?: number | null };
 
@@ -162,6 +161,13 @@ function formatPct(value: number): string {
 
 export default function Analytics() {
   const { data: client } = useDoubleGoodClient();
+  const { clientId: workspaceClientId } = useResolvedClientId();
+  const { data: platforms } = useDoubleGoodPlatforms();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const brazeWorkspacePlatform = platforms?.find((p) => p.platform === 'braze' && p.is_connected);
+  const [canvasMetricsSyncing, setCanvasMetricsSyncing] = useState(false);
+
   const {
     clientId,
     isClientLoading,
@@ -173,6 +179,7 @@ export default function Analytics() {
     rawCampaignRows,
     canvasListRows,
     revenueMonthly,
+    totalCampaignRevenue,
     campaignTableRows,
     usageChartData,
     campaignChartData,
@@ -186,6 +193,11 @@ export default function Analytics() {
     trackingSummary,
     cleanupFlagged,
     campaignDirectoryRows,
+    lifecycleFlowPerformanceRows,
+    brazeCanvasFlowMetricsError,
+    brazeCanvasFlowMetricsErrorMessage,
+    brazeCanvasFlowMetricsIsLoading,
+    brazeCanvasFlowMetricsIsFetching,
   } = useAnalyticsData();
 
   const [campaignSearch, setCampaignSearch] = useState('');
@@ -193,12 +205,40 @@ export default function Analytics() {
   const [period, setPeriod] = useState('default');
   const [flowChartMetric, setFlowChartMetric] = useState<'revenue' | 'sent' | 'opens' | 'clicks' | 'orders'>('revenue');
   const [siteRevenueInput, setSiteRevenueInput] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey>('revenue');
-  const [sortAsc, setSortAsc] = useState(false);
   const [insights, setInsights] = useState<{ title: string; body: string; tag: string; tagColor: string }[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsError, setInsightsError] = useState<string | null>(null);
   const [selectedFlow, setSelectedFlow] = useState<string>('all');
+
+  const handleCanvasMetricsSync = async () => {
+    if (!workspaceClientId || !brazeWorkspacePlatform?.id) return;
+    setCanvasMetricsSyncing(true);
+    try {
+      const { data: syncData, error } = await invokeFullBrazeSync({
+        clientId: workspaceClientId,
+        platformId: brazeWorkspacePlatform.id,
+      });
+      if (error) throw error;
+      const partialDesc = brazeSyncPartialDescription(syncData as BrazeSyncInvokeBody);
+      toast({
+        title: (syncData as { partial?: boolean })?.partial ? 'Braze sync completed (partial)' : 'Braze sync completed',
+        description:
+          partialDesc ??
+          'Canvas metrics (entries, sends, revenue, conversions, opens, clicks) were written to braze_canvases where Braze returned data.',
+      });
+      await queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
+      await queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+    } catch (e: unknown) {
+      toast({
+        title: 'Sync failed',
+        description: await formatBrazeSyncInvokeError(e),
+        variant: 'destructive',
+      });
+    } finally {
+      setCanvasMetricsSyncing(false);
+    }
+  };
 
   const rawRows = rawCampaignRows ?? [];
   const canvasRowsList = canvasListRows ?? [];
@@ -208,9 +248,15 @@ export default function Analytics() {
     rawRows.map((r) => String(r.campaign_name ?? r.name ?? '').trim()).filter(Boolean),
   )].sort();
 
-  // Unique canvas names for the filter dropdown
+  /** Canvas-only flows with no merged metrics stay out of the list (no test/IP-warming noise). */
+  const canvasRowHasAnyMetric = (r: LifecycleFlowPerformanceRow) =>
+    r.revenue > 0 || r.sent > 0 || r.opens > 0 || r.clicks > 0 || r.orders > 0;
+
   const canvasNames = [...new Set(
-    canvasRowsList.map((r) => String(r.name ?? '').trim()).filter(Boolean),
+    lifecycleFlowPerformanceRows
+      .filter((r) => r.drilldownPrefix === 'canvas' && canvasRowHasAnyMetric(r))
+      .map((r) => String(r.name ?? '').trim())
+      .filter(Boolean),
   )].sort();
 
   // Compute filtered metrics when a specific campaign is selected
@@ -332,7 +378,7 @@ export default function Analytics() {
     return (
       <AppLayout>
         <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
-          <LoadingPage message="Loading analytics..." />
+          <LoadingPage message="Loading analytics (campaigns, journeys, KPIs, email health)…" />
         </div>
       </AppLayout>
     );
@@ -380,40 +426,6 @@ export default function Analytics() {
     );
   }
 
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortKey(key);
-      setSortAsc(false);
-    }
-  };
-
-  const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return <ChevronDown className="inline h-3 w-3 ml-0.5 opacity-30" />;
-    return sortAsc ? <ChevronUp className="inline h-3 w-3 ml-0.5" /> : <ChevronDown className="inline h-3 w-3 ml-0.5" />;
-  };
-
-  const filteredCampaigns = campaignTableRows
-    .filter((c) => {
-      const matchesSearch = c.name.toLowerCase().includes(campaignSearch.toLowerCase());
-      const matchesChannel = campaignChannelFilter === 'All' || c.channel === campaignChannelFilter;
-      const matchesFlow = !selectedFlow.startsWith('campaign:') || c.name === selectedFlow.slice(9);
-      return matchesSearch && matchesChannel && matchesFlow;
-    })
-    .sort((a, b) => {
-      const mul = sortAsc ? 1 : -1;
-      if (sortKey === 'name') return mul * a.name.localeCompare(b.name);
-      if (sortKey === 'revenue') return mul * (a.revenue - b.revenue);
-      if (sortKey === 'orders') return mul * ((a.orders ?? 0) - (b.orders ?? 0));
-      if (sortKey === 'ctr') return mul * (a.ctr - b.ctr);
-      if (sortKey === 'date') return mul * (a.dateRange ?? '').localeCompare(b.dateRange ?? '');
-      if (sortKey === 'channel') return mul * (a.channel ?? '').localeCompare(b.channel ?? '');
-      if (sortKey === 'segment') return mul * (a.segment ?? '').localeCompare(b.segment ?? '');
-      return 0;
-    });
-
-  const totalCampaignRevenue = revenueMonthly.reduce((s, m) => s + (m.campaignRev ?? 0), 0);
   const bestMonth = revenueMonthly.length > 0
     ? revenueMonthly.reduce((best, m) => (m.campaignRev > (best?.campaignRev ?? 0) ? m : best), revenueMonthly[0])
     : null;
@@ -470,6 +482,7 @@ export default function Analytics() {
   const engagementRatio = metrics.mau > 0 ? (metrics.dau / metrics.mau) * 100 : 0;
 
   const campaignComparisonData = [...campaignTableRows]
+    .filter((r) => Number(r.revenue ?? 0) > 0 && Number(r.orders ?? 0) > 0)
     .map((r) => ({
       campaign_name: r.name || 'Untitled Campaign',
       revenue: Number(r.revenue ?? 0),
@@ -488,12 +501,16 @@ export default function Analytics() {
     ? (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>)
     : null;
 
+  /** Match pivot column names from `braze_segment_analytics` (e.g. "Active Subscribers (opened in 90d)"). */
   const findSegmentValue = (keys: string[]) => {
     if (!latestSegmentRow) return 0;
-    const lower = keys.map((k) => k.toLowerCase());
-    for (const [k, v] of Object.entries(latestSegmentRow)) {
-      if (k === 'date') continue;
-      if (lower.includes(k.toLowerCase())) return Number(v ?? 0);
+    const needles = keys.map((k) => k.toLowerCase().trim()).filter(Boolean);
+    for (const [col, v] of Object.entries(latestSegmentRow)) {
+      if (col === 'date') continue;
+      const colLower = String(col).toLowerCase();
+      if (needles.some((n) => colLower === n || colLower.includes(n))) {
+        return Number(v ?? 0);
+      }
     }
     return 0;
   };
@@ -548,32 +565,50 @@ export default function Analytics() {
           </div>
         </div>
 
-        {/* Lifecycle Flow Performance */}
-        {campaignTableRows.length > 0 && (() => {
+        {/* Lifecycle Flow Performance — merged campaign analytics (CSV) + Braze canvas sync metrics */}
+        {(lifecycleFlowPerformanceRows.length > 0 ||
+          (brazeCanvasFlowMetricsIsLoading && campaignTableRows.length === 0)) &&
+          (() => {
           const metricLabels: Record<string, string> = {
             revenue: 'Revenue', sent: 'Sends', opens: 'Opens', clicks: 'Clicks', orders: 'Orders',
           };
           const metricFormatter = (v: number) =>
             flowChartMetric === 'revenue' ? `$${Number(v).toLocaleString()}` : Number(v).toLocaleString();
 
-          const flowChartData = [...campaignTableRows]
-            .map((r) => {
-              const value =
-                flowChartMetric === 'revenue'
-                  ? r.revenue
-                  : flowChartMetric === 'sent'
-                    ? r.sent
-                    : flowChartMetric === 'orders'
-                      ? r.orders
-                      : 0;
-              return { name: r.name, value: Number(value) };
-            })
-            .filter(r => r.value >= 0)
+          const mapped = [...lifecycleFlowPerformanceRows].map((r) => {
+            const value =
+              flowChartMetric === 'revenue'
+                ? r.revenue
+                : flowChartMetric === 'sent'
+                  ? r.sent
+                  : flowChartMetric === 'opens'
+                    ? r.opens
+                    : flowChartMetric === 'clicks'
+                      ? r.clicks
+                      : flowChartMetric === 'orders'
+                        ? r.orders
+                        : 0;
+            const v = Number(value);
+            return {
+              name: r.name,
+              value: Number.isFinite(v) && v >= 0 ? v : 0,
+              drilldownPrefix: r.drilldownPrefix,
+            };
+          });
+          const seen = new Set<string>();
+          const flowChartData = mapped
+            .filter((r) => r.value > 0)
             .sort((a, b) => b.value - a.value)
+            .filter((r) => {
+              if (seen.has(r.name)) return false;
+              seen.add(r.name);
+              return true;
+            })
             .slice(0, 15);
 
           const barHeight = 36;
           const chartHeight = Math.max(220, flowChartData.length * barHeight + 40);
+          const flowKey = (prefix: 'campaign' | 'canvas', name: string) => `${prefix}:${name}`;
 
           return (
             <Card className={analyticsCardClass}>
@@ -587,39 +622,103 @@ export default function Analytics() {
                       </span>
                       Lifecycle Flow Performance
                     </CardTitle>
-                    <p className={analyticsSubtitleClass}>Select a flow to see touchpoint-level metrics</p>
+                    <p className={analyticsSubtitleClass}>
+                      Select a flow to filter metrics below. Bars use data already in this workspace—campaign analytics (CSV import) plus journey metrics from{' '}
+                      <code className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">braze_canvases</code> after a full Braze sync (button below)—not a live Braze call on each visit.
+                    </p>
+                    {brazeCanvasFlowMetricsError && brazeCanvasFlowMetricsErrorMessage && (
+                      <Alert variant="destructive" className="mt-3 text-left">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Cannot load journey rows (braze_canvases)</AlertTitle>
+                        <AlertDescription className="text-sm mt-1">{brazeCanvasFlowMetricsErrorMessage}</AlertDescription>
+                      </Alert>
+                    )}
+                    {brazeCanvasFlowMetricsIsFetching && brazeCanvasFlowMetricsIsLoading === false && !brazeCanvasFlowMetricsError && (
+                      <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                        Refreshing saved journey data from the database…
+                      </p>
+                    )}
                   </div>
-                  <Select value={flowChartMetric} onValueChange={(v) => setFlowChartMetric(v as typeof flowChartMetric)}>
-                    <SelectTrigger className="w-[210px] h-9 text-sm border-primary/15 bg-card/80 shadow-sm shrink-0">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(['revenue', 'sent', 'opens', 'clicks', 'orders'] as const).map(m => (
-                        <SelectItem key={m} value={m}>
-                          All Flows ({metricLabels[m]})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9 gap-1.5 border-primary/15 bg-card/80 shadow-sm"
+                      disabled={!workspaceClientId || !brazeWorkspacePlatform?.id || canvasMetricsSyncing}
+                      onClick={handleCanvasMetricsSync}
+                      title={
+                        !brazeWorkspacePlatform?.id
+                          ? 'Connect Braze on Platforms for this workspace first.'
+                          : 'Runs full sync-braze (canvas data_series metrics, KPI, campaigns). Can take several minutes.'
+                      }
+                    >
+                      {canvasMetricsSyncing ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      {canvasMetricsSyncing ? 'Syncing…' : 'Sync Braze metrics'}
+                    </Button>
+                    <Select value={flowChartMetric} onValueChange={(v) => setFlowChartMetric(v as typeof flowChartMetric)}>
+                      <SelectTrigger className="w-[210px] h-9 text-sm border-primary/15 bg-card/80 shadow-sm shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(['revenue', 'sent', 'opens', 'clicks', 'orders'] as const).map(m => (
+                          <SelectItem key={m} value={m}>
+                            All Flows ({metricLabels[m]})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="pb-6 bg-muted/10">
+                {brazeCanvasFlowMetricsIsLoading && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    Loading braze_canvases from the database…
+                  </div>
+                )}
+                {brazeCanvasFlowMetricsIsLoading && lifecycleFlowPerformanceRows.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+                    <Loader2 className="h-8 w-8 animate-spin opacity-60" />
+                    Waiting for journey rows…
+                  </div>
+                ) : flowChartData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No flows with a positive value for this metric. Import campaign analytics (CSV), apply the braze_canvases migration if needed, then run{' '}
+                    <span className="font-medium">Sync Braze metrics</span> above to backfill canvas series (entries, revenue, conversions, opens, clicks).
+                  </p>
+                ) : (
                 <div className={cn(analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')} style={{ height: chartHeight }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={flowChartData}
                       layout="vertical"
-                      margin={{ top: 8, right: 24, bottom: 8, left: 130 }}
+                      margin={{ top: 8, right: 24, bottom: 8, left: 8 }}
                       onClick={(d) => {
-                        if (d?.activePayload?.[0]?.payload?.name) {
-                          const name = d.activePayload[0].payload.name;
-                          setSelectedFlow(prev => prev === `campaign:${name}` ? 'all' : `campaign:${name}`);
+                        const p = d?.activePayload?.[0]?.payload as { name?: string; drilldownPrefix?: 'campaign' | 'canvas' } | undefined;
+                        if (p?.name && p?.drilldownPrefix) {
+                          const key = flowKey(p.drilldownPrefix, p.name);
+                          setSelectedFlow((prev) => (prev === key ? 'all' : key));
                         }
                       }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
                       <XAxis type="number" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={metricFormatter} />
-                      <YAxis type="category" dataKey="name" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={128} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        tick={{ fill: chartMutedFill, fontSize: 10 }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={280}
+                        interval={0}
+                      />
                       <Tooltip
                         contentStyle={{ fontSize: 12, backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: 8 }}
                         formatter={(v: number) => [metricFormatter(v), metricLabels[flowChartMetric]]}
@@ -627,19 +726,25 @@ export default function Analytics() {
                       <Bar
                         dataKey="value"
                         name={metricLabels[flowChartMetric]}
+                        fill="hsl(230 80% 55%)"
                         radius={[0, 4, 4, 0]}
                         cursor="pointer"
                       >
                         {flowChartData.map((entry) => (
                           <Cell
-                            key={entry.name}
-                            fill={selectedFlow === `campaign:${entry.name}` ? 'hsl(262 83% 45%)' : 'hsl(230 80% 55%)'}
+                            key={`${entry.drilldownPrefix}:${entry.name}`}
+                            fill={
+                              selectedFlow === flowKey(entry.drilldownPrefix, entry.name)
+                                ? 'hsl(262 83% 45%)'
+                                : 'hsl(230 80% 55%)'
+                            }
                           />
                         ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                )}
                 {selectedFlow !== 'all' && (
                   <p className="mt-2 text-xs text-muted-foreground text-center">
                     Filtering to <span className="font-medium text-foreground">{selectedFlow.replace(/^(campaign|canvas):/, '')}</span> — click the bar again to reset
@@ -827,81 +932,6 @@ export default function Analytics() {
                   className="h-9 w-[140px] text-sm border-primary/15 bg-background/80"
                 />
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* All Campaigns */}
-        <Card className={analyticsCardClass}>
-          <div className={dashboardTopAccentClass} aria-hidden />
-          <CardHeader className={cn(analyticsCardHeaderClass, 'pb-3')}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/12 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20">
-                  <Send className="h-4 w-4" />
-                </span>
-                All Campaigns
-              </CardTitle>
-              <div className="flex gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input placeholder="Search..." value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)} className="pl-8 h-9 w-[180px] text-sm border-primary/15 bg-background/80" />
-                </div>
-                <Select value={campaignChannelFilter} onValueChange={setCampaignChannelFilter}>
-                  <SelectTrigger className="h-9 w-[120px] text-sm border-primary/15 bg-background/80"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All">All</SelectItem>
-                    <SelectItem value="Email">Email</SelectItem>
-                    <SelectItem value="Push">Push</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="px-0 pb-0 bg-muted/10">
-            <div className={cn('overflow-auto mx-4 mb-4 rounded-lg', dashTableShell)}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent bg-muted/50 border-b border-border/60">
-                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('name')}>Campaign <SortIcon col="name" /></TableHead>
-                    <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('revenue')}>Revenue <SortIcon col="revenue" /></TableHead>
-                    <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('orders')}>Orders <SortIcon col="orders" /></TableHead>
-                    <TableHead className="text-xs text-right cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('ctr')}>CTR <SortIcon col="ctr" /></TableHead>
-                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('channel')}>Channel <SortIcon col="channel" /></TableHead>
-                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('segment')}>Segment <SortIcon col="segment" /></TableHead>
-                    <TableHead className="text-xs cursor-pointer select-none hover:text-foreground" onClick={() => handleSort('date')}>Date range <SortIcon col="date" /></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCampaigns.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={7} className="py-12">
-                        <div className="flex flex-col items-center justify-center gap-2 text-center">
-                          <UploadCloud className="h-8 w-8 text-muted-foreground/70" />
-                          <p className="text-sm text-muted-foreground">Upload your Braze CSVs on the onboarding page.</p>
-                          <Button asChild variant="link" className="text-primary hover:text-primary/90">
-                            <Link to="/onboarding" className="inline-flex items-center gap-1.5">
-                              Go to Onboarding <ArrowRight className="h-3.5 w-3.5" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredCampaigns.map((c, i) => (
-                      <TableRow key={i} className="cursor-pointer border-border/40 hover:bg-muted/30 transition-colors">
-                        <TableCell className="text-sm font-medium py-2">{c.name}</TableCell>
-                        <TableCell className="text-sm text-right font-semibold py-2">${c.revenue.toLocaleString()}</TableCell>
-                        <TableCell className="text-sm text-right py-2">{c.orders}</TableCell>
-                        <TableCell className="text-sm text-right py-2">{formatPct(c.ctr)}</TableCell>
-                        <TableCell className="py-2"><Badge variant="outline" className="text-xs">{c.channel}</Badge></TableCell>
-                        <TableCell className="text-xs text-muted-foreground py-2">{c.segment}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground py-2">{c.dateRange}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
             </div>
           </CardContent>
         </Card>

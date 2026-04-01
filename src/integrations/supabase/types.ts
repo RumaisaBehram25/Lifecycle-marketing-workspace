@@ -40,6 +40,10 @@ export type Database = {
           raw_variants: Json | null
           schedule_type: string | null
           sends_last_30d: number | null
+          revenue_last_30d: number | null
+          conversions_last_30d: number | null
+          opens_last_30d: number | null
+          clicks_last_30d: number | null
           synced_at: string
           tags: string[] | null
           total_steps: number | null
@@ -72,6 +76,10 @@ export type Database = {
           raw_variants?: Json | null
           schedule_type?: string | null
           sends_last_30d?: number | null
+          revenue_last_30d?: number | null
+          conversions_last_30d?: number | null
+          opens_last_30d?: number | null
+          clicks_last_30d?: number | null
           synced_at?: string
           tags?: string[] | null
           total_steps?: number | null
@@ -104,6 +112,10 @@ export type Database = {
           raw_variants?: Json | null
           schedule_type?: string | null
           sends_last_30d?: number | null
+          revenue_last_30d?: number | null
+          conversions_last_30d?: number | null
+          opens_last_30d?: number | null
+          clicks_last_30d?: number | null
           synced_at?: string
           tags?: string[] | null
           total_steps?: number | null
