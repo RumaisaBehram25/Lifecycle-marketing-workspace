@@ -10,10 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { 
-  Mail, 
-  Bell, 
-  Smartphone, 
+import {
+  Mail,
+  Bell,
+  Smartphone,
   MessageSquare,
   Timer,
   GitBranch,
@@ -21,6 +21,7 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowRight,
+  Zap,
 } from 'lucide-react';
 
 // Types matching the sync-braze output
@@ -86,6 +87,8 @@ function getChannelIcon(channel?: string, className = "h-5 w-5") {
       return <Smartphone className={className} />;
     case 'sms':
       return <MessageSquare className={className} />;
+    case 'webhook':
+      return <Zap className={className} />;
     default:
       return <Mail className={className} />;
   }
@@ -278,18 +281,49 @@ function CreativePreview({ step }: { step: CanvasStep }) {
       </div>
     );
   }
-  
-  // SMS fallback
-  return (
-    <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 rounded-t-lg bg-muted/20">
-      <div className={`w-full bg-card border-2 ${colors.border} rounded-2xl p-6 shadow-lg`}>
-        <div className="flex items-start gap-3 mb-3">
-          <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-          <p className="text-sm font-medium">SMS</p>
+
+  if (channel === 'webhook' || step.type?.toLowerCase().includes('webhook')) {
+    return (
+      <div className="w-full h-[520px] flex flex-col">
+        <div className="bg-primary/10 px-2 py-1.5 flex-shrink-0 border-b border-primary/20">
+          <p className="text-xs font-semibold text-primary truncate">{step.name}</p>
         </div>
-        <p className="text-base leading-relaxed">{message?.body || step.name}</p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center bg-muted/10">
+          <div className="h-14 w-14 rounded-full bg-violet-500/15 flex items-center justify-center">
+            <Zap className="h-7 w-7 text-violet-600" />
+          </div>
+          <p className="text-sm font-semibold text-foreground">{step.name}</p>
+          <p className="text-xs text-muted-foreground">Webhook / API call</p>
+        </div>
       </div>
-      <p className="text-sm text-muted-foreground mt-5 font-medium">SMS Message</p>
+    );
+  }
+
+  if (channel === 'sms') {
+    return (
+      <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 rounded-t-lg bg-muted/20">
+        <div className={`w-full bg-card border-2 ${colors.border} rounded-2xl p-6 shadow-lg`}>
+          <div className="flex items-start gap-3 mb-3">
+            <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+            <p className="text-sm font-medium">SMS</p>
+          </div>
+          <p className="text-base leading-relaxed">{message?.body || step.name}</p>
+        </div>
+        <p className="text-sm text-muted-foreground mt-5 font-medium">SMS Message</p>
+      </div>
+    );
+  }
+
+  // Generic fallback for unrecognized channel types
+  return (
+    <div className="w-full h-[520px] flex flex-col items-center justify-center p-4 bg-muted/10">
+      <div className="w-full bg-primary/10 px-3 py-1.5 rounded-t-lg mb-2 -mt-2">
+        <p className="text-xs font-semibold text-primary truncate text-center">{step.name}</p>
+      </div>
+      <div className="flex flex-col items-center justify-center flex-1 text-center text-muted-foreground">
+        <p className="text-sm font-medium">{step.name}</p>
+        {channel && <p className="text-xs mt-1 opacity-60">{channel}</p>}
+      </div>
     </div>
   );
 }
@@ -461,8 +495,8 @@ function StepCard({
   onSplitClick?: (splitStep: CanvasStep) => void;
 }) {
   const colors = getChannelColors(step.channel);
-  // Skip delay/branch steps (shown as connectors / split module, not creative cards)
-  if (isDelayOnlyStep(step) || isBranchOnlyStep(step)) {
+  // Skip delay/branch/non-messaging steps (shown as connectors / split module, not creative cards)
+  if (isDelayOnlyStep(step) || isBranchOnlyStep(step) || isNonMessagingStep(step)) {
     return null;
   }
   
@@ -520,22 +554,35 @@ function getOutgoingStepIds(step: CanvasStep): string[] {
   return out;
 }
 
-/** Braze often sends links only on `next_paths[]`; linear flow must follow those too. */
-function getNextLinearStepId(step: CanvasStep): string | null {
-  if (step.next_step_ids?.length) {
-    const id = String(step.next_step_ids[0] ?? '').trim();
-    if (id) return id;
+/**
+ * Collects ALL reachable steps from the entry using BFS.
+ * Visits every branch — not just path[0] — so all steps in a multi-branch canvas are shown.
+ */
+function buildAllReachableSteps(firstStepId: string | null, allSteps: Record<string, CanvasStep>): CanvasStep[] {
+  if (!firstStepId || !allSteps[firstStepId]) return [];
+
+  const result: CanvasStep[] = [];
+  const visited = new Set<string>();
+  const queue: string[] = [firstStepId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+
+    const step = allSteps[currentId];
+    if (!step) continue;
+
+    result.push(step);
+
+    for (const nextId of getOutgoingStepIds(step)) {
+      if (!visited.has(nextId) && allSteps[nextId]) {
+        queue.push(nextId);
+      }
+    }
   }
-  if (step.next_paths?.length) {
-    const p = step.next_paths[0] as {
-      next_step_id?: string;
-      nextStepId?: string;
-      next_canvas_step_id?: string;
-    };
-    const id = String(p.next_step_id ?? p.nextStepId ?? p.next_canvas_step_id ?? '').trim();
-    if (id) return id;
-  }
-  return null;
+
+  return result;
 }
 
 /** First step(s) have no incoming edge from any other step (canvas entry). */
@@ -574,25 +621,27 @@ function isBranchOnlyStep(step: CanvasStep): boolean {
   return false;
 }
 
-// Build linear path from variant, following the first branch through splits
-function buildLinearPath(firstStepId: string | null, allSteps: Record<string, CanvasStep>): CanvasStep[] {
-  if (!firstStepId) return [];
+// Non-messaging channel/type values — steps with these are infra steps, not creative touchpoints
+const NON_MESSAGING_STEP_CHANNELS = new Set([
+  'user_update',
+  'customer_update',
+  'audience_sync',
+  'feature_flag',
+  'rate_limit',
+  'abort',
+  'control',
+]);
 
-  const path: CanvasStep[] = [];
-  const visited = new Set<string>();
-  let currentId: string | null = firstStepId;
-
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId);
-    const step = allSteps[currentId];
-    if (!step) break;
-
-    path.push(step);
-
-    currentId = getNextLinearStepId(step);
+// Steps with no channel + no messages, OR a known non-messaging channel, are not creative touchpoints
+function isNonMessagingStep(step: CanvasStep): boolean {
+  const ch = (step.channel || '').toLowerCase();
+  if (ch && NON_MESSAGING_STEP_CHANNELS.has(ch)) return true;
+  // Also match composite types like "full/webhook"
+  const rawType = (step.type || '').toLowerCase();
+  for (const key of NON_MESSAGING_STEP_CHANNELS) {
+    if (rawType === key || rawType.endsWith('/' + key)) return true;
   }
-
-  return path;
+  return !step.channel && (!step.messages || step.messages.length === 0);
 }
 
 // Variant row with horizontal scroll - EXPANDED BY DEFAULT
@@ -611,7 +660,7 @@ function VariantRow({
   isOpen: boolean;
   onToggle: () => void;
 }) {
-  const path = useMemo(() => buildLinearPath(variant.first_step_id, steps), [variant.first_step_id, steps]);
+  const path = useMemo(() => buildAllReachableSteps(variant.first_step_id, steps), [variant.first_step_id, steps]);
   
   // Process path to extract message steps with their preceding delays/splits
   const stepsWithMetadata = useMemo(() => {
@@ -624,6 +673,9 @@ function VariantRow({
         accumulatedDelaySeconds += s.delay_seconds || 0;
       } else if (isBranchOnlyStep(s)) {
         pendingSplitStep = s;
+        accumulatedDelaySeconds = 0;
+      } else if (isNonMessagingStep(s)) {
+        // skip audience sync / webhook / update_user steps — not messaging touchpoints
       } else {
         result.push({
           step: s,
@@ -866,9 +918,9 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
             <div className="space-y-4">
               {selectedSplit?.next_paths?.map((path, idx) => {
                 // Build the path content for this branch
-                const pathSteps = buildLinearPath(path.next_step_id, canvas.steps);
+                const pathSteps = buildAllReachableSteps(path.next_step_id, canvas.steps);
                 const messageSteps = pathSteps.filter(
-                  (s) => !isDelayOnlyStep(s) && !isBranchOnlyStep(s),
+                  (s) => !isDelayOnlyStep(s) && !isBranchOnlyStep(s) && !isNonMessagingStep(s),
                 );
                 
                 // Calculate delays between steps
@@ -1166,18 +1218,39 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
       </div>
     );
   }
-  
-  // SMS fallback
-  return (
-    <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
-      <div className="w-full max-w-sm bg-card border-2 rounded-2xl p-6 shadow-lg">
-        <div className="flex items-start gap-3 mb-3">
-          <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-          <p className="font-medium">SMS</p>
+
+  if (channel === 'webhook' || step.type?.toLowerCase().includes('webhook')) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 min-h-[400px] gap-4 text-center">
+        <div className="h-16 w-16 rounded-full bg-violet-500/15 flex items-center justify-center">
+          <Zap className="h-8 w-8 text-violet-600" />
         </div>
-        <p className="text-lg leading-relaxed">{message?.body || step.name}</p>
+        <p className="font-semibold text-foreground">{step.name}</p>
+        <p className="text-sm text-muted-foreground">Webhook / API call</p>
       </div>
-      <p className="text-sm text-muted-foreground mt-6 font-medium">SMS Message</p>
+    );
+  }
+
+  if (channel === 'sms') {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
+        <div className="w-full max-w-sm bg-card border-2 rounded-2xl p-6 shadow-lg">
+          <div className="flex items-start gap-3 mb-3">
+            <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+            <p className="font-medium">SMS</p>
+          </div>
+          <p className="text-lg leading-relaxed">{message?.body || step.name}</p>
+        </div>
+        <p className="text-sm text-muted-foreground mt-6 font-medium">SMS Message</p>
+      </div>
+    );
+  }
+
+  // Generic fallback for unrecognized channel types
+  return (
+    <div className="flex flex-col items-center justify-center p-8 min-h-[400px] text-center text-muted-foreground">
+      <p className="font-medium">{step.name}</p>
+      {channel && <p className="text-xs mt-1 opacity-60">{channel}</p>}
     </div>
   );
 }

@@ -45,6 +45,11 @@ const NON_MESSAGE_STEP_TYPES = new Set([
   'feature_flag',
 ]);
 
+/** Exported alias for filtering channel strings to messaging-only (email, push, sms, in-app, content card). */
+export function isLifecycleMessagingChannel(raw: string): boolean {
+  return isMessagingChannel(raw);
+}
+
 function isMessagingChannel(raw: string): boolean {
   const c = raw.toLowerCase().trim();
   if (!c) return false;
@@ -110,6 +115,10 @@ export function isMessagingTouchpointStep(step: LifecycleCanvasStep): boolean {
   const type = (step.type || '').toLowerCase();
   if (NON_MESSAGE_STEP_TYPES.has(type)) return false;
   if (type === 'delay' || type === 'wait') return false;
+
+  // Exclude non-messaging channels even when type is generic (e.g. type="message" channel="webhook")
+  const directChannel = (step.channel || '').toLowerCase();
+  if (directChannel && NON_MESSAGE_STEP_TYPES.has(directChannel)) return false;
 
   // Large canvases: Braze often attaches message slots even when `type` is nonstandard — count as touchpoint.
   if ((step.messages?.length ?? 0) > 0) {

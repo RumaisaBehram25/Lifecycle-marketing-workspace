@@ -77,6 +77,7 @@ import {
   computeLifecycleDisplayTouchpoints,
   formatLifecycleStepBadge,
   getLifecycleStepChannel,
+  isLifecycleMessagingChannel,
   isMessagingTouchpointStep,
   normalizeRawSteps,
   type LifecycleCanvasStep,
@@ -273,7 +274,7 @@ export default function Lifecycle() {
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
 
-  /** Braze credentials on this workspace (used for sync — always resolved client, not admin fallback). */
+  /** Braze row on resolved workspace. */
   const hasBrazeOnWorkspace = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
 
@@ -296,12 +297,16 @@ export default function Lifecycle() {
     staleTime: 60_000,
   });
 
+  /** Platform row used to invoke sync — same client as `brazeReadClientId` when using admin read fallback. */
+  const lifecycleSyncPlatform = brazePlatform ?? dashboardBrazePlatform ?? null;
+
   /** Same client as Analytics / Settings visibility — includes admin fallback when Braze synced elsewhere. */
   const canViewLifecycleFromBraze =
     hasBrazeOnWorkspace || Boolean(dashboardBrazePlatform?.is_connected);
 
   const handleSyncFromBraze = async () => {
-    if (!workspaceClientId || !brazePlatform?.id) return;
+    const syncClientId = brazeReadClientId ?? workspaceClientId;
+    if (!syncClientId || !lifecycleSyncPlatform?.id) return;
     setSyncing(true);
     setSyncProgress(null);
     const willResume = syncPausedAt !== null;
@@ -316,8 +321,8 @@ export default function Lifecycle() {
     const runChunk = async (): Promise<void> => {
       lastAttemptedOffset = offset;
       const { data: d, error } = await invokeTouchpointsChunk({
-        clientId: workspaceClientId,
-        platformId: brazePlatform.id,
+        clientId: syncClientId,
+        platformId: lifecycleSyncPlatform.id,
         canvasOffset: offset,
       });
       if (error) throw error;
@@ -468,7 +473,8 @@ export default function Lifecycle() {
         if (stepsList.length > 0) {
           const channels = stepsList
             .map((s) => getLifecycleStepChannel(s as LifecycleCanvasStep))
-            .filter(Boolean);
+            .filter((ch): ch is string => Boolean(ch))
+            .filter((ch) => isLifecycleMessagingChannel(ch));
           inferredChannels = [...new Set(channels)];
         }
         if (inferredChannels.length === 0) {
@@ -633,13 +639,13 @@ export default function Lifecycle() {
                 : 'Connect Braze to sync multi-touch journeys into this workspace.'
             }
             actions={
-              hasBrazeOnWorkspace ? (
+              lifecycleSyncPlatform?.is_connected ? (
                 <div className="flex flex-col items-end gap-2">
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={syncing || !brazePlatform}
+                      disabled={syncing || !lifecycleSyncPlatform}
                       onClick={handleSyncFromBraze}
                       className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20"
                     >
@@ -1184,6 +1190,7 @@ function journeyCardChannelPillList(channels: string[] | undefined): Array<{
   for (const raw of channels ?? []) {
     const s = String(raw ?? '').trim();
     if (!s) continue;
+    if (!isLifecycleMessagingChannel(s)) continue;
     const normalized = s.toLowerCase().replace(/[-_\s]/g, '');
     let label: string;
     let colorArg: string | null;

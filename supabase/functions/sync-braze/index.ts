@@ -11,8 +11,6 @@ const corsHeaders = {
 
 // Reduced batch size and limits for memory safety
 const BATCH_SIZE = 3;
-/** Touchpoints-only incremental sync: canvases per Edge invocation (cursor + resume). */
-const TOUCHPOINTS_CHUNK_SIZE = 50;
 const FALLBACK_BRAZE_REST_URL = "https://rest.iad-06.braze.com";
 
 function clampIntEnv(key: string, fallback: number, min: number, max: number): number {
@@ -23,8 +21,21 @@ function clampIntEnv(key: string, fallback: number, min: number, max: number): n
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
-/** Stored HTML in canvas/campaign payloads (raw_steps, templates). Lower = smaller DB; min 2000, max 50000. */
-const MAX_HTML_SIZE = clampIntEnv("BRAZE_SYNC_MAX_HTML_CHARS", 14000, 2000, 50000);
+/**
+ * Touchpoints-only: canvases per invoke. Default 12 — each canvas may call Braze templates/email/info many times;
+ * chunks of 50 routinely exceed the Edge ~150s wall → HTTP 546 + Shutdown. Override BRAZE_SYNC_TOUCHPOINTS_CHUNK_SIZE (3–50).
+ */
+const TOUCHPOINTS_CHUNK_SIZE = clampIntEnv("BRAZE_SYNC_TOUCHPOINTS_CHUNK_SIZE", 12, 3, 50);
+
+/** Stored HTML in canvas/campaign payloads (raw_steps, templates). Default 300 000 chars (~300 KB). Set BRAZE_SYNC_MAX_HTML_CHARS=0 to store full HTML with no limit. */
+const MAX_HTML_SIZE = clampIntEnv("BRAZE_SYNC_MAX_HTML_CHARS", 300000, 100, 10000000);
+/** Per-canvas email template/info fetches during touchpoints_only (subjects + HTML). Override via BRAZE_SYNC_MAX_TOUCHPOINT_TEMPLATES. */
+const MAX_TOUCHPOINT_EMAIL_TEMPLATES = clampIntEnv(
+  "BRAZE_SYNC_MAX_TOUCHPOINT_TEMPLATES",
+  45,
+  5,
+  120,
+);
 
 /** Full detail fetch for up to N non-archived canvases (after forced IDs). Default 5000. Override via BRAZE_SYNC_MAX_CANVAS_DETAIL; raise BRAZE_SYNC_MAX_WALL_MS if needed. */
 const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 5000, 1, 20000);
@@ -91,7 +102,7 @@ function getCanvasPriority(name: string): number {
 // Truncate HTML to prevent memory issues
 function truncateHtml(html: string | undefined): string | undefined {
   if (!html) return undefined;
-  if (html.length <= MAX_HTML_SIZE) return html;
+  if (MAX_HTML_SIZE === 0 || html.length <= MAX_HTML_SIZE) return html;
   return html.slice(0, MAX_HTML_SIZE) + '<!-- truncated -->';
 }
 
@@ -736,6 +747,94 @@ function isMessagingChannelForSync(raw: string): boolean {
   return false;
 }
 
+function firstChannelFromStepRow(s: Record<string, unknown>): string | undefined {
+  if (typeof s.channel === "string" && s.channel.trim()) return s.channel.trim();
+  const ch = s.channels;
+  if (Array.isArray(ch) && ch.length > 0) {
+    const a = String(ch[0]).trim();
+    return a || undefined;
+  }
+  if (ch && typeof ch === "object" && !Array.isArray(ch)) {
+    const keys = Object.keys(ch as Record<string, unknown>);
+    const hit = keys.find((k) => isMessagingChannelForSync(k));
+    const pick = hit ?? keys[0];
+    return pick?.trim() || undefined;
+  }
+  return undefined;
+}
+
+function brazeMessageTemplateId(msg: Record<string, unknown>): string | undefined {
+  const raw =
+    msg.email_template_id ??
+    msg.template_id ??
+    msg.linked_email_template_id ??
+    msg.html_template_id ??
+    msg.email_template_api_id;
+  if (raw == null) return undefined;
+  const id = String(raw).trim();
+  return id || undefined;
+}
+
+function pushTemplateIdsFromChannelsObject(
+  ch: unknown,
+  pushId: (raw: unknown) => void,
+): void {
+  if (!ch || typeof ch !== "object" || Array.isArray(ch)) return;
+  for (const chVal of Object.values(ch as Record<string, unknown>)) {
+    if (!chVal || typeof chVal !== "object" || Array.isArray(chVal)) continue;
+    const cv = chVal as Record<string, unknown>;
+    pushId(cv.email_template_id ?? cv.template_id ?? cv.linked_email_template_id ?? cv.html_template_id);
+  }
+}
+
+/** Braze often nests creative under `channels.email` / `channels.ios_push` instead of `messages[]`. */
+function appendMessagesFromChannelsObject(
+  s: Record<string, unknown>,
+  messages: Array<Record<string, unknown>>,
+  templateHtmlMap: Map<string, { subject: string; preheader: string; html: string }>,
+): void {
+  const ch = s.channels;
+  if (!ch || typeof ch !== "object" || Array.isArray(ch)) return;
+  for (const [chKey, chVal] of Object.entries(ch as Record<string, unknown>)) {
+    if (!chVal || typeof chVal !== "object" || Array.isArray(chVal)) continue;
+    if (!isMessagingChannelForSync(chKey)) continue;
+    const cv = chVal as Record<string, unknown>;
+    const templateId = brazeMessageTemplateId(cv);
+    let subject = cv.subject as string | undefined;
+    let preheader = cv.preheader as string | undefined;
+    let html: string | undefined;
+    const isEmail = chKey.toLowerCase() === "email" || chKey.toLowerCase().includes("email");
+    if (isEmail && templateId && templateHtmlMap.has(templateId)) {
+      const tpl = templateHtmlMap.get(templateId)!;
+      html = tpl.html || undefined;
+      subject = subject || tpl.subject || undefined;
+      preheader = preheader || tpl.preheader || undefined;
+    } else if (isEmail) {
+      html = truncateHtml((cv.body as string) || (cv.html_body as string));
+    }
+    const channel =
+      chKey.toLowerCase().includes("push") && !chKey.toLowerCase().includes("email")
+        ? chKey.includes("ios")
+          ? "ios_push"
+          : chKey.includes("android")
+            ? "android_push"
+            : "push"
+        : isEmail
+          ? "email"
+          : chKey;
+    messages.push({
+      channel,
+      subject,
+      preheader,
+      title: cv.title || cv.header,
+      body: cv.message || cv.body || cv.alert || cv.plaintext_body,
+      html_content: html,
+      image_url: cv.image_url || cv.big_image,
+      buttons: cv.buttons,
+    });
+  }
+}
+
 /**
  * One Braze `steps` (or similar) field: array of step objects, or id-keyed object where
  * inner objects may omit `id` (id is the map key).
@@ -802,8 +901,42 @@ function pushStepsFromVariantsInto(
   }
 }
 
+/** True if this step row already carries email (or other) message creative from Braze. */
+function canvasDetailStepRowHasMessageCreative(row: Record<string, unknown>): boolean {
+  const topSub =
+    (typeof row.subject === "string" && row.subject.trim() !== "") ||
+    (typeof row.title === "string" && row.title.trim() !== "");
+  if (topSub) return true;
+  const m = row.messages;
+  if (m == null || typeof m !== "object") return false;
+  const entries = Array.isArray(m)
+    ? (m as unknown[])
+    : Object.values(m as Record<string, unknown>);
+  for (const item of entries) {
+    if (item == null || typeof item !== "object" || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const body = String(o.body ?? o.html_body ?? o.message ?? o.alert ?? "").trim();
+    const sub = String(o.subject ?? "").trim();
+    const html = String(o.html_body ?? "").trim();
+    if (body || sub || html) return true;
+  }
+  return false;
+}
+
+function canvasDetailStepRowCreativeScore(row: Record<string, unknown>): number {
+  try {
+    return JSON.stringify(row.messages ?? {}).length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
- * Merge steps from every known `canvas/details` shape; dedupe by step id (first wins).
+ * Merge steps from every known `canvas/details` shape; dedupe by step id.
+ *
+ * Prefer the **richest** row per id: Braze sometimes emits the same step id twice (e.g. a stub
+ * under `variants[].steps` and the full payload on root `steps`). First-wins alone stored
+ * `messages: [{ channel: "email" }]` with no subject/body and broke Lifecycle previews.
  *
  * Braze **Export Canvas Details** often puts the flow under `legacy_response` (with `steps[]`
  * there), while newer wrappers use `canvas`, `data`, `scheduled_steps`, etc. Missing
@@ -823,16 +956,22 @@ function collectCanvasDetailStepRows(
 
   const sources: unknown[] = [
     details.steps,
+    // Canvas Flow (V2) uses `components[]` instead of `steps[]`
+    (details as { components?: unknown }).components,
     canvasNested?.steps,
+    (canvasNested as { components?: unknown } | undefined)?.components,
     canvasNested?.scheduled_steps,
     (details as { scheduled_steps?: unknown }).scheduled_steps,
     dataObj?.steps,
+    (dataObj as { components?: unknown } | undefined)?.components,
     dataObj && typeof dataObj === "object"
       ? (dataObj as { scheduled_steps?: unknown }).scheduled_steps
       : undefined,
     dataCanvas?.steps,
+    (dataCanvas as { components?: unknown } | undefined)?.components,
     dataCanvas?.scheduled_steps,
     dataAsCanvas?.steps,
+    (dataAsCanvas as { components?: unknown } | undefined)?.components,
     dataAsCanvas && typeof dataAsCanvas === "object"
       ? (dataAsCanvas as { scheduled_steps?: unknown }).scheduled_steps
       : undefined,
@@ -868,8 +1007,7 @@ function collectCanvasDetailStepRows(
     }
   }
 
-  const seen = new Set<string>();
-  const out: Array<Record<string, unknown>> = [];
+  const byId = new Map<string, Record<string, unknown>>();
   for (const raw of sources) {
     for (const row of stepRowsFromUnknown(raw)) {
       const id = String(
@@ -881,10 +1019,42 @@ function collectCanvasDetailStepRows(
           "",
       ).trim();
       if (!id) continue;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      out.push(row);
+      const prev = byId.get(id);
+      if (!prev) {
+        byId.set(id, row);
+        continue;
+      }
+      const prevRich = canvasDetailStepRowHasMessageCreative(prev);
+      const nextRich = canvasDetailStepRowHasMessageCreative(row);
+      if (!prevRich && nextRich) {
+        byId.set(id, row);
+      } else if (prevRich && nextRich) {
+        if (canvasDetailStepRowCreativeScore(row) > canvasDetailStepRowCreativeScore(prev)) {
+          byId.set(id, row);
+        }
+      }
     }
+  }
+  return Array.from(byId.values());
+}
+
+/** Top-level + nested `canvas` / `data.canvas` shapes from Braze `canvas/details`. */
+function canvasDetailRoots(details: Record<string, unknown>): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const seen = new Set<Record<string, unknown>>();
+  const push = (raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const r = raw as Record<string, unknown>;
+    if (seen.has(r)) return;
+    seen.add(r);
+    out.push(r);
+  };
+  push(details);
+  push(details.canvas);
+  const data = details.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    push(data);
+    push((data as Record<string, unknown>).canvas);
   }
   return out;
 }
@@ -1157,6 +1327,32 @@ function collectCanvasDetailStepRowsExpanded(
   return linear;
 }
 
+function summarizeEntryRulesTrigger(entryRules: unknown): string | undefined {
+  if (!entryRules || typeof entryRules !== "object" || Array.isArray(entryRules)) return undefined;
+  const er = entryRules as Record<string, unknown>;
+  const trig = er.trigger;
+  if (trig && typeof trig === "object" && !Array.isArray(trig)) {
+    const t = trig as Record<string, unknown>;
+    const ce = t.custom_event as Record<string, unknown> | undefined;
+    if (typeof ce?.custom_event_name === "string" && ce.custom_event_name.trim()) {
+      return ce.custom_event_name.trim();
+    }
+    for (const k of ["event_name", "api_trigger_event_name", "trigger_event_name", "name"] as const) {
+      const v = t[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  if (Array.isArray(er.triggers)) {
+    const parts: string[] = [];
+    for (const item of er.triggers) {
+      const s = summarizeEntryRulesTrigger({ trigger: item });
+      if (s) parts.push(s);
+    }
+    if (parts.length > 0) return [...new Set(parts)].join(", ");
+  }
+  return undefined;
+}
+
 /**
  * Channel + minimal `messages` rows for Lifecycle `isMessagingTouchpointStep` / `getLifecycleStepChannel`.
  * No bodies, HTML, or template ids — only enough for UI classification.
@@ -1314,6 +1510,392 @@ function buildMinimalTouchpointStepsFromRows(
       stepObj.messages = minimalMessages;
     }
     steps[stepId] = stepObj;
+  }
+  return steps;
+}
+
+/** Entry / trigger fields from `canvas/details` (roots + nested canvas/data). */
+function extractCanvasEntryMetadataFromDetails(
+  details: Record<string, unknown>,
+): {
+  schedule_type?: string;
+  entry_type?: string;
+  trigger_event_name?: string;
+  entry_segment_name?: string;
+} {
+  const roots = canvasDetailRoots(details);
+
+  let entryType: string | undefined;
+  for (const r of roots) {
+    if (typeof r.schedule_type === "string" && r.schedule_type.trim()) {
+      entryType = r.schedule_type.trim();
+      break;
+    }
+    const es = r.entry_schedule as Record<string, unknown> | undefined;
+    if (typeof es?.type === "string" && es.type.trim()) {
+      entryType = es.type.trim();
+      break;
+    }
+  }
+
+  let triggerEventName: string | undefined;
+  for (const r of roots) {
+    const es = r.entry_schedule as Record<string, unknown> | undefined;
+    if (typeof es?.trigger_event_name === "string" && es.trigger_event_name.trim()) {
+      triggerEventName = es.trigger_event_name.trim();
+      break;
+    }
+  }
+  if (!triggerEventName) {
+    for (const r of roots) {
+      const te = r.trigger_events;
+      if (Array.isArray(te) && te.length > 0) {
+        const joined = te
+          .map((t: unknown) =>
+            typeof t === "string"
+              ? t
+              : String(
+                  (t as Record<string, string>).name ||
+                    (t as Record<string, string>).event_name ||
+                    "",
+                ),
+          )
+          .filter(Boolean)
+          .join(", ");
+        if (joined) {
+          triggerEventName = joined;
+          break;
+        }
+      }
+    }
+  }
+  if (!triggerEventName) {
+    for (const r of roots) {
+      const fromRules = summarizeEntryRulesTrigger(r.entry_rules);
+      if (fromRules) {
+        triggerEventName = fromRules;
+        break;
+      }
+    }
+  }
+
+  let entrySegmentName: string | undefined;
+  for (const r of roots) {
+    if (typeof r.entry_audience_name === "string" && r.entry_audience_name.trim()) {
+      entrySegmentName = r.entry_audience_name.trim();
+      break;
+    }
+  }
+  if (!entrySegmentName) {
+    for (const r of roots) {
+      const seg = r.entry_segment as Record<string, unknown> | undefined;
+      if (typeof seg?.name === "string" && seg.name.trim()) {
+        entrySegmentName = seg.name.trim();
+        break;
+      }
+    }
+  }
+  if (!entrySegmentName) {
+    for (const r of roots) {
+      const ea = r.entry_audience as Record<string, unknown> | undefined;
+      if (typeof ea?.name === "string" && ea.name.trim()) {
+        entrySegmentName = ea.name.trim();
+        break;
+      }
+    }
+  }
+  if (!entrySegmentName) {
+    for (const r of roots) {
+      const es = r.entry_schedule as Record<string, unknown> | undefined;
+      const seg = es?.segment as Record<string, unknown> | undefined;
+      if (typeof seg?.name === "string" && seg.name.trim()) {
+        entrySegmentName = seg.name.trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    schedule_type: entryType,
+    entry_type: entryType,
+    trigger_event_name: triggerEventName,
+    entry_segment_name: entrySegmentName,
+  };
+}
+
+function collectEmailTemplateIdsFromDetailRows(
+  detailStepRows: Array<Record<string, unknown>>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const pushId = (raw: unknown) => {
+    const id = String(raw ?? "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+  for (const s of detailStepRows) {
+    if (s.messages && typeof s.messages === "object") {
+      const entries = Array.isArray(s.messages)
+        ? (s.messages as unknown[])
+        : Object.values(s.messages as Record<string, unknown>);
+      for (const msgData of entries) {
+        if (!msgData || typeof msgData !== "object" || Array.isArray(msgData)) continue;
+        const msg = msgData as Record<string, unknown>;
+        pushId(brazeMessageTemplateId(msg));
+      }
+    }
+    if (s.message && typeof s.message === "object" && !Array.isArray(s.message)) {
+      const msg = s.message as Record<string, unknown>;
+      pushId(brazeMessageTemplateId(msg));
+    }
+    pushTemplateIdsFromChannelsObject(s.channels, pushId);
+    pushId(s.email_template_id);
+    pushId(s.template_id);
+    pushId(s.linked_email_template_id);
+    pushId(s.html_template_id);
+  }
+  return out;
+}
+
+async function fetchEmailTemplatesByIds(
+  ids: string[],
+  apiKey: string,
+  brazeRestEndpoint: string,
+  maxTemplates: number,
+): Promise<Map<string, { subject: string; preheader: string; html: string }>> {
+  const map = new Map<string, { subject: string; preheader: string; html: string }>();
+  const slice = ids.slice(0, maxTemplates);
+  for (let i = 0; i < slice.length; i += BATCH_SIZE) {
+    const batch = slice.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(
+      batch.map(async (email_template_id) => {
+        try {
+          const d = (await brazeFetch(
+            `templates/email/info?email_template_id=${encodeURIComponent(email_template_id)}`,
+            apiKey,
+            brazeRestEndpoint,
+          )) as Record<string, unknown>;
+          const htmlRaw = d.body as string | undefined;
+          const htmlContent = truncateHtml(htmlRaw) ?? "";
+          const subject = String(d.subject ?? "");
+          const preheader = String(d.preheader ?? "");
+          if (htmlContent || subject || preheader) {
+            map.set(email_template_id, { subject, preheader, html: htmlContent });
+          }
+        } catch (e) {
+          console.warn(`[Braze Sync] template fetch failed id=${email_template_id}:`, (e as Error)?.message ?? e);
+        }
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return map;
+}
+
+/**
+ * Normalized `raw_steps` from canvas detail step rows + optional template map (shared by full sync and touchpoints_only).
+ */
+function buildRawStepsFromDetailRows(
+  detailStepRows: Array<Record<string, unknown>>,
+  templateHtmlMap: Map<string, { subject: string; preheader: string; html: string }>,
+  logCanvasId?: string,
+): Record<string, unknown> {
+  const steps: Record<string, unknown> = {};
+  for (const s of detailStepRows) {
+    const stepId = String(
+      s.id ??
+        s.api_id ??
+        s.step_id ??
+        (s as { canvas_step_id?: unknown }).canvas_step_id ??
+        (s as { step_api_id?: unknown }).step_api_id ??
+        "",
+    ).trim();
+    if (!stepId) {
+      if (logCanvasId) {
+        console.warn(
+          `[Braze Sync] canvas ${logCanvasId}: skip step without id (keys=${Object.keys(s).slice(0, 14).join(",")})`,
+        );
+      }
+      continue;
+    }
+
+    const messages: Array<Record<string, unknown>> = [];
+    if (s.messages && typeof s.messages === "object") {
+      const entries = Array.isArray(s.messages)
+        ? (s.messages as unknown[]).map((m, idx) => [`message_${idx}`, m])
+        : Object.entries(s.messages);
+
+      for (const [msgKey, msgData] of entries) {
+        const msg = msgData as Record<string, unknown>;
+        const inferredChannel = typeof msgKey === "string" ? msgKey : undefined;
+        let channel =
+          (msg.channel as string) || inferredChannel || firstChannelFromStepRow(s) || "";
+        if (!channel && inferredChannel && isMessagingChannelForSync(inferredChannel)) {
+          channel = inferredChannel;
+        }
+        if (!channel) channel = "email";
+
+        const templateId = brazeMessageTemplateId(msg);
+        let subject = msg.subject as string | undefined;
+        let preheader = msg.preheader as string | undefined;
+        let html: string | undefined;
+
+        if (channel === "email" && templateId && templateHtmlMap.has(templateId)) {
+          const tpl = templateHtmlMap.get(templateId)!;
+          html = tpl.html || undefined;
+          subject = subject || tpl.subject || undefined;
+          preheader = preheader || tpl.preheader || undefined;
+        } else if (channel === "email") {
+          html = truncateHtml((msg.body as string) || (msg.html_body as string));
+        }
+
+        messages.push({
+          channel,
+          subject,
+          preheader,
+          title: msg.title || msg.header,
+          body: msg.message || msg.alert || msg.body || msg.plaintext_body,
+          html_content: html,
+          image_url: msg.image_url || msg.big_image,
+          buttons: msg.buttons,
+        });
+      }
+    }
+
+    if (messages.length === 0 && s.message && typeof s.message === "object") {
+      const msg = s.message as Record<string, unknown>;
+      const channel =
+        (msg.channel as string) ||
+        (typeof s.channels === "object" && Array.isArray(s.channels) ? String(s.channels[0]) : "") ||
+        (s.channel as string) ||
+        "email";
+      messages.push({
+        channel,
+        subject: msg.subject as string | undefined,
+        preheader: msg.preheader as string | undefined,
+        title: msg.title || msg.header,
+        body: msg.message || msg.body || msg.alert,
+        html_content: truncateHtml((msg.body as string) || (msg.html_body as string)),
+      });
+    }
+
+    const hasSubstantiveMessage = messages.some(
+      (m) =>
+        (typeof m.subject === "string" && m.subject.trim() !== "") ||
+        (typeof m.html_content === "string" && m.html_content.trim() !== "") ||
+        (typeof m.body === "string" && m.body.trim() !== "") ||
+        (typeof m.title === "string" && m.title.trim() !== ""),
+    );
+    const chObj = s.channels;
+    const needsChannelCreative =
+      chObj && typeof chObj === "object" && !Array.isArray(chObj) && !hasSubstantiveMessage;
+    if (needsChannelCreative) {
+      if (messages.length > 0) messages.length = 0;
+      appendMessagesFromChannelsObject(s, messages, templateHtmlMap);
+    }
+
+    if (messages.length === 0) {
+      const stCh = firstChannelFromStepRow(s) ?? "";
+      if (stCh && isMessagingChannelForSync(stCh)) {
+        // Log exactly what messages/channels look like so we can diagnose missing subjects.
+        if (logCanvasId) {
+          const messagesSnap = s.messages == null
+            ? "null"
+            : JSON.stringify(s.messages).slice(0, 600);
+          const channelsSnap = s.channels == null
+            ? "null"
+            : JSON.stringify(s.channels).slice(0, 300);
+          console.warn(
+            `[Braze Sync][empty-msg] canvas=${logCanvasId} step=${stepId} name=${JSON.stringify(s.name)} channel=${stCh}` +
+            ` messages=${messagesSnap} channels=${channelsSnap}`,
+          );
+        }
+        messages.push({ channel: stCh });
+      }
+    }
+
+    if (
+      messages.length === 0 &&
+      (s.email_template_id || s.template_id || s.linked_email_template_id || s.html_template_id ||
+        s.subject || s.title)
+    ) {
+      const tid = brazeMessageTemplateId(s);
+      let subject = (s.subject || s.title) as string | undefined;
+      let preheader = s.preheader as string | undefined;
+      let html: string | undefined;
+      if (tid && templateHtmlMap.has(String(tid))) {
+        const tpl = templateHtmlMap.get(String(tid))!;
+        html = tpl.html || undefined;
+        subject = subject || tpl.subject || undefined;
+        preheader = preheader || tpl.preheader || undefined;
+      }
+      messages.push({
+        channel: "email",
+        subject,
+        preheader,
+        html_content: html,
+      });
+    }
+
+    const nextPaths: Array<{ name: string; next_step_id: string; percentage?: number }> = [];
+    if (Array.isArray(s.next_paths) && s.next_paths.length > 0) {
+      for (const p of s.next_paths) {
+        const pr = p as Record<string, unknown>;
+        const nid = String(
+          pr.next_step_id ?? pr.nextStepId ?? pr.next_canvas_step_id ?? "",
+        ).trim();
+        nextPaths.push({
+          name: (pr.name as string) || "Path",
+          next_step_id: nid,
+          percentage: typeof pr.percentage === "number" ? pr.percentage : undefined,
+        });
+      }
+    }
+
+    const delayObj = s.delay as { value?: number } | undefined;
+    const delaySecondsParsed =
+      typeof delayObj?.value === "number"
+        ? delayObj.value
+        : typeof (s as { delay_seconds?: number }).delay_seconds === "number"
+          ? (s as { delay_seconds: number }).delay_seconds
+          : typeof (s as { wait_seconds?: number }).wait_seconds === "number"
+            ? (s as { wait_seconds: number }).wait_seconds
+            : undefined;
+
+    const nextStepIdsFromPaths = nextPaths.map((p) => p.next_step_id).filter(Boolean);
+    const nextStepIds = Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
+      ? (s.next_step_ids as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+      : nextStepIdsFromPaths;
+
+    const rawStepType = String(s.type ?? "message");
+    let resolvedChannel = (firstChannelFromStepRow(s) || messages[0]?.channel) as string | undefined;
+    if (!resolvedChannel && rawStepType.includes("/")) {
+      const tail = rawStepType.split("/").pop()?.toLowerCase() ?? "";
+      if (
+        tail === "email" ||
+        tail === "sms" ||
+        tail === "webhook" ||
+        tail.includes("push") ||
+        tail.includes("in_app") ||
+        tail.includes("in-app")
+      ) {
+        resolvedChannel = tail;
+      }
+    }
+
+    steps[stepId] = {
+      id: stepId,
+      name: (s.name || s.type || "Step") as string,
+      type: rawStepType,
+      channel: resolvedChannel,
+      delay_seconds: delaySecondsParsed,
+      delay_formatted:
+        typeof delaySecondsParsed === "number" ? formatDelay(delaySecondsParsed) : undefined,
+      next_step_ids: nextStepIds,
+      next_paths: nextPaths.length > 0 ? nextPaths : undefined,
+      messages: messages.length > 0 ? messages : undefined,
+    };
   }
   return steps;
 }
@@ -1572,11 +2154,6 @@ Deno.serve(async (req) => {
   let apiScheduledListed = 0;
 
   try {
-    const authResult = await validateAuth(req);
-    if (!authResult.success) {
-      return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
-    }
-
     const body = (await req.json()) as {
       clientId?: string;
       platformId?: string;
@@ -1584,7 +2161,31 @@ Deno.serve(async (req) => {
       force_canvas_ids?: unknown;
       touchpoints_only?: unknown;
       canvas_offset?: unknown;
+      /** Test mode: parse a single canvas and return debug data without writing to DB. */
+      mode?: string;
+      canvas_id?: string;
+      /** Required for test mode when calling outside of a user session. Must match SUPABASE_SERVICE_ROLE_KEY. */
+      service_key?: string;
     };
+
+    const isTestMode = body.mode === "test";
+
+    // Test mode requires BRAZE_SYNC_TEST_SECRET (set via `supabase secrets set`).
+    // Normal mode requires a signed-in user JWT.
+    const testSecret = Deno.env.get("BRAZE_SYNC_TEST_SECRET") ?? "";
+    const testModeKeyValid =
+      isTestMode &&
+      testSecret.length > 0 &&
+      body.service_key === testSecret;
+
+    let authResult: Awaited<ReturnType<typeof validateAuth>> | null = null;
+    if (!testModeKeyValid) {
+      authResult = await validateAuth(req);
+      if (!authResult.success) {
+        return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
+      }
+    }
+
     const { clientId, platformId, restEndpoint } = body;
     const touchpointsOnly = body.touchpoints_only === true;
     const forceCanvasIds: string[] = Array.isArray(body.force_canvas_ids)
@@ -1595,7 +2196,7 @@ Deno.serve(async (req) => {
       throw new Error('clientId and platformId are required');
     }
 
-    if (!authResult.userId) {
+    if (!testModeKeyValid && !authResult?.userId) {
       return authErrorResponse('Unauthorized', 401, corsHeaders);
     }
 
@@ -1604,13 +2205,16 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    const accessResult = await validateClientAccessForEdge(
-      supabase,
-      authResult.userId,
-      clientId,
-    );
-    if (!accessResult.success) {
-      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+    // Service role = full access; skip per-user client membership check for test mode.
+    if (!testModeKeyValid) {
+      const accessResult = await validateClientAccessForEdge(
+        supabase,
+        authResult!.userId!,
+        clientId!,
+      );
+      if (!accessResult.success) {
+        return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+      }
     }
 
     const { data: platform, error: platformError } = await supabase
@@ -1659,6 +2263,103 @@ Deno.serve(async (req) => {
     // scopes KPI too low vs workspace totals the user sees in Braze).
     const brazeKpiAppId = String(addCfg.braze_kpi_app_id ?? "").trim();
     const kpiAppQuery = brazeKpiAppId ? `&app_id=${encodeURIComponent(brazeKpiAppId)}` : "";
+
+    // ── TEST MODE ──────────────────────────────────────────────────────────────
+    // Pass { mode: "test", canvas_id: "<id>" } to parse one canvas and return
+    // the raw debug data without writing anything to the database.
+    if (body.mode === "test") {
+      const testCanvasId = (body.canvas_id ?? "").trim();
+      if (!testCanvasId) {
+        return new Response(
+          JSON.stringify({ error: "canvas_id is required for test mode" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      console.log(`[Braze Sync][TEST] canvas_id=${testCanvasId}`);
+      const details = (await brazeFetch(
+        `canvas/details?canvas_id=${encodeURIComponent(testCanvasId)}`,
+        apiKey,
+        brazeRestEndpoint,
+      )) as Record<string, unknown>;
+
+      const canvasNested = details.canvas as Record<string, unknown> | undefined;
+      const detailStepRows = collectCanvasDetailStepRows(details, canvasNested);
+      const templateIds = collectEmailTemplateIdsFromDetailRows(detailStepRows);
+      const touchTemplateMap = await fetchEmailTemplatesByIds(
+        templateIds, apiKey, brazeRestEndpoint, 10,
+      );
+      const stepsObj = buildRawStepsFromDetailRows(detailStepRows, touchTemplateMap, testCanvasId);
+
+      // Sample the first 5 raw step rows so we can see exactly what comes from the API.
+      const rawSamples = detailStepRows.slice(0, 5).map((s) => ({
+        id: s.id ?? s.api_id ?? s.step_id,
+        name: s.name,
+        type: s.type,
+        channel: s.channel,
+        has_messages: s.messages != null,
+        messages_is_array: Array.isArray(s.messages),
+        messages_keys: (s.messages && !Array.isArray(s.messages) && typeof s.messages === "object")
+          ? Object.keys(s.messages as Record<string, unknown>).slice(0, 5)
+          : null,
+        messages_first_value: (s.messages && !Array.isArray(s.messages) && typeof s.messages === "object")
+          ? JSON.stringify(Object.values(s.messages as Record<string, unknown>)[0]).slice(0, 500)
+          : s.messages != null ? JSON.stringify(s.messages).slice(0, 500) : null,
+        has_channels: s.channels != null,
+        channels_keys: (s.channels && typeof s.channels === "object" && !Array.isArray(s.channels))
+          ? Object.keys(s.channels as Record<string, unknown>)
+          : null,
+      }));
+
+      // Sample the first 5 parsed (built) steps.
+      const parsedSamples = Object.entries(stepsObj).slice(0, 5).map(([k, v]) => ({
+        id: k,
+        step: JSON.parse(JSON.stringify(v)), // clone to include all fields
+      }));
+
+      // Variants with first_step_id
+      const variants = Array.isArray(details.variants)
+        ? (details.variants as Array<Record<string, unknown>>).map((v) => ({
+            name: v.name,
+            percentage: v.percentage,
+            first_step_id: v.first_step_id ?? v.firstStepId ?? v.first_canvas_step_id ?? null,
+          }))
+        : null;
+
+      // Channel breakdown of all parsed steps
+      const channelCounts: Record<string, number> = {};
+      for (const [, v] of Object.entries(stepsObj)) {
+        const s = v as Record<string, unknown>;
+        const ch = String(s.channel ?? "unknown");
+        channelCounts[ch] = (channelCounts[ch] ?? 0) + 1;
+      }
+
+      // Steps with empty next_step_ids (terminal steps)
+      const terminalSteps = Object.entries(stepsObj)
+        .filter(([, v]) => {
+          const s = v as Record<string, unknown>;
+          return !Array.isArray(s.next_step_ids) || (s.next_step_ids as unknown[]).length === 0;
+        })
+        .map(([k, v]) => ({ id: k, name: (v as Record<string, unknown>).name, channel: (v as Record<string, unknown>).channel }));
+
+      return new Response(
+        JSON.stringify({
+          canvas_id: testCanvasId,
+          details_top_keys: Object.keys(details).sort(),
+          canvas_nested_keys: canvasNested ? Object.keys(canvasNested).sort() : null,
+          detail_step_rows_count: detailStepRows.length,
+          template_ids_found: templateIds,
+          templates_loaded: touchTemplateMap.size,
+          parsed_steps_count: Object.keys(stepsObj).length,
+          variants,
+          channel_breakdown: channelCounts,
+          terminal_steps: terminalSteps,
+          raw_step_samples: rawSamples,
+          parsed_step_samples: parsedSamples,
+        }, null, 2),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    // ── END TEST MODE ──────────────────────────────────────────────────────────
 
     console.log("[Braze Sync] START — clientId=", clientId, "REST=", brazeRestEndpoint);
     if (touchpointsOnly) {
@@ -2245,15 +2946,17 @@ Deno.serve(async (req) => {
     const phase3BatchSize = touchpointsOnly ? 1 : BATCH_SIZE;
     console.log(
       touchpointsOnly
-        ? "Phase 3 (touchpoints_only): one canvas at a time, minimal steps — no parallel batch, no result accumulation"
+        ? "Phase 3 (touchpoints_only): one canvas at a time — full step/message shape + per-canvas template fetch + entry metadata"
         : `Phase 3: Processing canvas details in batches of ${phase3BatchSize}...`,
     );
     let processedCount = 0;
     let enabledCount = 0;
     let phase3CanvasesWithRawSteps = 0;
     let phase3DbWritesWithRawSteps = 0;
+    /** Touchpoints slice: canvases completed this invoke (for cursor when stopping early on wall budget). */
+    let touchpointsHandledInSlice = 0;
 
-    // Build template map first (limited to 30 templates for memory) — skipped in touchpoints_only (only raw_steps/total_steps persisted)
+    // Build template map first (limited to 30 templates for memory). Touchpoints_only fetches templates per canvas instead.
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
     if (!touchpointsOnly) {
       try {
@@ -2284,7 +2987,16 @@ Deno.serve(async (req) => {
     }
 
     if (touchpointsOnly) {
+      touchpointsHandledInSlice = 0;
+      /** Stop before platform hard kill (546); leave headroom for progress upsert + JSON response. */
+      const touchpointsWallDeadline = syncStart + maxSyncWallMs() - 14_000;
       for (let ti = 0; ti < canvasesToProcess.length; ti++) {
+        if (Date.now() >= touchpointsWallDeadline) {
+          console.warn(
+            `[Braze Sync][Phase3][touchpoints] wall budget: stopping early after ${touchpointsHandledInSlice}/${canvasesToProcess.length} in this slice (resume at offset ${touchpointsStartOffsetForChunk + touchpointsHandledInSlice})`,
+          );
+          break;
+        }
         const c = canvasesToProcess[ti];
         console.log(
           `[Braze Sync][Phase3][touchpoints] ${ti + 1}/${canvasesToProcess.length} id=${c.id} name=${JSON.stringify(c.name)}`,
@@ -2297,8 +3009,25 @@ Deno.serve(async (req) => {
             brazeRestEndpoint,
           )) as Record<string, unknown>;
           const canvasNested = details.canvas as Record<string, unknown> | undefined;
+          const entryMeta = extractCanvasEntryMetadataFromDetails(details);
           const detailStepRows = collectCanvasDetailStepRowsExpanded(details, canvasNested);
-          let stepsObj: Record<string, unknown> = buildMinimalTouchpointStepsFromRows(detailStepRows);
+          const templateIds = collectEmailTemplateIdsFromDetailRows(detailStepRows);
+          if (templateIds.length > MAX_TOUCHPOINT_EMAIL_TEMPLATES) {
+            console.warn(
+              `[Braze Sync][Phase3][touchpoints] id=${c.id}: ${templateIds.length} unique email templates; fetching first ${MAX_TOUCHPOINT_EMAIL_TEMPLATES} (raise BRAZE_SYNC_MAX_TOUCHPOINT_TEMPLATES if needed)`,
+            );
+          }
+          const touchTemplateMap = await fetchEmailTemplatesByIds(
+            templateIds,
+            apiKey,
+            brazeRestEndpoint,
+            MAX_TOUCHPOINT_EMAIL_TEMPLATES,
+          );
+          let stepsObj: Record<string, unknown> = buildRawStepsFromDetailRows(
+            detailStepRows,
+            touchTemplateMap,
+            c.id,
+          );
           const stepsFound = detailStepRows.length;
           detailStepRows.length = 0;
           details = null;
@@ -2310,6 +3039,10 @@ Deno.serve(async (req) => {
             p_name: c.name || "Canvas",
             p_total_steps: totalSteps,
             p_raw_steps: stepsObj,
+            p_trigger_event_name: entryMeta.trigger_event_name ?? null,
+            p_entry_segment_name: entryMeta.entry_segment_name ?? null,
+            p_entry_type: entryMeta.entry_type ?? null,
+            p_schedule_type: entryMeta.schedule_type ?? null,
           });
           stepsObj = {} as Record<string, unknown>;
           if (!upsertErr) {
@@ -2329,6 +3062,7 @@ Deno.serve(async (req) => {
         } catch (e) {
           console.warn(`[Braze Sync][Phase3][touchpoints] canvas id=${c.id} failed:`, e);
         }
+        touchpointsHandledInSlice++;
         await new Promise((r) => setTimeout(r, 200));
       }
     } else {
@@ -2404,22 +3138,10 @@ Deno.serve(async (req) => {
             firstEntryIso = toIso(details.first_entry ?? details.first_entry_at) ?? firstEntryIso;
             lastEntryIso = toIso(details.last_entry ?? details.last_entry_at) ?? lastEntryIso;
 
-            // Entry type
-            entryType = details.schedule_type || details.entry_schedule?.type;
-
-            // Trigger event name
-            if (details.entry_schedule?.trigger_event_name) {
-              triggerEventName = details.entry_schedule.trigger_event_name;
-            } else if (details.trigger_events?.length > 0) {
-              triggerEventName = details.trigger_events
-                .map((t: unknown) => (typeof t === 'string' ? t : (t as Record<string, string>).name || (t as Record<string, string>).event_name))
-                .join(', ');
-            } else if (details.entry_rules?.trigger?.custom_event?.custom_event_name) {
-              triggerEventName = details.entry_rules.trigger.custom_event.custom_event_name;
-            }
-
-            // Segment name
-            entrySegmentName = details.entry_audience_name || details.entry_segment?.name || details.entry_schedule?.segment?.name;
+            const entryMetaFromApi = extractCanvasEntryMetadataFromDetails(details);
+            entryType = entryMetaFromApi.entry_type;
+            triggerEventName = entryMetaFromApi.trigger_event_name;
+            entrySegmentName = entryMetaFromApi.entry_segment_name;
 
             // Exception events
             if (details.exception_events?.length > 0) {
@@ -2485,165 +3207,10 @@ Deno.serve(async (req) => {
             }
 
             if (detailStepRows.length > 0) {
-              for (const s of detailStepRows) {
-                const stepId = String(
-                  s.id ??
-                    s.api_id ??
-                    s.step_id ??
-                    (s as { canvas_step_id?: unknown }).canvas_step_id ??
-                    (s as { step_api_id?: unknown }).step_api_id ??
-                    "",
-                ).trim();
-                if (!stepId) {
-                  console.warn(
-                    `[Braze Sync] canvas ${c.id}: skip step without id (keys=${Object.keys(s).slice(0, 14).join(",")})`,
-                  );
-                  continue;
-                }
-
-                const messages: Array<Record<string, unknown>> = [];
-                if (s.messages && typeof s.messages === 'object') {
-                  const entries = Array.isArray(s.messages)
-                    ? (s.messages as unknown[]).map((m, idx) => [`message_${idx}`, m])
-                    : Object.entries(s.messages);
-
-                  for (const [msgKey, msgData] of entries) {
-                    const msg = msgData as Record<string, unknown>;
-                    const inferredChannel = typeof msgKey === 'string' ? msgKey : undefined;
-                    let channel = (msg.channel as string) || inferredChannel || (s.channels?.[0] as string) || '';
-                    if (!channel && inferredChannel && isMessagingChannelForSync(inferredChannel)) {
-                      channel = inferredChannel;
-                    }
-                    if (!channel) channel = 'email';
-
-                    const templateId = msg.email_template_id || msg.template_id;
-                    let subject = msg.subject as string | undefined;
-                    let preheader = msg.preheader as string | undefined;
-                    let html: string | undefined;
-
-                    if (channel === 'email' && templateId && templateHtmlMap.has(templateId as string)) {
-                      const tpl = templateHtmlMap.get(templateId as string)!;
-                      html = tpl.html;
-                      subject = subject || tpl.subject;
-                      preheader = preheader || tpl.preheader;
-                    } else if (channel === 'email') {
-                      html = truncateHtml((msg.body as string) || (msg.html_body as string));
-                    }
-
-                    messages.push({
-                      channel,
-                      subject,
-                      preheader,
-                      title: msg.title || msg.header,
-                      body: msg.message || msg.alert || msg.body || msg.plaintext_body,
-                      html_content: html,
-                      image_url: msg.image_url || msg.big_image,
-                      buttons: msg.buttons,
-                    });
-                  }
-                }
-
-                if (messages.length === 0 && s.message && typeof s.message === 'object') {
-                  const msg = s.message as Record<string, unknown>;
-                  const channel =
-                    (msg.channel as string) ||
-                    (typeof s.channels === 'object' && Array.isArray(s.channels) ? String(s.channels[0]) : '') ||
-                    (s.channel as string) ||
-                    'email';
-                  messages.push({
-                    channel,
-                    subject: msg.subject as string | undefined,
-                    preheader: msg.preheader as string | undefined,
-                    title: msg.title || msg.header,
-                    body: msg.message || msg.body || msg.alert,
-                    html_content: truncateHtml((msg.body as string) || (msg.html_body as string)),
-                  });
-                }
-
-                if (messages.length === 0) {
-                  const stCh =
-                    (typeof s.channel === 'string' ? s.channel : '') ||
-                    (Array.isArray(s.channels) && s.channels[0] ? String(s.channels[0]) : '');
-                  if (stCh && isMessagingChannelForSync(stCh)) {
-                    messages.push({ channel: stCh });
-                  }
-                }
-
-                if (
-                  messages.length === 0 &&
-                  (s.email_template_id || s.template_id || s.subject || s.title)
-                ) {
-                  messages.push({
-                    channel: 'email',
-                    subject: (s.subject || s.title) as string | undefined,
-                    preheader: s.preheader as string | undefined,
-                  });
-                }
-
-                const nextPaths: Array<{ name: string; next_step_id: string; percentage?: number }> = [];
-                if (s.next_paths?.length > 0) {
-                  for (const p of s.next_paths) {
-                    const pr = p as Record<string, unknown>;
-                    const nid = String(
-                      pr.next_step_id ??
-                        pr.nextStepId ??
-                        pr.next_canvas_step_id ??
-                        "",
-                    ).trim();
-                    nextPaths.push({
-                      name: (p.name as string) || "Path",
-                      next_step_id: nid,
-                      percentage: typeof p.percentage === "number" ? p.percentage : undefined,
-                    });
-                  }
-                }
-
-                const delayObj = s.delay as { value?: number } | undefined;
-                const delaySecondsParsed =
-                  typeof delayObj?.value === "number"
-                    ? delayObj.value
-                    : typeof (s as { delay_seconds?: number }).delay_seconds === "number"
-                      ? (s as { delay_seconds: number }).delay_seconds
-                      : typeof (s as { wait_seconds?: number }).wait_seconds === "number"
-                        ? (s as { wait_seconds: number }).wait_seconds
-                        : undefined;
-
-                const nextStepIdsFromPaths = nextPaths.map((p) => p.next_step_id).filter(Boolean);
-                const nextStepIds = Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
-                  ? (s.next_step_ids as unknown[]).map((x) => String(x).trim()).filter(Boolean)
-                  : nextStepIdsFromPaths;
-
-                const rawStepType = String(s.type ?? "message");
-                let resolvedChannel = (s.channels?.[0] || messages[0]?.channel) as string | undefined;
-                if (!resolvedChannel && rawStepType.includes("/")) {
-                  const tail = rawStepType.split("/").pop()?.toLowerCase() ?? "";
-                  if (
-                    tail === "email" ||
-                    tail === "sms" ||
-                    tail === "webhook" ||
-                    tail.includes("push") ||
-                    tail.includes("in_app") ||
-                    tail.includes("in-app")
-                  ) {
-                    resolvedChannel = tail;
-                  }
-                }
-
-                steps[stepId] = {
-                  id: stepId,
-                  name: (s.name || s.type || 'Step') as string,
-                  type: rawStepType,
-                  channel: resolvedChannel,
-                  delay_seconds: delaySecondsParsed,
-                  delay_formatted:
-                    typeof delaySecondsParsed === "number"
-                      ? formatDelay(delaySecondsParsed)
-                      : undefined,
-                  next_step_ids: nextStepIds,
-                  next_paths: nextPaths.length > 0 ? nextPaths : undefined,
-                  messages: messages.length > 0 ? messages : undefined,
-                };
-              }
+              Object.assign(
+                steps,
+                buildRawStepsFromDetailRows(detailStepRows, templateHtmlMap, c.id),
+              );
             } else {
               console.warn(
                 `[Braze Sync][Phase3] canvas/details returned 0 step rows: id=${c.id} name=${JSON.stringify(c.name)} — check collectCanvasDetailStepRowsExpanded / nested legacy_response`,
@@ -2887,7 +3454,7 @@ Deno.serve(async (req) => {
     if (touchpointsOnly) {
       const syncDurationTouch = Date.now() - syncStart;
       const totalCanvases = allCanvasList.length;
-      const nextOffset = touchpointsStartOffsetForChunk + canvasesToProcess.length;
+      const nextOffset = touchpointsStartOffsetForChunk + touchpointsHandledInSlice;
       const done = nextOffset >= totalCanvases;
       const { error: progErr } = await supabase.from("client_sync_progress").upsert(
         {
@@ -2997,6 +3564,30 @@ Deno.serve(async (req) => {
     }
 
     console.log(`Total campaigns found: ${allCampaignList.length}`);
+
+    // Phase 4a-pre: Insert all list campaigns with minimal data (name + sent_date) so they
+    // appear in the DB even if the detail pass (capped at MAX_CAMPAIGNS_TO_PROCESS) never reaches them.
+    // Uses ignoreDuplicates=true so existing rows with full details are NOT overwritten.
+    if (allCampaignList.length > 0 && !syncOverBudget()) {
+      const minimalRows = allCampaignList.slice(0, 500).map((c) => ({
+        client_id: clientId,
+        braze_campaign_id: c.id,
+        name: c.name,
+        status: c.last_sent ? 'sent' : 'draft',
+        sent_date: toIso(c.last_sent) || null,
+        synced_at: nowIso,
+      }));
+      for (let mi = 0; mi < minimalRows.length; mi += 100) {
+        const chunk = minimalRows.slice(mi, mi + 100);
+        const { error: minErr } = await supabase
+          .from('braze_campaigns')
+          .upsert(chunk, { onConflict: 'client_id,braze_campaign_id', ignoreDuplicates: true });
+        if (minErr) {
+          console.warn('[Braze Sync] Phase 4a-pre minimal campaign upsert error:', minErr.message);
+        }
+      }
+      console.log(`[Braze Sync] Phase 4a-pre: inserted up to ${Math.min(allCampaignList.length, 500)} list-only campaign rows`);
+    }
 
     const campaignsToProcess = allCampaignList.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
     console.log(`Will process ${campaignsToProcess.length} campaigns`);

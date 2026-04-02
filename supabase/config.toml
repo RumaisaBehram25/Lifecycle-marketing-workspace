@@ -1,5 +1,5 @@
 # Match the project in .env (VITE_SUPABASE_URL) so `supabase functions deploy` targets the same app.
-project_id = "zxeajrdcjqfravlkpqhm"
+project_id = "bdavazygbtoosegncfgi"
 
 # Local `supabase start`: require email confirmation before sign-in.
 # Hosted project: also enable Authentication → Providers → Email → Confirm email.
