@@ -167,6 +167,7 @@ export default function Analytics() {
   const queryClient = useQueryClient();
   const brazeWorkspacePlatform = platforms?.find((p) => p.platform === 'braze' && p.is_connected);
   const [canvasMetricsSyncing, setCanvasMetricsSyncing] = useState(false);
+  const [period, setPeriod] = useState('default');
 
   const {
     clientId,
@@ -198,11 +199,10 @@ export default function Analytics() {
     brazeCanvasFlowMetricsErrorMessage,
     brazeCanvasFlowMetricsIsLoading,
     brazeCanvasFlowMetricsIsFetching,
-  } = useAnalyticsData();
+  } = useAnalyticsData(period);
 
   const [campaignSearch, setCampaignSearch] = useState('');
   const [campaignChannelFilter, setCampaignChannelFilter] = useState('All');
-  const [period, setPeriod] = useState('default');
   const [flowChartMetric, setFlowChartMetric] = useState<'revenue' | 'sent' | 'opens' | 'clicks' | 'orders'>('revenue');
   const [siteRevenueInput, setSiteRevenueInput] = useState('');
   const [insights, setInsights] = useState<{ title: string; body: string; tag: string; tagColor: string }[]>([]);
@@ -469,15 +469,39 @@ export default function Analytics() {
     );
   };
 
-  const dailyEmailEngagementData = usageChartData.map((r) => {
-    const row = r as Record<string, unknown>;
-    return {
-      date: String(row.date ?? ''),
-      emails_opened: Number(row.emails_opened ?? 0),
-      email_clicks: Number(row.email_clicks ?? 0),
-      email_bounces: Number(row.email_bounces ?? 0),
-    };
-  });
+  // Daily Email Engagement: prefer campaign analytics (synced from Braze API), fall back to usage CSV
+  const dailyEmailEngagementData = (() => {
+    const byDate = new Map<string, { opens: number; clicks: number; bounces: number }>();
+    for (const r of rawCampaignRows) {
+      const row = r as Record<string, unknown>;
+      const date = String(row.date ?? '').slice(0, 10);
+      if (!date) continue;
+      const cur = byDate.get(date) ?? { opens: 0, clicks: 0, bounces: 0 };
+      cur.opens += Number(row.opens ?? 0);
+      cur.clicks += Number(row.clicks ?? 0);
+      cur.bounces += Number(row.bounces ?? 0);
+      byDate.set(date, cur);
+    }
+    if (byDate.size > 0) {
+      return [...byDate.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, v]) => ({
+          date,
+          emails_opened: v.opens,
+          email_clicks: v.clicks,
+          email_bounces: v.bounces,
+        }));
+    }
+    return usageChartData.map((r) => {
+      const row = r as Record<string, unknown>;
+      return {
+        date: String(row.date ?? ''),
+        emails_opened: Number(row.emails_opened ?? 0),
+        email_clicks: Number(row.email_clicks ?? 0),
+        email_bounces: Number(row.email_bounces ?? 0),
+      };
+    });
+  })();
 
   const engagementRatio = metrics.mau > 0 ? (metrics.dau / metrics.mau) * 100 : 0;
 
@@ -491,24 +515,21 @@ export default function Analytics() {
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 12);
 
-  const latestSegmentDate =
-    segmentChartDataByDate.length > 0
-      ? String(
-          (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>).date ?? '',
-        )
-      : '';
+  // segmentChartDataByDate is pivoted: { date, "All Email Subscribers": 89950, "Active Subscribers (opened in 90d)": 62965, ... }
+  const latestSegmentDate = segmentChartDataByDate.length > 0
+    ? String((segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, unknown>).date ?? '')
+    : '';
   const latestSegmentRow = segmentChartDataByDate.length > 0
     ? (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>)
     : null;
 
-  /** Match pivot column names from `braze_segment_analytics` (e.g. "Active Subscribers (opened in 90d)"). */
   const findSegmentValue = (keys: string[]) => {
     if (!latestSegmentRow) return 0;
     const needles = keys.map((k) => k.toLowerCase().trim()).filter(Boolean);
     for (const [col, v] of Object.entries(latestSegmentRow)) {
       if (col === 'date') continue;
       const colLower = String(col).toLowerCase();
-      if (needles.some((n) => colLower === n || colLower.includes(n))) {
+      if (needles.some((n) => colLower.includes(n))) {
         return Number(v ?? 0);
       }
     }
@@ -518,17 +539,17 @@ export default function Analytics() {
   const segmentDonutData = [
     {
       name: 'All Email Subscribers',
-      value: findSegmentValue(['All Email Subscribers']),
+      value: findSegmentValue(['all email subscribers']),
       color: 'hsl(217 91% 60%)',
     },
     {
       name: 'Active Subscribers',
-      value: findSegmentValue(['Active Subscribers']),
+      value: findSegmentValue(['active subscribers']),
       color: 'hsl(142 71% 45%)',
     },
     {
       name: 'Churned',
-      value: findSegmentValue(['Churned']),
+      value: findSegmentValue(['churned']),
       color: 'hsl(0 72% 51%)',
     },
   ];
@@ -557,9 +578,9 @@ export default function Analytics() {
               <SelectItem value="default">All Time</SelectItem>
               <SelectItem value="7d">7 Days</SelectItem>
               <SelectItem value="30d">30 Days</SelectItem>
+              <SelectItem value="60d">60 Days</SelectItem>
               <SelectItem value="quarter">Quarter</SelectItem>
               <SelectItem value="year">Year</SelectItem>
-              <SelectItem value="custom">Custom</SelectItem>
             </SelectContent>
           </Select>
           </div>

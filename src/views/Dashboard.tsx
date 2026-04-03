@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import { useResolvedClientId, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { useDashboardBrazeMetrics } from '@/hooks/useDashboardBrazeMetrics';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -15,7 +15,10 @@ import {
   Workflow, Clock, Zap, Sparkles, ChevronDown, ChevronRight,
   FolderOpen, FileText, MessageSquare, Layers, Radio, Search,
   TrendingUp, TrendingDown, Minus, MailWarning, UserMinus,
+  RefreshCw, Loader2,
 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { invokeTouchpointsChunk } from '@/lib/touchpointsSyncClient';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
@@ -348,8 +351,89 @@ export function ClosedBriefsSection({ briefs, clientId, onRefresh }: { briefs: a
 export default function Dashboard() {
   const { clientId } = useResolvedClientId();
   const { clientId: brazeMetricsClientId } = useBrazeDashboardClientId();
+  const { data: platforms } = useDoubleGoodPlatforms();
+  const brazePlatform = platforms?.find((p) => p.platform === 'braze' && p.is_connected);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [hygieneSearch, setHygieneSearch] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
+
+  const handleSyncAll = useCallback(async () => {
+    if (!clientId || !brazePlatform?.id) return;
+    setSyncing(true);
+
+    const invalidateAll = () => {
+      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+      queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
+    };
+
+    try {
+      // Phase 1: Sync all campaigns (loops until all processed — skips recently synced ones)
+      setSyncStatus('Syncing campaigns…');
+      let campaignRound = 0;
+      let totalCampaignsProcessed = 0;
+      while (campaignRound < 30) {
+        campaignRound++;
+        console.log(`[Sync All] Campaigns round ${campaignRound}`);
+        const { data, error } = await supabase.functions.invoke('sync-braze', {
+          body: { clientId, platformId: brazePlatform.id, campaigns_only: true },
+        });
+        if (error) throw error;
+        const counts = (data?.data as any)?.counts;
+        const processed = counts?.campaigns_processed ?? 0;
+        totalCampaignsProcessed += processed;
+        console.log(`[Sync All] Campaigns round ${campaignRound}: processed=${processed}, total so far=${totalCampaignsProcessed}`);
+        setSyncStatus(`Campaigns: ${totalCampaignsProcessed} synced (round ${campaignRound})`);
+        if (processed === 0) break;
+      }
+      invalidateAll();
+
+      // Phase 2: Sync canvas touchpoints (chunked)
+      setSyncStatus('Syncing canvas touchpoints…');
+      let touchpointOffset: number | undefined = 0;
+      let touchpointRound = 0;
+      while (touchpointRound < 50) {
+        touchpointRound++;
+        console.log(`[Sync All] Touchpoints chunk ${touchpointRound}, offset=${touchpointOffset}`);
+        const { data: d, error } = await invokeTouchpointsChunk({
+          clientId,
+          platformId: brazePlatform.id,
+          canvasOffset: touchpointOffset,
+        });
+        if (error) throw error;
+        if (!d?.success) break;
+        const done = d.done === true || (d.total && d.offset != null && d.offset >= d.total);
+        setSyncStatus(`Canvas touchpoints: ${d.offset ?? 0}/${d.total ?? '?'}`);
+        console.log(`[Sync All] Touchpoints: offset=${d.offset}, total=${d.total}, done=${done}`);
+        if (done) break;
+        if (d.offset === touchpointOffset) break; // stalled
+        touchpointOffset = d.offset ?? undefined;
+      }
+      invalidateAll();
+
+      // Phase 3: Full sync for KPI + canvas metrics
+      setSyncStatus('Syncing KPI & metrics…');
+      console.log('[Sync All] Full sync for KPI/metrics');
+      const { error: fullErr } = await supabase.functions.invoke('sync-braze', {
+        body: { clientId, platformId: brazePlatform.id },
+      });
+      if (fullErr) throw fullErr;
+      invalidateAll();
+
+      setSyncStatus('');
+      toast({ title: 'Sync complete', description: `Campaigns (${campaignRound} rounds) + touchpoints (${touchpointRound} chunks) + KPI/metrics synced.` });
+    } catch (err: unknown) {
+      console.error('[Sync All] Error:', err);
+      toast({ title: 'Sync failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setSyncing(false);
+      setSyncStatus('');
+    }
+  }, [clientId, brazePlatform?.id, queryClient, toast]);
   const refreshBriefs = () => {
     queryClient.invalidateQueries({ queryKey: ['dashboard-briefs', clientId] });
     queryClient.invalidateQueries({ queryKey: ['brief-counts', clientId] });
@@ -476,6 +560,28 @@ export default function Dashboard() {
                   <p className="text-sm text-muted-foreground">CRM Copilot — Lifecycle marketing command center</p>
                 </div>
               </div>
+              {brazePlatform && (
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <Button
+                    onClick={handleSyncAll}
+                    disabled={syncing}
+                    variant={syncing ? 'secondary' : 'outline'}
+                    size="sm"
+                  >
+                    {syncing ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    {syncing ? 'Syncing…' : 'Sync All from Braze'}
+                  </Button>
+                  {syncing && syncStatus && (
+                    <p className="text-xs text-muted-foreground animate-pulse max-w-[250px] text-right">
+                      {syncStatus}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

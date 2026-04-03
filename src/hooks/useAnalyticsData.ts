@@ -330,21 +330,52 @@ function campaignTableRowsFromAggMap(mergedMap: Map<string, CsvCampaignNameAgg>)
   });
 }
 
-export function useAnalyticsData() {
+function periodToStartDate(period: string): string | null {
+  if (period === 'default') return null;
+  const now = new Date();
+  let start: Date;
+  switch (period) {
+    case '7d': start = new Date(now.getTime() - 7 * 86400000); break;
+    case '30d': start = new Date(now.getTime() - 30 * 86400000); break;
+    case '60d': start = new Date(now.getTime() - 60 * 86400000); break;
+    case 'quarter': start = new Date(now.getTime() - 90 * 86400000); break;
+    case 'year': start = new Date(now.getTime() - 365 * 86400000); break;
+    default: return null;
+  }
+  return start.toISOString().slice(0, 10);
+}
+
+export function useAnalyticsData(period: string = 'default') {
   const { clientId, isLoading: isClientLoading } = useBrazeDashboardClientId();
+  const periodStart = periodToStartDate(period);
 
   const brazeCampaignAnalytics = useQuery({
-    queryKey: ['analytics', 'braze_campaign_analytics', clientId],
+    queryKey: ['analytics', 'braze_campaign_analytics', clientId, periodStart],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
-        .from('braze_campaign_analytics')
-        .select('*')
-        .eq('client_id', clientId);
-      if (error) throw error;
-      const rows = (data ?? []) as Row[];
-      rows.sort((a, b) => String(a.date ?? a.created_at ?? '').localeCompare(String(b.date ?? b.created_at ?? '')));
-      return rows;
+      // Supabase defaults to 1000 rows; fetch all pages
+      const allRows: Row[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        let query = (supabase as any)
+          .from('braze_campaign_analytics')
+          .select('*')
+          .eq('client_id', clientId)
+          .eq('variation_api_id', '__braze_sync_aggregate__');
+        if (periodStart) {
+          query = query.gte('date', periodStart);
+        }
+        const { data, error } = await query
+          .order('date', { ascending: true })
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allRows.push(...(data as Row[]));
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allRows;
     },
     enabled: !!clientId,
     retry: false,
@@ -383,14 +414,15 @@ export function useAnalyticsData() {
   });
 
   const usageAnalytics = useQuery({
-    queryKey: ['analytics', 'braze_usage_analytics', clientId],
+    queryKey: ['analytics', 'braze_usage_analytics', clientId, periodStart],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      let q = (supabase as any)
         .from('braze_usage_analytics')
         .select('*')
-        .eq('client_id', clientId)
-        .order('date', { ascending: false });
+        .eq('client_id', clientId);
+      if (periodStart) q = q.gte('date', periodStart);
+      const { data, error } = await q.order('date', { ascending: false });
       if (error) throw error;
       return (data ?? []) as Row[];
     },
@@ -399,14 +431,15 @@ export function useAnalyticsData() {
   });
 
   const brazeKpiSeries = useQuery({
-    queryKey: ['analytics', 'braze_kpi_series', clientId],
+    queryKey: ['analytics', 'braze_kpi_series', clientId, periodStart],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      let q = (supabase as any)
         .from('braze_kpi_series')
         .select('metric,series_date,value')
-        .eq('client_id', clientId)
-        .order('series_date', { ascending: true });
+        .eq('client_id', clientId);
+      if (periodStart) q = q.gte('series_date', periodStart);
+      const { data, error } = await q.order('series_date', { ascending: true });
       if (error) throw error;
       return (data ?? []) as Row[];
     },
@@ -451,12 +484,13 @@ export function useAnalyticsData() {
   });
 
   const emailEvents = useQuery({
-    queryKey: ['analytics', 'braze_email_events', clientId],
+    queryKey: ['analytics', 'braze_email_events', clientId, periodStart],
     queryFn: async () => {
       if (!clientId) return [];
-      const since = new Date(
+      const defaultSince = new Date(
         Date.now() - BRAZE_EMAIL_EVENTS_ANALYTICS_LOOKBACK_DAYS * 86400000,
       ).toISOString();
+      const since = periodStart ? new Date(periodStart).toISOString() : defaultSince;
       const sel = 'event_type,email,occurred_at';
       const base = () =>
         (supabase as any)
@@ -484,10 +518,10 @@ export function useAnalyticsData() {
   });
 
   const emailHealth30d = useQuery({
-    queryKey: ['analytics', 'braze_email_health_30d', clientId],
+    queryKey: ['analytics', 'braze_email_health_30d', clientId, periodStart],
     queryFn: async () => {
       if (!clientId) return { bounces: 0, unsubs: 0 };
-      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      const since = periodStart ? new Date(periodStart).toISOString() : new Date(Date.now() - 30 * 86400000).toISOString();
       const [{ count: bounces, error: e1 }, { count: unsubs, error: e2 }] = await Promise.all([
         (supabase as any)
           .from('braze_email_events')
@@ -609,26 +643,12 @@ export function useAnalyticsData() {
     return bestVal;
   };
 
-  const canvasKpiTotals = canvasRows.reduce(
-    (acc, r) => {
-      acc.sent += num(r.sends_last_30d);
-      acc.delivered += num(r.entries_last_30d);
-      acc.opens += num(r.opens_last_30d);
-      acc.clicks += num(r.clicks_last_30d);
-      acc.conversions += num(r.conversions_last_30d);
-      return acc;
-    },
-    { sent: 0, delivered: 0, opens: 0, clicks: 0, conversions: 0 },
-  );
-
-  const totalSent =
-    canvases.reduce((sum, r) => sum + num(r.sent ?? r.sends_last_30d), 0) + canvasKpiTotals.sent;
-  const totalDelivered =
-    canvases.reduce((sum, r) => sum + num(r.delivered), 0) + canvasKpiTotals.delivered;
-  const totalOpens = canvases.reduce((sum, r) => sum + num(r.opens), 0) + canvasKpiTotals.opens;
-  const totalClicks = canvases.reduce((sum, r) => sum + num(r.clicks), 0) + canvasKpiTotals.clicks;
-  const totalConversions =
-    canvases.reduce((sum, r) => sum + num(r.conversions), 0) + canvasKpiTotals.conversions;
+  // Performance Snapshot uses only campaign analytics (date-filterable), not pre-aggregated canvas columns
+  const totalSent = canvases.reduce((sum, r) => sum + num(r.sent), 0);
+  const totalDelivered = canvases.reduce((sum, r) => sum + num(r.delivered), 0);
+  const totalOpens = canvases.reduce((sum, r) => sum + num(r.opens), 0);
+  const totalClicks = canvases.reduce((sum, r) => sum + num(r.clicks), 0);
+  const totalConversions = canvases.reduce((sum, r) => sum + num(r.conversions), 0);
   const totalBounces = canvases.reduce((sum, r) => sum + num(r.bounces), 0);
   const totalUnsubscribes = canvases.reduce((sum, r) => sum + num(r.unsubscribes), 0);
 
@@ -816,17 +836,8 @@ export function useAnalyticsData() {
       clicks: num(r.clicks),
       channel: String(r.channel ?? 'Email'),
     }));
-  const campaignChartDataCanvas = canvasRows.map((r) => ({
-    date: campaignChartToday,
-    name: String(r.name ?? ''),
-    revenue: num(r.revenue_last_30d),
-    sent: num(r.sends_last_30d),
-    delivered: num(r.entries_last_30d),
-    opens: num(r.opens_last_30d),
-    clicks: num(r.clicks_last_30d),
-    channel: 'Canvas',
-  }));
-  const campaignChartData = [...campaignChartDataCsv, ...campaignChartDataCanvas].sort((a, b) =>
+  // Analytics uses only campaign analytics data, not pre-aggregated canvas columns
+  const campaignChartData = [...campaignChartDataCsv].sort((a, b) =>
     a.date.localeCompare(b.date),
   );
 
@@ -851,8 +862,8 @@ export function useAnalyticsData() {
   });
 
   const csvCampaignAggMap = buildCsvCampaignAggByNormalizedKey(canvases);
-  const mergedCampaignAggMap = mergeCanvasRowsIntoCampaignAggMap(csvCampaignAggMap, canvasRows);
-  const campaignTableRows = campaignTableRowsFromAggMap(mergedCampaignAggMap);
+  // Analytics uses only campaign analytics data, not pre-aggregated canvas columns
+  const campaignTableRows = campaignTableRowsFromAggMap(csvCampaignAggMap);
 
   const csvLifecycleFlowInput = [...csvCampaignAggMap.values()].map((agg) => ({
     name: agg.displayName,
@@ -862,7 +873,8 @@ export function useAnalyticsData() {
     opens: agg.opens,
     clicks: agg.clicks,
   }));
-  const lifecycleFlowPerformanceRows = mergeLifecycleFlowPerformance(csvLifecycleFlowInput, canvasRows);
+  // Analytics uses only campaign analytics data (date-filterable), not pre-aggregated canvas _last_30d columns
+  const lifecycleFlowPerformanceRows = mergeLifecycleFlowPerformance(csvLifecycleFlowInput, []);
 
   const totalCampaignRevenue = campaignTableRows.reduce((s, r) => s + num(r.revenue), 0);
 

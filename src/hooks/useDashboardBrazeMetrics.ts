@@ -108,19 +108,19 @@ export function useDashboardBrazeMetrics() {
       if (!clientId) return null;
       const { data, error } = await supabase
         .from('braze_campaigns')
-        .select('sends,deliveries,opens,clicks,unsubs,bounces,spam_reports,open_rate,click_rate')
+        .select('deliveries,opens,clicks,unsubs,open_rate,click_rate')
         .eq('client_id', clientId);
       if (error) throw error;
       const rows = data ?? [];
       const totals = rows.reduce(
         (acc, row: any) => ({
-          sends: acc.sends + n(row.sends),
+          sends: acc.sends + n(row.deliveries),
           deliveries: acc.deliveries + n(row.deliveries),
           opens: acc.opens + n(row.opens),
           clicks: acc.clicks + n(row.clicks),
           unsubs: acc.unsubs + n(row.unsubs),
-          bounces: acc.bounces + n(row.bounces),
-          spam: acc.spam + n(row.spam_reports),
+          bounces: 0,
+          spam: 0,
         }),
         { sends: 0, deliveries: 0, opens: 0, clicks: 0, unsubs: 0, bounces: 0, spam: 0 }
       );

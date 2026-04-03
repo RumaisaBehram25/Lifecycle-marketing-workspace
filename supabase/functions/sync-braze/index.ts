@@ -330,26 +330,13 @@ function firstFiniteNumber(o: Record<string, unknown>, keys: string[]): number {
 
 /** Prefer unique_*; otherwise max of totals (push / IAM) to avoid double-counting. */
 function variationOpens(v: Record<string, unknown>): number {
-  const uo = firstFiniteNumber(v, ['unique_opens']);
-  if (uo > 0) return uo;
-  return Math.max(
-    firstFiniteNumber(v, ['opens']),
-    firstFiniteNumber(v, ['direct_opens']),
-    firstFiniteNumber(v, ['total_opens']),
-    firstFiniteNumber(v, ['read']),
-  );
+  // Use exactly what Braze returns as 'opens' — no fallback to unique_opens
+  return firstFiniteNumber(v, ['opens']);
 }
 
 function variationClicks(v: Record<string, unknown>): number {
-  const uc = firstFiniteNumber(v, ['unique_clicks']);
-  if (uc > 0) return uc;
-  return Math.max(
-    firstFiniteNumber(v, ['clicks']),
-    firstFiniteNumber(v, ['body_clicks']),
-    firstFiniteNumber(v, ['total_clicks']),
-    firstFiniteNumber(v, ['first_button_clicks']),
-    firstFiniteNumber(v, ['second_button_clicks']),
-  );
+  // Use exactly what Braze returns as 'clicks' — no fallback to unique_clicks
+  return firstFiniteNumber(v, ['clicks']);
 }
 
 /**
@@ -389,13 +376,8 @@ function aggregateCampaignDayFromBraze(day: Record<string, unknown>): {
           firstFiniteNumber(v, ['messages_delivered']),
           firstFiniteNumber(v, ['successful_deliveries']),
         );
-        const imp = Math.max(
-          firstFiniteNumber(v, ['unique_impressions']),
-          firstFiniteNumber(v, ['impressions']),
-          firstFiniteNumber(v, ['total_impressions']),
-        );
-        const sendAdd = s > 0 ? s : imp;
-        const delAdd = d > 0 ? d : (imp > 0 ? imp : sendAdd);
+        const sendAdd = s;
+        const delAdd = d > 0 ? d : s;
         sends += sendAdd;
         deliveries += delAdd;
         opens += variationOpens(v);
@@ -3596,25 +3578,29 @@ Deno.serve(async (req) => {
       console.log(`[Braze Sync] Phase 4a-pre: inserted up to ${allCampaignList.length} list-only campaign rows`);
     }
 
-    // Resumable sync: find which campaigns already have full details so we can skip them
+    // Resumable sync: skip campaigns synced in the last 10 minutes (same sync session), skip details API for already-enriched ones
     let alreadyEnrichedIds = new Set<string>();
+    let recentlySyncedIds = new Set<string>();
     try {
-      const { data: enrichedRows } = await supabase
+      const { data: rows } = await supabase
         .from('braze_campaigns')
-        .select('braze_campaign_id')
-        .eq('client_id', clientId)
-        .not('raw_details', 'is', null);
-      if (enrichedRows) {
-        alreadyEnrichedIds = new Set(enrichedRows.map((r: Record<string, unknown>) => String(r.braze_campaign_id)));
+        .select('braze_campaign_id,synced_at,raw_details')
+        .eq('client_id', clientId);
+      if (rows) {
+        const tenMinAgo = new Date(Date.now() - 10 * 60000).toISOString();
+        for (const r of rows as Array<{ braze_campaign_id: string; synced_at: string | null; raw_details: unknown }>) {
+          if (r.raw_details != null) alreadyEnrichedIds.add(r.braze_campaign_id);
+          if (r.synced_at && r.synced_at > tenMinAgo) recentlySyncedIds.add(r.braze_campaign_id);
+        }
       }
-      console.log(`[Braze Sync] ${alreadyEnrichedIds.size} campaigns already enriched, will skip`);
+      console.log(`[Braze Sync] ${alreadyEnrichedIds.size} have details, ${recentlySyncedIds.size} synced <10min ago (skipping)`);
     } catch (err) {
-      console.warn('[Braze Sync] Could not fetch enriched campaign IDs, processing all:', err);
+      console.warn('[Braze Sync] Could not fetch campaign sync state:', err);
     }
 
-    const needsEnrichment = allCampaignList.filter(c => !alreadyEnrichedIds.has(c.id));
-    const campaignsToProcess = needsEnrichment.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
-    console.log(`Will process ${campaignsToProcess.length} campaigns (${needsEnrichment.length} need enrichment, ${alreadyEnrichedIds.size} already done)`);
+    const needsProcessing = allCampaignList.filter(c => !recentlySyncedIds.has(c.id));
+    const campaignsToProcess = needsProcessing.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
+    console.log(`Will process ${campaignsToProcess.length} campaigns (${recentlySyncedIds.size} skipped, ${alreadyEnrichedIds.size} have details)`);
 
     if (syncOverBudget()) {
       console.warn(
@@ -3623,7 +3609,8 @@ Deno.serve(async (req) => {
       syncPartial = true;
       if (!syncStoppedReason) syncStoppedReason = "time_budget";
     } else {
-    console.log(`Phase 4b: Processing campaign details in batches of ${BATCH_SIZE}...`);
+    const campaignPhaseStartMs = Date.now() - syncStart;
+    console.log(`Phase 4b: Processing campaign details in batches of ${BATCH_SIZE}... (${campaignPhaseStartMs}ms elapsed, ${maxWallMs - campaignPhaseStartMs}ms remaining)`);
     const campaignDataSeriesEndingAt = encodeURIComponent(nowIso);
 
     for (let i = 0; i < campaignsToProcess.length; i += BATCH_SIZE) {
@@ -3664,14 +3651,22 @@ Deno.serve(async (req) => {
           let push_body: string | undefined;
           let preview_image_url: string | undefined;
 
-          // Fetch campaign details
+          // Fetch campaign details (skip if already enriched — only refresh analytics)
+          const skipDetails = alreadyEnrichedIds.has(campaignId);
           try {
-            const details = await brazeFetch(
+            if (skipDetails) {
+              // Already have details — set minimal fields from list data, analytics will be refreshed below
+              status = c.last_sent ? 'sent' : 'scheduled';
+              sentDate = c.last_sent;
+              tags = c.tags || [];
+            }
+            const details = skipDetails ? null : await brazeFetch(
               `campaigns/details?campaign_id=${encodeURIComponent(campaignId)}`,
               apiKey,
               brazeRestEndpoint
             );
 
+            if (details) {
             rawDetails = {
               description: details.description,
               schedule_type: details.schedule_type,
@@ -3795,6 +3790,7 @@ Deno.serve(async (req) => {
             if (details.tags && Array.isArray(details.tags)) {
               tags = details.tags;
             }
+            } // end if (details)
           } catch (err) {
             console.warn(`Failed to fetch details for campaign ${campaignId}:`, err);
             // Still determine status from list data
@@ -3908,7 +3904,8 @@ Deno.serve(async (req) => {
             segment,
             tags,
             creative_preview,
-            raw_details: rawDetails,
+            // Don't overwrite raw_details when we skipped the details API call
+            ...(skipDetails ? {} : { raw_details: rawDetails }),
           };
         })
       );
@@ -4004,6 +4001,9 @@ Deno.serve(async (req) => {
     }
 
     // === PHASE 6: Segment directory → public.braze_segments_sync (not braze_segments) ===
+    if (campaignsOnly) {
+      console.log('[Braze Sync] CAMPAIGNS_ONLY: skipping segments and scheduled broadcasts');
+    } else {
     console.log("[SYNC] Starting: segments");
     console.log('[START] segments/list → braze_segments_sync');
     try {
@@ -4186,6 +4186,7 @@ Deno.serve(async (req) => {
       console.warn('scheduled_broadcasts sync failed:', e);
     }
 
+    } // end else (!campaignsOnly) — segments + scheduled broadcasts
     } // end !touchpointsOnly (campaigns, segments, scheduled_broadcasts)
 
     // === Update schema_cache with summary + lightweight campaign list (Settings + Campaigns fallback) ===
