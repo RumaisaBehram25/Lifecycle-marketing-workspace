@@ -9,8 +9,8 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 };
 
-// Reduced batch size and limits for memory safety
-const BATCH_SIZE = 3;
+// Parallel Braze API calls per batch
+const BATCH_SIZE = 10;
 const FALLBACK_BRAZE_REST_URL = "https://rest.iad-06.braze.com";
 
 function clampIntEnv(key: string, fallback: number, min: number, max: number): number {
@@ -42,7 +42,7 @@ const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 5000
 /** When true, skip Phase 3 detail fetch for draft canvases (legacy behavior). Default: drafts compete for the same detail cap as live canvases so `raw_steps` / touchpoints can populate. */
 const EXCLUDE_DRAFT_FROM_CANVAS_DETAIL =
   Deno.env.get("BRAZE_SYNC_EXCLUDE_DRAFT_CANVAS_DETAIL") === "true";
-const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 500, 1, 5000);
+const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 5000, 1, 10000);
 /** Rolled-up daily row from campaigns/data_series (one row per campaign per day; merges with CSV by conflict key). */
 const BRAZE_SYNC_CAMPAIGN_ANALYTICS_VARIATION = "__braze_sync_aggregate__";
 const MAX_SEGMENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_PAGES", 40, 1, 200);
@@ -2160,6 +2160,7 @@ Deno.serve(async (req) => {
       restEndpoint?: string;
       force_canvas_ids?: unknown;
       touchpoints_only?: unknown;
+      campaigns_only?: unknown;
       canvas_offset?: unknown;
       /** Test mode: parse a single canvas and return debug data without writing to DB. */
       mode?: string;
@@ -2188,9 +2189,12 @@ Deno.serve(async (req) => {
 
     const { clientId, platformId, restEndpoint } = body;
     const touchpointsOnly = body.touchpoints_only === true;
+    const campaignsOnly = body.campaigns_only === true;
     const forceCanvasIds: string[] = Array.isArray(body.force_canvas_ids)
       ? body.force_canvas_ids.map((x) => String(x).trim()).filter(Boolean)
       : [];
+
+    console.log(`[Braze Sync] Mode: ${campaignsOnly ? 'CAMPAIGNS_ONLY' : touchpointsOnly ? 'TOUCHPOINTS_ONLY' : 'FULL'} | clientId=${clientId} | platformId=${platformId}`);
 
     if (!clientId || !platformId) {
       throw new Error('clientId and platformId are required');
@@ -2390,7 +2394,7 @@ Deno.serve(async (req) => {
       !touchpointsOnly && forceCanvasIds.length > 0 && forceCanvasIds.length < 10;
 
     /** KPI, Phase 1b, email, Phase 4+ — skipped for fast path or touchpoints-only sync. */
-    const skipHeavySyncPhases = FORCE_CANVAS_FAST_PATH || touchpointsOnly;
+    const skipHeavySyncPhases = FORCE_CANVAS_FAST_PATH || touchpointsOnly || campaignsOnly;
 
     if (!skipHeavySyncPhases) {
       await pruneBrazeStorageForClient(supabase, String(clientId));
@@ -2570,11 +2574,14 @@ Deno.serve(async (req) => {
 
     // === PHASE 1: Fetch ALL canvas IDs with names (lightweight) — paginate until empty ===
     console.log('[SYNC] Starting: canvases');
-    console.log('[Braze Sync] Fetching canvas list (paginated, include_archived=false)...');
     const allCanvasList: CanvasListItem[] = [];
     const seenIds = new Set<string>();
     let canvasPage = 0;
 
+    if (campaignsOnly) {
+      console.log('[Braze Sync] CAMPAIGNS_ONLY: skipping canvas list fetch and all canvas phases');
+    } else {
+    console.log('[Braze Sync] Fetching canvas list (paginated, include_archived=false)...');
     while (canvasPage < 50) {
       try {
         const canvasesData = (await brazeFetch(
@@ -2626,10 +2633,11 @@ Deno.serve(async (req) => {
     console.log(
       `Total canvases found (list API, paginated): ${allCanvasList.length}`,
     );
+    } // end else (!campaignsOnly) — canvas list fetch
 
     // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
     // Runs even when FORCE_CANVAS_FAST_PATH (so canvas/data_series .update has rows to target).
-    if (!touchpointsOnly) {
+    if (!touchpointsOnly && !campaignsOnly) {
     const minimalChunks: CanvasListItem[][] = [];
     for (let i = 0; i < allCanvasList.length; i += 40) {
       minimalChunks.push(allCanvasList.slice(i, i + 40));
@@ -2958,7 +2966,7 @@ Deno.serve(async (req) => {
 
     // Build template map first (limited to 30 templates for memory). Touchpoints_only fetches templates per canvas instead.
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
-    if (!touchpointsOnly) {
+    if (!touchpointsOnly && !campaignsOnly) {
       try {
         const templatesData = await brazeFetch('templates/email/list?limit=30', apiKey, brazeRestEndpoint);
         const templateList = templatesData.templates || [];
@@ -3548,7 +3556,7 @@ Deno.serve(async (req) => {
     await ingestCampaignListPage(0);
 
     let campaignPage = 1;
-    while (campaignPage < 50) {
+    while (campaignPage < 100) {
       if (syncOverBudget()) {
         console.warn(
           "[Braze Sync] Time budget: stopping campaign list pagination early",
@@ -3560,7 +3568,6 @@ Deno.serve(async (req) => {
       const hadRows = await ingestCampaignListPage(campaignPage);
       if (!hadRows) break;
       campaignPage++;
-      await new Promise(r => setTimeout(r, 100));
     }
 
     console.log(`Total campaigns found: ${allCampaignList.length}`);
@@ -3569,7 +3576,7 @@ Deno.serve(async (req) => {
     // appear in the DB even if the detail pass (capped at MAX_CAMPAIGNS_TO_PROCESS) never reaches them.
     // Uses ignoreDuplicates=true so existing rows with full details are NOT overwritten.
     if (allCampaignList.length > 0 && !syncOverBudget()) {
-      const minimalRows = allCampaignList.slice(0, 500).map((c) => ({
+      const minimalRows = allCampaignList.map((c) => ({
         client_id: clientId,
         braze_campaign_id: c.id,
         name: c.name,
@@ -3586,11 +3593,28 @@ Deno.serve(async (req) => {
           console.warn('[Braze Sync] Phase 4a-pre minimal campaign upsert error:', minErr.message);
         }
       }
-      console.log(`[Braze Sync] Phase 4a-pre: inserted up to ${Math.min(allCampaignList.length, 500)} list-only campaign rows`);
+      console.log(`[Braze Sync] Phase 4a-pre: inserted up to ${allCampaignList.length} list-only campaign rows`);
     }
 
-    const campaignsToProcess = allCampaignList.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
-    console.log(`Will process ${campaignsToProcess.length} campaigns`);
+    // Resumable sync: find which campaigns already have full details so we can skip them
+    let alreadyEnrichedIds = new Set<string>();
+    try {
+      const { data: enrichedRows } = await supabase
+        .from('braze_campaigns')
+        .select('braze_campaign_id')
+        .eq('client_id', clientId)
+        .not('raw_details', 'is', null);
+      if (enrichedRows) {
+        alreadyEnrichedIds = new Set(enrichedRows.map((r: Record<string, unknown>) => String(r.braze_campaign_id)));
+      }
+      console.log(`[Braze Sync] ${alreadyEnrichedIds.size} campaigns already enriched, will skip`);
+    } catch (err) {
+      console.warn('[Braze Sync] Could not fetch enriched campaign IDs, processing all:', err);
+    }
+
+    const needsEnrichment = allCampaignList.filter(c => !alreadyEnrichedIds.has(c.id));
+    const campaignsToProcess = needsEnrichment.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
+    console.log(`Will process ${campaignsToProcess.length} campaigns (${needsEnrichment.length} need enrichment, ${alreadyEnrichedIds.size} already done)`);
 
     if (syncOverBudget()) {
       console.warn(
@@ -3599,7 +3623,7 @@ Deno.serve(async (req) => {
       syncPartial = true;
       if (!syncStoppedReason) syncStoppedReason = "time_budget";
     } else {
-    console.log('Phase 4b: Processing campaign details in batches of 3...');
+    console.log(`Phase 4b: Processing campaign details in batches of ${BATCH_SIZE}...`);
     const campaignDataSeriesEndingAt = encodeURIComponent(nowIso);
 
     for (let i = 0; i < campaignsToProcess.length; i += BATCH_SIZE) {
@@ -3975,7 +3999,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(
-      `Processed ${campaignsProcessedCount} campaigns, ${campaignsEnabledCount} enabled/sent; braze_campaign_analytics rows upserted=${campaignAnalyticsRowsUpserted}`,
+      `[Braze Sync] Campaign phase complete: processed=${campaignsProcessedCount}, enabled=${campaignsEnabledCount}, analytics_rows=${campaignAnalyticsRowsUpserted}, total_found=${allCampaignList.length}, skipped_already_enriched=${alreadyEnrichedIds.size}`,
     );
     }
 

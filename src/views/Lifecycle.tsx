@@ -327,6 +327,13 @@ export default function Lifecycle() {
       });
       if (error) throw error;
       if (!d?.success) throw new Error('Braze sync returned success: false');
+      console.log('[Lifecycle Sync] Chunk response:', {
+        offset: d.offset,
+        total: d.total,
+        processed: d.processed,
+        done: d.done,
+        canvases_detail_enriched: (d as Record<string, unknown>).counts ? ((d as Record<string, unknown>).counts as Record<string, unknown>)?.canvases_detail_enriched : undefined,
+      });
 
       total = typeof d.total === 'number' && !Number.isNaN(d.total) ? d.total : total;
       const nextOffset =
@@ -980,7 +987,7 @@ export default function Lifecycle() {
               >
                 <JourneyDetail
                   journey={selectedJourney}
-                  clientId={workspaceClientId}
+                  clientId={brazeReadClientId ?? workspaceClientId}
                   inDialog
                   onBack={() => setSelectedJourney(null)}
                   onViewTouchpoint={(step: unknown) => setSelectedTouchpoint(step)}
@@ -1449,6 +1456,7 @@ function JourneyDetail({
   const { data: detailRow } = useQuery({
     queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
     queryFn: async () => {
+      console.log('[JourneyDetail] Fetching canvas detail:', { clientId: clientId!, journeyDbId });
       const { data, error } = await supabase
         .from('braze_canvases')
         .select('*')
@@ -1456,6 +1464,12 @@ function JourneyDetail({
         .eq('id', journeyDbId)
         .maybeSingle();
       if (error) throw error;
+      console.log('[JourneyDetail] Detail row result:', {
+        found: !!data,
+        hasRawSteps: data ? (data.raw_steps != null) : false,
+        rawStepsKeys: data?.raw_steps ? Object.keys(data.raw_steps as Record<string, unknown>).length : 0,
+        hasVariants: data ? (data.raw_variants != null) : false,
+      });
       return data as Record<string, unknown> | null;
     },
     enabled: !!clientId && !!journeyDbId,
@@ -1520,6 +1534,12 @@ function JourneyDetail({
   const { Icon, gradient, shadow } = getJourneyVisuals(String(merged.name ?? ''));
 
   const stepsRecord = normalizeRawSteps(merged.steps as Record<string, LifecycleCanvasStep> | undefined);
+  console.log('[JourneyDetail] Rendering:', {
+    mergedStepKeys: merged.steps ? Object.keys(merged.steps as Record<string, unknown>).length : 0,
+    normalizedStepKeys: Object.keys(stepsRecord).length,
+    variants: (merged.variants as unknown[])?.length ?? 0,
+    variantNames: ((merged.variants ?? []) as Array<{ name: string; first_step_id?: string }>).map(v => ({ name: v.name, first_step_id: v.first_step_id?.slice(0, 8) })),
+  });
   const stepSummaryBadge = formatLifecycleStepBadge(
     stepsRecord,
     (merged as { db_total_steps?: number }).db_total_steps,

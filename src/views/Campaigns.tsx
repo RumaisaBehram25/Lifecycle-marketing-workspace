@@ -70,10 +70,12 @@ import {
 } from 'date-fns';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import {
   brazeSyncPartialDescription,
   formatBrazeSyncInvokeError,
+  type BrazeSyncInvokeBody,
 } from '@/lib/brazeSyncInvoke';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -566,6 +568,7 @@ export default function Campaigns() {
   const queryClient = useQueryClient();
 
   const { clientId: workspaceClientId, isClientLoading: workspaceClientLoading } = useResolvedClientId();
+  const { isAdmin } = useAuth();
   const { data: platforms, isLoading: platformsLoading } = useDoubleGoodPlatforms();
   /** Stable check — avoids treating “no row yet” as disconnected while `platforms` is still loading. */
   const brazeConnected = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
@@ -588,16 +591,38 @@ export default function Campaigns() {
     if (!workspaceClientId || !brazePlatform?.id) return;
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('sync-braze', {
-        body: { clientId: workspaceClientId, platformId: brazePlatform.id },
-      });
+      let round = 0;
+      let totalProcessed = 0;
 
-      if (error) throw error;
+      while (round < 20) {
+        round++;
+        console.log(`[Campaign Sync] Starting round ${round}`);
 
-      const partialDesc = brazeSyncPartialDescription(data);
+        const { data, error } = await supabase.functions.invoke('sync-braze', {
+          body: { clientId: workspaceClientId, platformId: brazePlatform.id, campaigns_only: true },
+        });
+
+        if (error) throw error;
+
+        const inner = data?.data as { counts?: Record<string, number> } | undefined;
+        const processed = inner?.counts?.campaigns_processed ?? 0;
+        totalProcessed += processed;
+
+        console.log(`[Campaign Sync] Round ${round}: processed=${processed}, total_found=${inner?.counts?.campaigns_found ?? 0}, partial=${data?.partial}`);
+
+        // Refresh UI between rounds
+        queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
+
+        // Stop if nothing new was processed (all campaigns enriched)
+        if (processed === 0) {
+          console.log(`[Campaign Sync] Done after ${round} round(s), total enriched=${totalProcessed}`);
+          break;
+        }
+      }
+
       toast({
-        title: data?.partial ? 'Campaigns synced from Braze (partial)' : 'Campaigns synced from Braze',
-        description: partialDesc,
+        title: 'Campaigns synced from Braze',
+        description: `Enriched ${totalProcessed} campaigns in ${round} round(s).`,
       });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
@@ -623,18 +648,51 @@ export default function Campaigns() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['braze_campaigns', workspaceClientId],
+    queryKey: ['braze_campaigns', workspaceClientId, isAdmin],
     queryFn: async () => {
       const cid = workspaceClientId;
       if (!cid) return [];
-      const { data, error: qErr } = await supabase
-        .from('braze_campaigns')
-        .select('*')
-        .eq('client_id', cid)
-        .order('sent_date', { ascending: false })
-        .limit(2000);
-      if (qErr) throw qErr;
-      return data ?? [];
+      // Supabase defaults to 1000 rows max; fetch all pages
+      const allRows: Record<string, unknown>[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        let query = supabase
+          .from('braze_campaigns')
+          .select('*');
+        // Admins see all campaigns; non-admins only see their workspace
+        if (!isAdmin) {
+          query = query.eq('client_id', cid);
+        }
+        const { data: page, error: qErr } = await query
+          .order('sent_date', { ascending: false })
+          .range(from, from + pageSize - 1);
+        if (qErr) throw qErr;
+        if (!page || page.length === 0) break;
+        allRows.push(...page);
+        if (page.length < pageSize) break;
+        from += pageSize;
+      }
+      // Admins see all client_ids — deduplicate by braze_campaign_id, keeping the row with most data
+      if (isAdmin) {
+        const seen = new Map<string, Record<string, unknown>>();
+        for (const row of allRows) {
+          const key = (row.braze_campaign_id as string) ?? (row.id as string);
+          const existing = seen.get(key);
+          if (!existing) {
+            seen.set(key, row);
+          } else {
+            // Prefer the row with more non-null fields (richer details)
+            const score = (r: Record<string, unknown>) =>
+              Object.values(r).filter(v => v != null && v !== '').length;
+            if (score(row) > score(existing)) {
+              seen.set(key, row);
+            }
+          }
+        }
+        return Array.from(seen.values());
+      }
+      return allRows;
     },
     enabled: showLiveCampaigns,
   });

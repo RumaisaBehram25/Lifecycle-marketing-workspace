@@ -585,7 +585,7 @@ function buildAllReachableSteps(firstStepId: string | null, allSteps: Record<str
   return result;
 }
 
-/** First step(s) have no incoming edge from any other step (canvas entry). */
+/** First step(s) have no incoming edge from any other step (canvas entry). Prefers entries with outgoing edges (not dead-end control/webhook steps). */
 function findEntryStepId(allSteps: Record<string, CanvasStep>): string | null {
   const ids = Object.keys(allSteps);
   if (ids.length === 0) return null;
@@ -596,7 +596,10 @@ function findEntryStepId(allSteps: Record<string, CanvasStep>): string | null {
     }
   }
   const entries = ids.filter((id) => !hasIncoming.has(id));
-  return entries.length > 0 ? entries[0] : ids[0];
+  if (entries.length === 0) return ids[0];
+  // Prefer entry steps that have outgoing connections (not dead-end control steps)
+  const withOutgoing = entries.filter((id) => getOutgoingStepIds(allSteps[id]).length > 0);
+  return withOutgoing.length > 0 ? withOutgoing[0] : entries[0];
 }
 
 function normalizeFlowStepType(step: CanvasStep): string {
@@ -667,7 +670,7 @@ function VariantRow({
     const result: { step: CanvasStep; delaySeconds?: number; splitStep?: CanvasStep }[] = [];
     let accumulatedDelaySeconds = 0;
     let pendingSplitStep: CanvasStep | undefined;
-    
+
     for (const s of path) {
       if (isDelayOnlyStep(s)) {
         accumulatedDelaySeconds += s.delay_seconds || 0;
@@ -793,6 +796,14 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
     }
 
     if (hasSteps && entryFallback) {
+      const reachable = buildAllReachableSteps(entryFallback, canvas.steps);
+      console.log('[FlowChart] No variants fallback:', {
+        totalSteps: Object.keys(canvas.steps).length,
+        entryStepId: entryFallback,
+        entryStep: canvas.steps[entryFallback],
+        reachableFromEntry: reachable.length,
+        firstFewReachable: reachable.slice(0, 5).map(s => ({ id: s.id?.slice(0, 8), name: s.name, type: s.type, channel: s.channel })),
+      });
       return [
         {
           name: 'Main Path',
