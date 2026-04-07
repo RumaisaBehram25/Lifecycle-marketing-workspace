@@ -1,5 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.89.0";
 import { validateAuth, validateClientAccessForEdge, authErrorResponse } from "../_shared/auth.ts";
+import {
+  mergePreviewImagePicks,
+  pickBestImageUrlFromHtml,
+  pickBestPreviewImageFromCandidateUrls,
+} from "../_shared/campaignPreviewImage.ts";
 import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
@@ -104,6 +109,57 @@ function truncateHtml(html: string | undefined): string | undefined {
   if (!html) return undefined;
   if (MAX_HTML_SIZE === 0 || html.length <= MAX_HTML_SIZE) return html;
   return html.slice(0, MAX_HTML_SIZE) + '<!-- truncated -->';
+}
+
+/** Persist Braze `messages` for dashboard parsing; cap total stored HTML-ish chars. */
+function truncateCampaignMessagesForStorage(
+  messages: Record<string, unknown>,
+  maxTotal: number,
+): Record<string, unknown> {
+  let total = 0;
+  const BODY_KEYS = ["body", "html_body", "html_content", "html", "amp_body", "plain_text_body"];
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(messages)) {
+    if (total >= maxTotal) break;
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      out[k] = v;
+      continue;
+    }
+    const m = { ...(v as Record<string, unknown>) };
+    for (const key of BODY_KEYS) {
+      const s = m[key];
+      if (typeof s !== "string" || !s.length) continue;
+      const remaining = maxTotal - total;
+      if (remaining <= 0) {
+        m[key] = "";
+        continue;
+      }
+      if (s.length > remaining) {
+        m[key] = s.slice(0, remaining) + "<!-- truncated -->";
+        total = maxTotal;
+      } else {
+        total += s.length;
+      }
+    }
+    out[k] = m;
+  }
+  return out;
+}
+
+/** True when channel is clearly not email (still allow empty / unknown channel). */
+function brazeMessageIsNonEmail(ch: string): boolean {
+  if (!ch) return false;
+  const c = ch.toLowerCase();
+  if (c === "email" || c.includes("email")) return false;
+  return (
+    c.includes("push") ||
+    c.includes("in_app") ||
+    c.includes("in-app") ||
+    c === "content_card" ||
+    c === "webhook" ||
+    c === "sms" ||
+    c === "whatsapp"
+  );
 }
 
 // Retry wrapper with exponential back-off (avoid angle-bracket generics on the function name for older bundlers).
@@ -310,6 +366,13 @@ function brazeAlertToString(alert: unknown): string | undefined {
   return undefined;
 }
 
+/** Avoid storing plain-text `body` as `email_html_preview` — it breaks dashboard iframe previews. */
+function emailBodyLooksLikeHtml(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 8) return false;
+  return /<(?:[a-z][\w-]*|\/[a-z][\w-]*|!doctype)/i.test(t);
+}
+
 function numFromDay(day: Record<string, unknown>, keys: string[]): number {
   for (const k of keys) {
     const v = day[k];
@@ -328,15 +391,13 @@ function firstFiniteNumber(o: Record<string, unknown>, keys: string[]): number {
   return 0;
 }
 
-/** Prefer unique_*; otherwise max of totals (push / IAM) to avoid double-counting. */
+/** Match top-level day fallback: Braze often nests unique_opens / unique_clicks on message rows. */
 function variationOpens(v: Record<string, unknown>): number {
-  // Use exactly what Braze returns as 'opens' — no fallback to unique_opens
-  return firstFiniteNumber(v, ['opens']);
+  return firstFiniteNumber(v, ['unique_opens', 'opens']);
 }
 
 function variationClicks(v: Record<string, unknown>): number {
-  // Use exactly what Braze returns as 'clicks' — no fallback to unique_clicks
-  return firstFiniteNumber(v, ['clicks']);
+  return firstFiniteNumber(v, ['unique_clicks', 'clicks']);
 }
 
 /**
@@ -3589,7 +3650,19 @@ Deno.serve(async (req) => {
       if (rows) {
         const tenMinAgo = new Date(Date.now() - 10 * 60000).toISOString();
         for (const r of rows as Array<{ braze_campaign_id: string; synced_at: string | null; raw_details: unknown }>) {
-          if (r.raw_details != null) alreadyEnrichedIds.add(r.braze_campaign_id);
+          // Only skip campaigns/details when we already stored creative payload (image, HTML, or messages).
+          // Older rows had raw_details with description only — they need a fresh details fetch.
+          if (r.raw_details != null && typeof r.raw_details === "object") {
+            const rd = r.raw_details as Record<string, unknown>;
+            const hasRichCreative =
+              (typeof rd.email_html_preview === "string" && rd.email_html_preview.length > 0) ||
+              (typeof rd.preview_image_url === "string" && rd.preview_image_url.length > 0) ||
+              (rd.messages &&
+                typeof rd.messages === "object" &&
+                !Array.isArray(rd.messages) &&
+                Object.keys(rd.messages as Record<string, unknown>).length > 0);
+            if (hasRichCreative) alreadyEnrichedIds.add(r.braze_campaign_id);
+          }
           if (r.synced_at && r.synced_at > tenMinAgo) recentlySyncedIds.add(r.braze_campaign_id);
         }
       }
@@ -3650,9 +3723,12 @@ Deno.serve(async (req) => {
           let push_title: string | undefined;
           let push_body: string | undefined;
           let preview_image_url: string | undefined;
+          const imageCandidates: string[] = [];
+          let emailHtmlPreview: string | undefined;
 
           // Fetch campaign details (skip if already enriched — only refresh analytics)
           const skipDetails = alreadyEnrichedIds.has(campaignId);
+          let details: Record<string, unknown> | null = null;
           try {
             if (skipDetails) {
               // Already have details — set minimal fields from list data, analytics will be refreshed below
@@ -3660,11 +3736,13 @@ Deno.serve(async (req) => {
               sentDate = c.last_sent;
               tags = c.tags || [];
             }
-            const details = skipDetails ? null : await brazeFetch(
-              `campaigns/details?campaign_id=${encodeURIComponent(campaignId)}`,
-              apiKey,
-              brazeRestEndpoint
-            );
+            details = skipDetails
+              ? null
+              : ((await brazeFetch(
+                  `campaigns/details?campaign_id=${encodeURIComponent(campaignId)}`,
+                  apiKey,
+                  brazeRestEndpoint,
+                )) as Record<string, unknown> | null);
 
             if (details) {
             rawDetails = {
@@ -3726,33 +3804,54 @@ Deno.serve(async (req) => {
                   msg.image_url ||
                   msg.thumbnail_url ||
                   msg.url;
-                if (
-                  typeof img === "string" &&
-                  (img.startsWith("http") || img.startsWith("//")) &&
-                  !preview_image_url
-                ) {
-                  preview_image_url = img.startsWith("//") ? `https:${img}` : img;
+                if (typeof img === "string" && (img.startsWith("http") || img.startsWith("//"))) {
+                  imageCandidates.push(img.startsWith("//") ? `https:${img}` : img);
                 }
               }
 
-              // Email hero images (Braze often nests these only on email messages)
+              // Email hero images (same channel rules as HTML — `channel` may be omitted)
               for (const msg of msgEntries) {
                 const ch = String(msg.channel ?? "").toLowerCase();
-                if (!preview_image_url && (ch === "email" || ch.includes("email"))) {
-                  const img =
-                    msg.image_url ||
-                    msg.thumbnail_url ||
-                    msg.big_image ||
-                    msg.url;
-                  if (
-                    typeof img === "string" &&
-                    (img.startsWith("http") || img.startsWith("//"))
-                  ) {
-                    preview_image_url = img.startsWith("//") ? `https:${img}` : img;
-                    break;
-                  }
+                if (brazeMessageIsNonEmail(ch)) continue;
+                const img =
+                  msg.image_url ||
+                  msg.thumbnail_url ||
+                  msg.big_image ||
+                  msg.url;
+                if (typeof img === "string" && (img.startsWith("http") || img.startsWith("//"))) {
+                  imageCandidates.push(img.startsWith("//") ? `https:${img}` : img);
                 }
               }
+
+              // Email HTML for dashboard preview — collect all message HTML, prefer longest real HTML (not plain body).
+              const emailHtmlCandidates: string[] = [];
+              for (const msg of msgEntries) {
+                const ch = String(msg.channel ?? "").toLowerCase();
+                if (brazeMessageIsNonEmail(ch)) continue;
+                let htmlCandidate: string | undefined;
+                if (typeof msg.html_body === "string" && msg.html_body.trim()) {
+                  htmlCandidate = msg.html_body.trim();
+                } else if (typeof msg.html_content === "string" && msg.html_content.trim()) {
+                  htmlCandidate = msg.html_content.trim();
+                } else if (typeof msg.html === "string" && msg.html.trim()) {
+                  htmlCandidate = msg.html.trim();
+                } else if (typeof msg.body === "string" && msg.body.trim()) {
+                  const b = msg.body.trim();
+                  if (emailBodyLooksLikeHtml(b)) htmlCandidate = b;
+                }
+                if (htmlCandidate) emailHtmlCandidates.push(htmlCandidate);
+              }
+              const htmlLike = emailHtmlCandidates.filter((c) => emailBodyLooksLikeHtml(c));
+              const bestHtml =
+                htmlLike.length > 0
+                  ? htmlLike.sort((a, b) => b.length - a.length)[0]
+                  : undefined;
+              if (bestHtml) {
+                emailHtmlPreview = truncateHtml(bestHtml);
+              }
+              const jsonPick = pickBestPreviewImageFromCandidateUrls(imageCandidates);
+              const htmlPick = emailHtmlPreview ? pickBestImageUrlFromHtml(emailHtmlPreview) : undefined;
+              preview_image_url = mergePreviewImagePicks(jsonPick, htmlPick);
               // SMS copy as push-style fields when native push/in-app messages are absent
               for (const msg of msgEntries) {
                 const ch = String(msg.channel ?? "").toLowerCase();
@@ -3805,6 +3904,18 @@ Deno.serve(async (req) => {
             ...(push_title ? { push_title } : {}),
             ...(push_body ? { push_body } : {}),
             ...(preview_image_url ? { preview_image_url } : {}),
+            ...(emailHtmlPreview ? { email_html_preview: emailHtmlPreview } : {}),
+            ...(details &&
+            details.messages &&
+            typeof details.messages === "object" &&
+            !Array.isArray(details.messages)
+              ? {
+                  messages: truncateCampaignMessagesForStorage(
+                    details.messages as Record<string, unknown>,
+                    250000,
+                  ),
+                }
+              : {}),
           };
 
           const descPreview =

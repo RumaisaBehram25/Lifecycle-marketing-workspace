@@ -15,3 +15,6 @@ verify_jwt = false
 
 [functions.sync-braze]
 verify_jwt = false
+
+[functions.braze-campaign-creative]
+verify_jwt = false

@@ -1,85 +1,119 @@
-import { memo, useState } from 'react';
-import { Mail } from 'lucide-react';
+import { memo, useMemo, useState } from 'react';
+import { ImageIcon, ImageOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
+import { wrapHtmlForIframePreview } from '@/lib/campaignDisplay';
 
 export interface EmailModalCreativeProps {
-  /** Primary line (usually subject) */
-  subjectLine: string;
-  /** Secondary line (preheader); may be em dash */
-  preheaderLine: string;
-  previewImageUrl?: string | null;
-  /** Fallback when subject is empty */
-  summaryLine: string;
+  /** Hero image URL from Braze (preferred when present). */
+  imageUrl?: string | null;
+  /** Email HTML from `raw_details.email_html_preview` or `messages.*` (iframe when no usable image). */
+  htmlContent?: string | null;
   className?: string;
 }
 
 /**
- * Inbox-style creative block for the campaign detail modal (replaces a blank gradient hero).
+ * Email campaign hero: image → sandboxed HTML iframe → neutral placeholder.
+ * Fixed 220px height, top-anchored crop — subject and preheader are rendered outside this component.
  */
 export const EmailModalCreative = memo(function EmailModalCreative({
-  subjectLine,
-  preheaderLine,
-  previewImageUrl,
-  summaryLine,
+  imageUrl,
+  htmlContent,
   className,
 }: EmailModalCreativeProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
-  const url = typeof previewImageUrl === 'string' && previewImageUrl.trim() ? previewImageUrl.trim() : undefined;
-  const showImg = Boolean(url && !imgFailed);
+  const [iframeFailed, setIframeFailed] = useState(false);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
 
-  const primary =
-    subjectLine !== '—' && subjectLine.trim().length > 0 ? subjectLine : summaryLine;
-  const secondary =
-    preheaderLine !== '—' && preheaderLine.trim().length > 0 ? preheaderLine : null;
+  const url = typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : undefined;
+  const html = typeof htmlContent === 'string' && htmlContent.trim() ? htmlContent.trim() : undefined;
+
+  const hasUrl = Boolean(url);
+  const hasHtml = Boolean(html);
+
+  const iframeDoc = useMemo(() => (html ? wrapHtmlForIframePreview(html) : ''), [html]);
+
+  const useImageBranch = hasUrl && !imgFailed;
+  const useHtmlBranch = !useImageBranch && hasHtml && !iframeFailed;
+
+  const loadFailed = iframeFailed || Boolean(hasUrl && imgFailed && !hasHtml);
 
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border border-border/80 bg-gradient-to-b from-slate-50/90 to-background shadow-sm dark:from-slate-950/80 dark:to-card',
+        'overflow-hidden rounded-xl border border-border/80 bg-muted shadow-sm dark:border-border/60',
         className,
       )}
     >
-      {showImg && url && (
-        <div className="relative h-40 w-full bg-muted">
-          <div
-            className={cn(
-              'absolute inset-0 bg-gradient-to-br from-blue-100/80 to-slate-100 transition-opacity duration-500 dark:from-blue-950/50 dark:to-slate-900',
-              imgLoaded && 'opacity-0',
+      <div
+        className="relative h-[220px] min-h-[220px] w-full overflow-hidden bg-muted"
+        aria-label="Email creative preview"
+      >
+        <div className="absolute inset-0 bg-muted" aria-hidden />
+
+        {useImageBranch && url && (
+          <>
+            {!imgLoaded && (
+              <Skeleton className="pointer-events-none absolute inset-0 z-[1] rounded-none" aria-hidden />
             )}
-            aria-hidden
-          />
-          <img
-            src={url}
-            alt=""
-            width={640}
-            height={240}
-            loading="lazy"
-            decoding="async"
+            <img
+              src={url}
+              alt=""
+              width={920}
+              height={400}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
             className={cn(
-              'relative z-[1] h-full w-full object-cover object-center transition-opacity duration-500',
+              'absolute inset-0 z-[2] h-full w-full object-cover object-top transition-opacity duration-300 ease-out',
               imgLoaded ? 'opacity-100' : 'opacity-0',
             )}
-            onLoad={() => setImgLoaded(true)}
-            onError={() => {
-              setImgFailed(true);
-              setImgLoaded(false);
-            }}
-          />
-        </div>
-      )}
+              onLoad={() => setImgLoaded(true)}
+              onError={() => {
+                setImgFailed(true);
+                setImgLoaded(false);
+              }}
+            />
+          </>
+        )}
 
-      <div className="relative border-t border-border/60 bg-card px-4 py-4">
-        <div className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <Mail className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" aria-hidden />
-          Email preview
-        </div>
-        <p className="select-text text-sm font-semibold leading-snug text-foreground break-words">{primary}</p>
-        {secondary ? (
-          <p className="mt-2 select-text text-xs leading-relaxed text-muted-foreground break-words line-clamp-5">
-            {secondary}
-          </p>
-        ) : null}
+        {useHtmlBranch && iframeDoc && (
+          <>
+            {!iframeLoaded && (
+              <Skeleton className="pointer-events-none absolute inset-0 z-[3] rounded-none" aria-hidden />
+            )}
+            <iframe
+              title="Email HTML preview"
+              sandbox=""
+              srcDoc={iframeDoc}
+              className={cn(
+                'absolute inset-0 z-[4] h-full w-full border-0 bg-white transition-opacity duration-300',
+                iframeLoaded ? 'opacity-100' : 'opacity-0',
+              )}
+              onLoad={() => setIframeLoaded(true)}
+              onError={() => setIframeFailed(true)}
+            />
+          </>
+        )}
+
+        {!useImageBranch && !useHtmlBranch && (
+          <div
+            className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 px-6 text-center"
+            aria-hidden
+          >
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted-foreground/10 ring-1 ring-border">
+              {loadFailed ? (
+                <ImageOff className="h-7 w-7 text-muted-foreground/50" aria-hidden />
+              ) : (
+                <ImageIcon className="h-7 w-7 text-muted-foreground/45" aria-hidden />
+              )}
+            </div>
+            <p className="max-w-[260px] text-xs text-muted-foreground">
+              {loadFailed ? 'Preview could not be loaded' : 'No creative preview available'}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

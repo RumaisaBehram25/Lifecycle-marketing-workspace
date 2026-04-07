@@ -52,6 +52,7 @@ import {
   Copy,
   Check,
   ChevronDown,
+  MessageSquare,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
@@ -87,12 +88,19 @@ import {
   getCampaignPreviewLine,
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
+  extractEmailHtmlPreview,
+  resolveCampaignPreviewImageUrl,
   sanitizeCampaignDisplayText,
+  sanitizeCampaignDisplayWithMeta,
+  isLikelyNonHeroImageUrl,
+  isLikelyLogoHeaderOrBranding,
   type CampaignChannelUi,
   type CampaignPreviewFields,
 } from '@/lib/campaignDisplay';
 import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
 import { EmailModalCreative } from '@/components/campaigns/EmailModalCreative';
+import { PushSmsModalHero } from '@/components/campaigns/PushSmsModalHero';
+import { buildCampaignModalStatRows } from '@/lib/campaignModalStats';
 
 interface PlaceholderCampaign {
   id: string;
@@ -110,6 +118,8 @@ interface PlaceholderCampaign {
   clicks?: number;
   segment?: string;
   deliveries?: number;
+  /** Braze `sends` when `deliveries` is empty in API aggregate */
+  sends?: number;
   open_rate?: string;
   click_rate?: string;
   unsubs?: number;
@@ -158,6 +168,7 @@ type BrazeCampaignRow = {
   opens?: number | null;
   clicks?: number | null;
   deliveries?: number | null;
+  sends?: number | null;
   open_rate?: number | string | null;
   click_rate?: number | string | null;
   unsubs?: number | null;
@@ -317,18 +328,21 @@ const channelIcons: Record<CampaignChannelUi, React.ReactNode> = {
   email: <Mail className="h-4 w-4" aria-hidden />,
   push: <Bell className="h-4 w-4" aria-hidden />,
   inapp: <Smartphone className="h-4 w-4" aria-hidden />,
+  sms: <MessageSquare className="h-4 w-4" aria-hidden />,
 };
 
 const channelLabels: Record<CampaignChannelUi, string> = {
   email: 'Email',
   push: 'Push',
   inapp: 'In-App',
+  sms: 'SMS',
 };
 
 const channelColors: Record<CampaignChannelUi, string> = {
   email: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
   push: 'bg-orange-500/10 text-orange-700 dark:text-orange-300',
   inapp: 'bg-purple-500/10 text-purple-700 dark:text-purple-300',
+  sms: 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300',
 };
 
 function parseRateToSort(s: string | undefined): number {
@@ -432,13 +446,15 @@ function CampaignsGridSkeleton() {
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
         <Card key={i} className="flex h-full min-h-0 flex-col overflow-hidden">
-          <Skeleton className="aspect-video w-full shrink-0 rounded-none" />
+          <Skeleton className="h-[132px] w-full shrink-0 rounded-none" />
           <CardContent className="flex flex-1 flex-col gap-3 p-4">
             <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-3 w-full" />
-            <div className="mt-auto flex items-center justify-between pt-1">
+            <div className="mt-auto flex items-center justify-between gap-2 pt-1">
               <Skeleton className="h-5 w-14 rounded-full" />
-              <Skeleton className="h-4 w-16" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-10" />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -539,6 +555,17 @@ function CalendarView({
 function displaySanitized(value: string | null | undefined): string {
   const s = sanitizeCampaignDisplayText(value);
   return s.length > 0 ? s : '—';
+}
+
+function PersonalizedLiquidBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="h-5 shrink-0 border-dashed px-1.5 text-[10px] font-normal text-muted-foreground"
+    >
+      Personalized
+    </Badge>
+  );
 }
 
 export default function Campaigns() {
@@ -709,9 +736,8 @@ export default function Campaigns() {
       const push_title = typeof rawDetails.push_title === 'string' ? rawDetails.push_title : undefined;
       const push_body = typeof rawDetails.push_body === 'string' ? rawDetails.push_body : undefined;
       const description = typeof rawDetails.description === 'string' ? rawDetails.description : undefined;
-      const preview_image_url =
-        extractPreviewImageUrl(rawDetails) ??
-        (typeof rawDetails.preview_image_url === 'string' ? rawDetails.preview_image_url : undefined);
+      /** Do not fall back to raw `preview_image_url` — it bypasses Linktree/non-hero filtering in {@link extractPreviewImageUrl}. */
+      const preview_image_url = extractPreviewImageUrl(rawDetails);
 
       const base: PlaceholderCampaign = {
         id: String(row.braze_campaign_id ?? row.id),
@@ -728,6 +754,7 @@ export default function Campaigns() {
         clicks: row.clicks ?? undefined,
         segment: row.segment ?? undefined,
         deliveries: row.deliveries ?? undefined,
+        sends: row.sends ?? undefined,
         open_rate: formatCampaignRate(row.open_rate),
         click_rate: formatCampaignRate(row.click_rate),
         unsubs: row.unsubs ?? undefined,
@@ -883,8 +910,7 @@ export default function Campaigns() {
     for (const row of dbCampaigns as BrazeCampaignRow[]) {
       if (!String(row.creative_preview ?? '').trim()) missingCreative++;
       const raw = (row.raw_details ?? {}) as Record<string, unknown>;
-      if (!extractPreviewImageUrl(raw) && !(typeof raw.preview_image_url === 'string' && raw.preview_image_url))
-        missingImage++;
+      if (!extractPreviewImageUrl(raw)) missingImage++;
       const pt = typeof raw.push_title === 'string' ? raw.push_title : '';
       const pb = typeof raw.push_body === 'string' ? raw.push_body : '';
       const ch = normalizeCampaignChannel(row.channel);
@@ -912,13 +938,147 @@ export default function Campaigns() {
     [selectedRawRow],
   );
 
-  const modalHeroPreviewText = useMemo(() => {
-    if (!selectedCampaign) return 'No preview available';
-    const t = sanitizeCampaignDisplayText(
-      selectedCampaign.creative_preview ??
-        getCampaignPreviewLine(toPreviewFields(selectedCampaign)),
-    );
-    return t.length > 0 ? t : 'No preview available';
+  /** From Supabase row / view-model only (before live Braze fallback). */
+  const modalImageFromSupabase = useMemo(
+    () => resolveCampaignPreviewImageUrl(selectedCampaign, selectedRawRow),
+    [selectedCampaign, selectedRawRow],
+  );
+
+  /** Email HTML from synced `raw_details` only. */
+  const modalEmailHtmlFromSupabase = useMemo(() => {
+    if (!selectedRawRow?.raw_details || typeof selectedRawRow.raw_details !== 'object') return undefined;
+    return extractEmailHtmlPreview(selectedRawRow.raw_details as Record<string, unknown>);
+  }, [selectedRawRow]);
+
+  /** Live `/campaigns/details` when preview image or email HTML is missing in DB. */
+  const [brazeCreativeOverride, setBrazeCreativeOverride] = useState<{
+    preview_image_url?: string;
+    email_html_preview?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setBrazeCreativeOverride(null);
+  }, [selectedCampaign?.id]);
+
+  const effectiveModalImageUrl = useMemo(() => {
+    const fromDb = modalImageFromSupabase;
+    if (fromDb && !isLikelyNonHeroImageUrl(fromDb) && !isLikelyLogoHeaderOrBranding(fromDb)) {
+      return fromDb;
+    }
+    const o = brazeCreativeOverride?.preview_image_url;
+    const t = typeof o === 'string' ? o.trim() : '';
+    if (t && !isLikelyNonHeroImageUrl(t) && !isLikelyLogoHeaderOrBranding(t)) return t;
+    return undefined;
+  }, [modalImageFromSupabase, brazeCreativeOverride]);
+
+  const effectiveModalEmailHtml = useMemo(() => {
+    if (modalEmailHtmlFromSupabase) return modalEmailHtmlFromSupabase;
+    const o = brazeCreativeOverride?.email_html_preview;
+    return typeof o === 'string' && o.trim() ? o.trim() : undefined;
+  }, [modalEmailHtmlFromSupabase, brazeCreativeOverride]);
+
+  useEffect(() => {
+    if (!selectedCampaign || !showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
+    const fromDb = resolveCampaignPreviewImageUrl(selectedCampaign, selectedRawRow);
+    const hasHtml =
+      Boolean(selectedRawRow?.raw_details) &&
+      typeof selectedRawRow?.raw_details === 'object' &&
+      Boolean(extractEmailHtmlPreview(selectedRawRow.raw_details as Record<string, unknown>));
+    const emailCh = selectedCampaign.channel === 'email';
+    const needFetch = !fromDb || (emailCh && !hasHtml);
+    if (!needFetch) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke<{
+          preview_image_url?: string | null;
+          email_html_preview?: string | null;
+          persisted?: boolean;
+        }>('braze-campaign-creative', {
+          body: {
+            clientId: workspaceClientId,
+            platformId: brazePlatform.id,
+            brazeCampaignId: selectedCampaign.id,
+            persist: true,
+          },
+        });
+        if (cancelled) return;
+        if (error) {
+          logger.warn('[Campaigns] braze-campaign-creative invoke failed', error);
+          return;
+        }
+        setBrazeCreativeOverride({
+          preview_image_url: data?.preview_image_url ?? undefined,
+          email_html_preview: data?.email_html_preview ?? undefined,
+        });
+        if (data?.persisted) {
+          queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
+        }
+      } catch (e) {
+        if (!cancelled) logger.warn('[Campaigns] braze-campaign-creative', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedCampaign?.id,
+    selectedCampaign?.channel,
+    showLiveCampaigns,
+    workspaceClientId,
+    brazePlatform?.id,
+    modalImageFromSupabase,
+    modalEmailHtmlFromSupabase,
+    queryClient,
+    isAdmin,
+  ]);
+
+  const modalStatPayload = useMemo(() => {
+    if (!selectedCampaign) return null;
+    if (selectedRawRow) {
+      return {
+        deliveries: selectedRawRow.deliveries,
+        sends: selectedRawRow.sends,
+        opens: selectedRawRow.opens,
+        clicks: selectedRawRow.clicks,
+        open_rate: selectedRawRow.open_rate,
+        click_rate: selectedRawRow.click_rate,
+        unsubs: selectedRawRow.unsubs,
+      };
+    }
+    return {
+      deliveries: selectedCampaign.deliveries,
+      sends: selectedCampaign.sends,
+      opens: selectedCampaign.opens,
+      clicks: selectedCampaign.clicks,
+      open_rate: selectedCampaign.open_rate,
+      click_rate: selectedCampaign.click_rate,
+      unsubs: selectedCampaign.unsubs,
+    };
+  }, [selectedCampaign, selectedRawRow]);
+
+  const modalStatRows = useMemo(() => {
+    if (!selectedCampaign || !modalStatPayload) return null;
+    return buildCampaignModalStatRows(selectedCampaign.channel, modalStatPayload);
+  }, [selectedCampaign, modalStatPayload]);
+
+  /** Subject, preheader, push title/body with Braze Liquid stripped + flags for “Personalized” badges. */
+  const selectedCampaignModalCopy = useMemo(() => {
+    if (!selectedCampaign) return null;
+    const fields = toPreviewFields(selectedCampaign);
+    const secondaryFallback = getCampaignSecondaryLine(fields) ?? '';
+    const subjectRaw = selectedCampaign.subject ?? selectedCampaign.push_title ?? '';
+    const emailPreheaderRaw = selectedCampaign.preheader ?? secondaryFallback;
+    const pushBodyRaw =
+      selectedCampaign.push_body ?? selectedCampaign.preheader ?? secondaryFallback;
+
+    return {
+      subject: sanitizeCampaignDisplayWithMeta(subjectRaw),
+      emailPreheader: sanitizeCampaignDisplayWithMeta(emailPreheaderRaw),
+      pushTitle: sanitizeCampaignDisplayWithMeta(selectedCampaign.push_title ?? selectedCampaign.subject ?? ''),
+      pushBody: sanitizeCampaignDisplayWithMeta(pushBodyRaw),
+    };
   }, [selectedCampaign]);
 
   useEffect(() => {
@@ -1008,6 +1168,7 @@ export default function Campaigns() {
                 <SelectItem value="email">Email</SelectItem>
                 <SelectItem value="push">Push</SelectItem>
                 <SelectItem value="inapp">In-App</SelectItem>
+                <SelectItem value="sms">SMS</SelectItem>
               </SelectContent>
             </Select>
             <Select value={dateFilter} onValueChange={setDateFilter}>
@@ -1239,6 +1400,7 @@ export default function Campaigns() {
                       previewImageUrl={campaign.preview_image_url}
                       campaignName={campaign.name}
                       variant="card"
+                      gridThumbnail
                     />
                   )}
                   <CardContent
@@ -1266,16 +1428,18 @@ export default function Campaigns() {
                           {titleText}
                         </TooltipContent>
                       </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">
+                      {viewMode === 'list' && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">
+                              {previewLine}
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-sm">
                             {previewLine}
-                          </p>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="max-w-sm">
-                          {previewLine}
-                        </TooltipContent>
-                      </Tooltip>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
                     <div
                       className={cn(
@@ -1286,10 +1450,17 @@ export default function Campaigns() {
                       <Badge className={cn('text-xs font-normal', channelColors[campaign.channel])}>
                         {channelLabels[campaign.channel]}
                       </Badge>
-                      <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
-                        <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
-                        {format(new Date(campaign.sent_date), 'MMM d')}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                          <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
+                          {format(new Date(campaign.sent_date), 'MMM d')}
+                        </span>
+                        {viewMode === 'grid' && (
+                          <span className="font-medium text-primary" aria-hidden>
+                            Read
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1346,7 +1517,7 @@ export default function Campaigns() {
 
       <Dialog open={!!selectedCampaign} onOpenChange={open => !open && setSelectedCampaign(null)}>
         <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 duration-300 sm:max-w-xl">
-          {selectedCampaign && (
+          {selectedCampaign && selectedCampaignModalCopy && (
             <>
               <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">
                 <DialogTitle className="flex items-start gap-3 pr-8 text-left leading-snug">
@@ -1384,33 +1555,36 @@ export default function Campaigns() {
                 {selectedCampaign.channel === 'email' ? (
                   <EmailModalCreative
                     key={selectedCampaign.id}
-                    subjectLine={displaySanitized(
-                      selectedCampaign.subject ?? selectedCampaign.push_title,
-                    )}
-                    preheaderLine={displaySanitized(
-                      selectedCampaign.preheader ??
-                        getCampaignSecondaryLine(toPreviewFields(selectedCampaign)) ??
-                        '',
-                    )}
-                    previewImageUrl={selectedCampaign.preview_image_url}
-                    summaryLine={modalHeroPreviewText}
+                    imageUrl={effectiveModalImageUrl}
+                    htmlContent={effectiveModalEmailHtml}
                   />
                 ) : (
-                  <CampaignCreativeHero
+                  <PushSmsModalHero
                     key={selectedCampaign.id}
-                    channel={selectedCampaign.channel}
-                    previewText={modalHeroPreviewText}
-                    previewImageUrl={selectedCampaign.preview_image_url}
-                    campaignName={
-                      sanitizeCampaignDisplayText(selectedCampaign.name) ||
-                      selectedCampaign.name ||
-                      'Campaign'
+                    channel={
+                      selectedCampaign.channel === 'sms'
+                        ? 'sms'
+                        : selectedCampaign.channel === 'inapp'
+                          ? 'inapp'
+                          : 'push'
                     }
-                    variant="modal"
+                    title={
+                      selectedCampaignModalCopy.pushTitle.text.length > 0
+                        ? selectedCampaignModalCopy.pushTitle.text
+                        : '—'
+                    }
+                    body={
+                      selectedCampaignModalCopy.pushBody.text.length > 0
+                        ? selectedCampaignModalCopy.pushBody.text
+                        : ''
+                    }
+                    titlePersonalized={selectedCampaignModalCopy.pushTitle.hadLiquid}
+                    bodyPersonalized={selectedCampaignModalCopy.pushBody.hadLiquid}
+                    previewImageUrl={effectiveModalImageUrl}
                   />
                 )}
 
-                {import.meta.env.DEV && selectedRawRow && (
+                {import.meta.env.DEV && isAdmin && selectedRawRow && (
                   <Collapsible
                     open={devRawJsonOpen}
                     onOpenChange={setDevRawJsonOpen}
@@ -1480,97 +1654,63 @@ export default function Campaigns() {
                 {selectedCampaign.channel === 'email' && (
                   <div className="space-y-5">
                     <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Subject line</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-medium text-muted-foreground">Subject line</p>
+                        {selectedCampaignModalCopy.subject.hadLiquid && <PersonalizedLiquidBadge />}
+                      </div>
                       <p className="select-text text-sm font-medium leading-snug text-foreground break-words">
-                        {displaySanitized(selectedCampaign.subject ?? selectedCampaign.push_title)}
+                        {selectedCampaignModalCopy.subject.text.length > 0
+                          ? selectedCampaignModalCopy.subject.text
+                          : '—'}
                       </p>
                     </div>
                     <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">Preheader</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-medium text-muted-foreground">Preheader</p>
+                        {selectedCampaignModalCopy.emailPreheader.hadLiquid && <PersonalizedLiquidBadge />}
+                      </div>
                       <p className="text-[11px] text-muted-foreground">
                         Inline preview text (below the subject)
                       </p>
                       <p className="select-text text-sm leading-relaxed text-muted-foreground break-words">
-                        {displaySanitized(
-                          selectedCampaign.preheader ??
-                            getCampaignSecondaryLine(toPreviewFields(selectedCampaign)) ??
-                            '',
-                        )}
+                        {selectedCampaignModalCopy.emailPreheader.text.length > 0
+                          ? selectedCampaignModalCopy.emailPreheader.text
+                          : '—'}
                       </p>
                     </div>
                   </div>
                 )}
 
-                {(selectedCampaign.channel === 'push' || selectedCampaign.channel === 'inapp') && (
-                  <div className="mx-auto max-w-sm">
-                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
-                      <p className="select-text text-sm font-semibold leading-snug break-words">
-                        {displaySanitized(selectedCampaign.push_title ?? selectedCampaign.subject)}
-                      </p>
-                      <p className="mt-2 select-text text-sm leading-relaxed text-muted-foreground break-words">
-                        {displaySanitized(
-                          selectedCampaign.push_body ??
-                            selectedCampaign.preheader ??
-                            getCampaignSecondaryLine(toPreviewFields(selectedCampaign)) ??
-                            '',
+                {(selectedCampaign.segment || (modalStatRows && modalStatRows.rows.length > 0)) && (
+                  <div className="space-y-3">
+                    {selectedCampaign.segment && (
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <p className="text-xs text-muted-foreground">Segment</p>
+                        <p className="text-sm font-semibold">{selectedCampaign.segment}</p>
+                      </div>
+                    )}
+                    {modalStatRows && modalStatRows.rows.length > 0 && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          {modalStatRows.rows.map(row => (
+                            <div key={row.id} className="rounded-lg bg-muted/50 p-3">
+                              <p className="text-xs text-muted-foreground">{row.label}</p>
+                              <p className="text-lg font-semibold tabular-nums">{row.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {modalStatRows.showProcessingNote && (
+                          <Alert className="border-amber-500/30 bg-amber-500/[0.06] dark:bg-amber-950/30">
+                            <Info className="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden />
+                            <AlertDescription className="text-sm text-amber-950/90 dark:text-amber-100/90">
+                              Stats may still be processing from Braze.
+                            </AlertDescription>
+                          </Alert>
                         )}
-                      </p>
-                    </div>
+                      </>
+                    )}
                   </div>
                 )}
-
-                <div className="grid grid-cols-3 gap-3">
-                  {selectedCampaign.segment && (
-                    <div className="col-span-3 rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Segment</p>
-                      <p className="text-sm font-semibold">{selectedCampaign.segment}</p>
-                    </div>
-                  )}
-                  {selectedCampaign.deliveries != null && (
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Deliveries</p>
-                      <p className="text-lg font-semibold tabular-nums">
-                        {selectedCampaign.deliveries.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                  {selectedCampaign.opens != null && (
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Opens</p>
-                      <p className="text-lg font-semibold tabular-nums">
-                        {selectedCampaign.opens.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                  {selectedCampaign.open_rate && (
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Open rate</p>
-                      <p className="text-lg font-semibold tabular-nums">{selectedCampaign.open_rate}</p>
-                    </div>
-                  )}
-                  {selectedCampaign.clicks != null && (
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Clicks</p>
-                      <p className="text-lg font-semibold tabular-nums">
-                        {selectedCampaign.clicks.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                  {selectedCampaign.click_rate && (
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Click rate</p>
-                      <p className="text-lg font-semibold tabular-nums">{selectedCampaign.click_rate}</p>
-                    </div>
-                  )}
-                  {selectedCampaign.unsubs != null && (
-                    <div className="rounded-lg bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground">Unsubs</p>
-                      <p className="text-lg font-semibold tabular-nums">
-                        {selectedCampaign.unsubs.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                </div>
                 </div>
               </div>
             </>
