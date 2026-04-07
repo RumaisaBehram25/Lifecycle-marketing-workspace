@@ -13,9 +13,33 @@ export function normalizeCampaignImageUrl(u: string): string | undefined {
 function isLinktreeHostname(url: string): boolean {
   try {
     const abs = url.trim().startsWith("//") ? `https:${url.trim()}` : url.trim();
-    return /linktr|linktree/i.test(new URL(abs).hostname);
+    const u = new URL(abs);
+    const h = u.hostname.toLowerCase();
+    if (/(^|\.)linktr(?:ee)?\.|(^|\.)linktree\.|(^|\.)lnk\.bio|(^|\.)linkin\.bio/i.test(h)) {
+      return true;
+    }
+    const pathQ = `${u.pathname}${u.search}`.toLowerCase();
+    if (
+      /(^|[/._-])linktr(?:ee)?([/._-]|[.][a-z]{2,4}(\?|#|$))|linktree[-_]?(logo|wordmark|brand|header|nav)/i.test(
+        pathQ,
+      )
+    ) {
+      return true;
+    }
+    return false;
   } catch {
-    return /linktr|linktree/i.test(url);
+    return /linktr|linktree|lnk\.bio/i.test(url);
+  }
+}
+
+/** Stripo email CDN — Linktree templates often use `*.stripocdn.email` for header + hero assets. */
+function isStripoEmailCdnHostname(url: string): boolean {
+  try {
+    const abs = url.trim().startsWith("//") ? `https:${url.trim()}` : url.trim();
+    const h = new URL(abs).hostname.toLowerCase();
+    return h === "stripocdn.email" || h.endsWith(".stripocdn.email");
+  } catch {
+    return /stripocdn\.email/i.test(url);
   }
 }
 
@@ -28,12 +52,25 @@ export function isLikelyNonHeroImageUrl(url: string): boolean {
     const parsed = new URL(abs);
     const host = parsed.hostname.toLowerCase();
     const full = (parsed.pathname + parsed.search).toLowerCase();
+    if (
+      /(^|[/._-])linktr(?:ee)?([/._-]|[.][a-z]{2,4}(\?|#|$))|linktree[-_]?(logo|wordmark|brand|header|nav)/i.test(
+        full,
+      )
+    ) {
+      return true;
+    }
     if (/linktr|linktree/.test(host)) {
       if (
         /(logo|wordmark|lt-?logo|linktree[-_]?logo|favicon|icon|avatar|badge|social|brand-mark|brand_assets|word-mark|mark\.svg)/i.test(
           full,
         ) ||
         /\/icons?\/|\/avatar|\/profile-image|\/header-/i.test(full)
+      ) {
+        return true;
+      }
+      if (
+        /(^|[/_-])linktr(?:ee)?([/_-]|[.][a-z]{2,4}(\?|$))/i.test(full) ||
+        /(email[-_]?header|header[-_]?image|nav[-_]?brand|brand[-_]?lockup)/i.test(full)
       ) {
         return true;
       }
@@ -54,6 +91,14 @@ export function isLikelyNonHeroImageUrl(url: string): boolean {
   }
   if (/[?&]s=\d{1,2}(?:&|$)/.test(u)) return true;
   if (/1x1|spacer|blank\.(gif|png)|pixel\.gif|tracking/i.test(u)) return true;
+  if (
+    /(?:^|[/._-])(?:logo|wordmark|favicon|spacer|pixel|tracking|avatar)(?:[/._-]|[.?]|$)/i.test(u) ||
+    /(?:^|[/._-])icon(?:[/._-]|[.](?:png|gif|svg|webp|ico))(\?|$)/i.test(u) ||
+    /\/icons?(?:\/|$)/i.test(u)
+  ) {
+    return true;
+  }
+  if (/\.gif(\?|$)/i.test(u) && /(spacer|pixel|blank|1x1|transparent|tracking)/i.test(u)) return true;
   return false;
 }
 
@@ -105,6 +150,9 @@ export function isLikelyLogoHeaderOrBranding(url: string, meta?: Partial<ImageTa
   ) {
     return true;
   }
+  if (/\blinktree\b|\blink\s*in\s*bio\b|\blinktr\b/i.test(textBlob)) {
+    return true;
+  }
 
   try {
     const abs = raw.startsWith("//") ? `https:${raw}` : raw;
@@ -132,8 +180,20 @@ export function isLikelyLogoHeaderOrBranding(url: string, meta?: Partial<ImageTa
     if (ratio >= 5.5) return true;
     if (h <= 22 && w >= 120) return true;
     if (w <= 22 && h >= 120) return true;
+    const brandCdn0 =
+      (isLinktreeHostname(raw) || isStripoEmailCdnHostname(raw)) &&
+      typeof meta?.index === "number" &&
+      meta.index === 0;
+    if (brandCdn0) {
+      if (h <= 72 && w >= 80 && w <= 520) return true;
+      if (w <= 200 && h <= 200 && area < 45_000) return true;
+      if (h <= 110 && w >= 160 && w / Math.max(h, 1) >= 3.2) return true;
+    }
   } else {
     if (/[?&]s=(?:1[0-9]?|2[0-9]?|[1-9])(?:&|$)/i.test(raw)) return true;
+    if (isLinktreeHostname(raw) && typeof meta?.index === "number" && meta.index === 0) {
+      return true;
+    }
   }
 
   return false;
@@ -158,8 +218,16 @@ function contentImageMeritScore(url: string, meta?: Partial<ImageTagMeta>): numb
   if (/hero|banner|main|content|body|email|campaign|product|feature|screenshot|mockup|full[-_]?bleed|fullwidth|full-width|primary|lead|story|photo|gallery|device|ui|ux|design|graphic|illustration/i.test(blob)) {
     score += 120_000;
   }
-  if (isLinktreeHostname(url) && area > 0 && area < 14_000) score -= 80_000;
+  if ((isLinktreeHostname(url) || isStripoEmailCdnHostname(url)) && area > 0 && area < 14_000) {
+    score -= 80_000;
+  }
   if (typeof meta?.index === "number") score += meta.index * 50;
+  if (w > 0 && h > 0) {
+    if (w > h) score += 35_000;
+    if (w >= 300) score += 25_000;
+    if (h > w && Math.max(w, h) < 220) score -= 45_000;
+    if (w <= h && w < 140 && h < 420) score -= 30_000;
+  }
   return score;
 }
 
@@ -265,6 +333,7 @@ export function pickBestImageUrlFromHtml(html: string | undefined): { url: strin
 
   let best: { url: string; score: number } | undefined;
   const tags = html.match(/<img\b[^>]*>/gi) ?? [];
+  const hasMultipleImgTags = tags.length >= 2;
   let imgTagIndex = 0;
   for (const tag of tags) {
     const parts = collectUrlsFromImgTag(tag);
@@ -273,7 +342,15 @@ export function pickBestImageUrlFromHtml(html: string | undefined): { url: strin
       const w = p.widthHint;
       const h = p.heightHint;
       const area = w > 0 && h > 0 ? w * h : w > 0 ? w * w : h > 0 ? h * h : 0;
-      if (isLinktreeHostname(p.url) && area > 0 && area < 14_000) continue;
+      if (
+        (isLinktreeHostname(p.url) || isStripoEmailCdnHostname(p.url)) &&
+        area > 0 &&
+        area < 14_000
+      ) {
+        continue;
+      }
+      if (imgTagIndex === 0 && isLinktreeHostname(p.url)) continue;
+      if (hasMultipleImgTags && imgTagIndex === 0 && isStripoEmailCdnHostname(p.url)) continue;
       const meta: Partial<ImageTagMeta> = {
         widthHint: w,
         heightHint: h,
@@ -317,12 +394,13 @@ export function pickBestPreviewImageFromCandidateUrls(
   return best;
 }
 
-/** Prefer the higher merit score (HTML often beats a bare first JSON URL). */
+/**
+ * When email HTML exists, JSON `preview_image_url` / message fields almost always duplicate the first `<img>` (Linktree logo).
+ */
 export function mergePreviewImagePicks(
   jsonBest: { url: string; score: number } | undefined,
   htmlBest: { url: string; score: number } | undefined,
 ): string | undefined {
-  if (!htmlBest) return jsonBest?.url;
-  if (!jsonBest) return htmlBest.url;
-  return htmlBest.score > jsonBest.score ? htmlBest.url : jsonBest.url;
+  if (htmlBest?.url) return htmlBest.url;
+  return jsonBest?.url;
 }

@@ -42,6 +42,49 @@ export function containsBrazeLiquidSyntax(input: string | null | undefined): boo
 const LIQUID_TAG_RE = /\{%[\s\S]*?%\}/g;
 const LIQUID_VAR_RE = /\{\{[\s\S]*?\}\}/g;
 
+const LIQUID_DEFAULT_RE = /\|\s*default:\s*(['"])([\s\S]*?)\1/i;
+
+function escapeHtmlPreviewText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Turn one `{{ … }}` tag into safe preview text (Braze / Liquid). Used for iframe HTML only.
+ */
+function replaceBrazeLiquidVariableTagForPreview(fullTag: string): string {
+  const inner = fullTag
+    .replace(/^\{\{\s*/, '')
+    .replace(/\s*\}\}$/, '')
+    .trim();
+
+  const defaultM = inner.match(LIQUID_DEFAULT_RE);
+  if (defaultM?.[2] != null) {
+    return escapeHtmlPreviewText(defaultM[2].trim());
+  }
+
+  if (/content_blocks\./i.test(inner)) return '';
+  if (/\$\{\s*email_footer\s*\}/i.test(inner)) return '';
+  if (/custom_attribute\.\$\{/i.test(inner) && /\busername\b/i.test(inner)) {
+    return 'there';
+  }
+
+  return '\u2026';
+}
+
+/**
+ * Remove Liquid `{% … %}` and replace `{{ … }}` in email HTML so iframe previews do not show raw Braze syntax
+ * (e.g. `{{custom_attribute.${username}}}`, `{{content_blocks.${Email-Footer-Global}}}`).
+ */
+export function stripBrazeLiquidFromEmailHtmlForPreview(html: string): string {
+  let s = html.replace(LIQUID_TAG_RE, '');
+  s = s.replace(LIQUID_VAR_RE, replaceBrazeLiquidVariableTagForPreview);
+  return s;
+}
+
 /**
  * Option A: prefer the `{% else %} … {% endif %}` branch (common Braze localization),
  * then strip remaining `{% … %}` and `{{ … }}` so UI shows readable copy.
@@ -187,13 +230,40 @@ function normalizeImageUrlString(u: string): string | undefined {
   return undefined;
 }
 
-/** Linktree / Link-in-bio CDNs often host both nav logos and real campaign art — only flag logo-like paths. */
+/**
+ * Linktree / link-in-bio assets: same brand often uses linktr.ee, linktree.com, lnk.bio, or a generic CDN
+ * whose **path** still contains `linktr` / wordmark segments — expand beyond a single hostname substring.
+ */
 function isLinktreeHostname(url: string): boolean {
   try {
     const abs = url.trim().startsWith('//') ? `https:${url.trim()}` : url.trim();
-    return /linktr|linktree/i.test(new URL(abs).hostname);
+    const u = new URL(abs);
+    const h = u.hostname.toLowerCase();
+    if (/(^|\.)linktr(?:ee)?\.|(^|\.)linktree\.|(^|\.)lnk\.bio|(^|\.)linkin\.bio/i.test(h)) {
+      return true;
+    }
+    const pathQ = `${u.pathname}${u.search}`.toLowerCase();
+    if (
+      /(^|[/._-])linktr(?:ee)?([/._-]|[.][a-z]{2,4}(\?|#|$))|linktree[-_]?(logo|wordmark|brand|header|nav)/i.test(
+        pathQ,
+      )
+    ) {
+      return true;
+    }
+    return false;
   } catch {
-    return /linktr|linktree/i.test(url);
+    return /linktr|linktree|lnk\.bio/i.test(url);
+  }
+}
+
+/** Stripo email CDN — Linktree (and many brands) host header wordmarks + heroes under `*.stripocdn.email`. */
+function isStripoEmailCdnHostname(url: string): boolean {
+  try {
+    const abs = url.trim().startsWith('//') ? `https:${url.trim()}` : url.trim();
+    const h = new URL(abs).hostname.toLowerCase();
+    return h === 'stripocdn.email' || h.endsWith('.stripocdn.email');
+  } catch {
+    return /stripocdn\.email/i.test(url);
   }
 }
 
@@ -210,12 +280,27 @@ export function isLikelyNonHeroImageUrl(url: string): boolean {
     const parsed = new URL(abs);
     const host = parsed.hostname.toLowerCase();
     const full = (parsed.pathname + parsed.search).toLowerCase();
+    // Wordmark file segments on any CDN (cropped “linktr” art often still named like this)
+    if (
+      /(^|[/._-])linktr(?:ee)?([/._-]|[.][a-z]{2,4}(\?|#|$))|linktree[-_]?(logo|wordmark|brand|header|nav)/i.test(
+        full,
+      )
+    ) {
+      return true;
+    }
     if (/linktr|linktree/.test(host)) {
       if (
         /(logo|wordmark|lt-?logo|linktree[-_]?logo|favicon|icon|avatar|badge|social|brand-mark|brand_assets|word-mark|mark\.svg)/i.test(
           full,
         ) ||
         /\/icons?\/|\/avatar|\/profile-image|\/header-/i.test(full)
+      ) {
+        return true;
+      }
+      // Nav wordmark assets (cropped “linktr” / brand strip) — path often omits “logo”
+      if (
+        /(^|[/_-])linktr(?:ee)?([/_-]|[.][a-z]{2,4}(\?|$))/i.test(full) ||
+        /(email[-_]?header|header[-_]?image|nav[-_]?brand|brand[-_]?lockup)/i.test(full)
       ) {
         return true;
       }
@@ -236,6 +321,15 @@ export function isLikelyNonHeroImageUrl(url: string): boolean {
   }
   if (/[?&]s=\d{1,2}(?:&|$)/.test(u)) return true;
   if (/1x1|spacer|blank\.(gif|png)|pixel\.gif|tracking/i.test(u)) return true;
+  // Path/query hints (first `<img>` in many emails is logo/header/spacer — not only Linktree)
+  if (
+    /(?:^|[/._-])(?:logo|wordmark|favicon|spacer|pixel|tracking|avatar)(?:[/._-]|[.?]|$)/i.test(u) ||
+    /(?:^|[/._-])icon(?:[/._-]|[.](?:png|gif|svg|webp|ico))(\?|$)/i.test(u) ||
+    /\/icons?(?:\/|$)/i.test(u)
+  ) {
+    return true;
+  }
+  if (/\.gif(\?|$)/i.test(u) && /(spacer|pixel|blank|1x1|transparent|tracking)/i.test(u)) return true;
   return false;
 }
 
@@ -294,6 +388,9 @@ export function isLikelyLogoHeaderOrBranding(url: string, meta?: Partial<ImageTa
   ) {
     return true;
   }
+  if (/\blinktree\b|\blink\s*in\s*bio\b|\blinktr\b/i.test(textBlob)) {
+    return true;
+  }
 
   try {
     const abs = raw.startsWith('//') ? `https:${raw}` : raw;
@@ -321,8 +418,22 @@ export function isLikelyLogoHeaderOrBranding(url: string, meta?: Partial<ImageTa
     if (ratio >= 5.5) return true;
     if (h <= 22 && w >= 120) return true;
     if (w <= 22 && h >= 120) return true;
+    // Linktree / Stripo: first-slot header is usually a short wordmark strip or small square mark
+    const brandCdn0 =
+      (isLinktreeHostname(raw) || isStripoEmailCdnHostname(raw)) &&
+      typeof meta?.index === 'number' &&
+      meta.index === 0;
+    if (brandCdn0) {
+      if (h <= 72 && w >= 80 && w <= 520) return true;
+      if (w <= 200 && h <= 200 && area < 45_000) return true;
+      if (h <= 110 && w >= 160 && w / Math.max(h, 1) >= 3.2) return true;
+    }
   } else {
     if (/[?&]s=(?:1[0-9]?|2[0-9]?|[1-9])(?:&|$)/i.test(raw)) return true;
+    // No dimensions: Linktree first <img> is almost always the nav wordmark in these templates
+    if (isLinktreeHostname(raw) && typeof meta?.index === 'number' && meta.index === 0) {
+      return true;
+    }
   }
 
   return false;
@@ -347,8 +458,17 @@ function contentImageMeritScore(url: string, meta?: Partial<ImageTagMeta>): numb
   if (/hero|banner|main|content|body|email|campaign|product|feature|screenshot|mockup|full[-_]?bleed|fullwidth|full-width|primary|lead|story|photo|gallery|device|ui|ux|design|graphic|illustration/i.test(blob)) {
     score += 120_000;
   }
-  if (isLinktreeHostname(url) && area > 0 && area < 14_000) score -= 80_000;
+  if ((isLinktreeHostname(url) || isStripoEmailCdnHostname(url)) && area > 0 && area < 14_000) {
+    score -= 80_000;
+  }
   if (typeof meta?.index === 'number') score += meta.index * 50;
+  // Heroes are usually landscape or wide; portrait/small squares read as icons/logos
+  if (w > 0 && h > 0) {
+    if (w > h) score += 35_000;
+    if (w >= 300) score += 25_000;
+    if (h > w && Math.max(w, h) < 220) score -= 45_000;
+    if (w <= h && w < 140 && h < 420) score -= 30_000;
+  }
   return score;
 }
 
@@ -441,13 +561,9 @@ function imageUrlCandidatesFromMessage(m: Record<string, unknown>): string[] {
   return out;
 }
 
-/** First http(s) URL from an <img src="..."> in HTML (legacy — prefer {@link extractBestImageUrlFromHtml}). */
+/** @deprecated Prefer {@link extractBestImageUrlFromHtml} — no longer “first &lt;img&gt;” (avoids header logos). */
 export function extractFirstImageUrlFromHtml(html: string | undefined): string | undefined {
-  if (!html || typeof html !== 'string') return undefined;
-  const re = /<img[^>]+src\s*=\s*["']([^"']+)["']/i;
-  const m = html.match(re);
-  if (!m?.[1]) return undefined;
-  return normalizeImageUrlString(m[1].trim());
+  return extractBestImageUrlFromHtml(html);
 }
 
 function largestUrlFromSrcset(srcset: string): { url: string; widthHint: number } | undefined {
@@ -560,6 +676,7 @@ export function pickBestImageUrlFromHtml(html: string | undefined): { url: strin
 
   let best: { url: string; score: number } | undefined;
   const tags = html.match(/<img\b[^>]*>/gi) ?? [];
+  const hasMultipleImgTags = tags.length >= 2;
   let imgTagIndex = 0;
   for (const tag of tags) {
     const parts = collectUrlsFromImgTag(tag);
@@ -568,7 +685,18 @@ export function pickBestImageUrlFromHtml(html: string | undefined): { url: strin
       const w = p.widthHint;
       const h = p.heightHint;
       const area = w > 0 && h > 0 ? w * h : w > 0 ? w * w : h > 0 ? h * h : 0;
-      if (isLinktreeHostname(p.url) && area > 0 && area < 14_000) continue;
+      if (
+        (isLinktreeHostname(p.url) || isStripoEmailCdnHostname(p.url)) &&
+        area > 0 &&
+        area < 14_000
+      ) {
+        continue;
+      }
+      // Linktree marketing mail: first <img> is almost always the nav wordmark — skip even when it is the only <img>
+      // (hero is often a background `url()` or we show no thumbnail rather than the logo).
+      if (imgTagIndex === 0 && isLinktreeHostname(p.url)) continue;
+      // Stripo-hosted Linktree templates: same pattern, but only skip when another <img> exists (single-image emails may be the hero only).
+      if (hasMultipleImgTags && imgTagIndex === 0 && isStripoEmailCdnHostname(p.url)) continue;
       const meta: Partial<ImageTagMeta> = {
         widthHint: w,
         heightHint: h,
@@ -611,6 +739,15 @@ export function extractBestImageUrlFromHtml(html: string | undefined): string | 
 export function extractPreviewImageUrl(raw: Record<string, unknown> | null | undefined): string | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
 
+  const htmlBlob = pickBestEmailHtmlString(raw);
+  if (htmlBlob) {
+    const fromHtml = pickBestImageUrlFromHtml(htmlBlob);
+    if (fromHtml?.url) {
+      // Real HTML present: Braze `preview_image_url` / message fields usually duplicate the first `<img>` (Linktree logo).
+      return fromHtml.url;
+    }
+  }
+
   let best: { url: string; score: number } | undefined;
   let order = 0;
 
@@ -632,12 +769,6 @@ export function extractPreviewImageUrl(raw: Record<string, unknown> | null | und
     }
   }
 
-  const htmlBlob = pickBestEmailHtmlString(raw);
-  if (htmlBlob) {
-    const fromHtml = pickBestImageUrlFromHtml(htmlBlob);
-    if (fromHtml && (!best || fromHtml.score > best.score)) best = fromHtml;
-  }
-
   return best?.url;
 }
 
@@ -648,14 +779,128 @@ export function resolveCampaignPreviewImageUrl(
   campaign: { preview_image_url?: string | null } | null | undefined,
   rawRow?: { raw_details?: unknown } | null,
 ): string | undefined {
+  if (rawRow?.raw_details != null && typeof rawRow.raw_details === 'object') {
+    const fromParsed = extractPreviewImageUrl(rawRow.raw_details as Record<string, unknown>);
+    if (fromParsed) return fromParsed;
+  }
   const trimmed = typeof campaign?.preview_image_url === 'string' ? campaign.preview_image_url.trim() : '';
   if (trimmed && !isLikelyNonHeroImageUrl(trimmed) && !isLikelyLogoHeaderOrBranding(trimmed)) {
     return trimmed;
   }
-  if (rawRow?.raw_details != null && typeof rawRow.raw_details === 'object') {
-    return extractPreviewImageUrl(rawRow.raw_details as Record<string, unknown>);
-  }
   return undefined;
+}
+
+/** Modal preview: large hero / HTML iframe / direct image URL (large UI only). */
+export type EmailModalPreviewType = 'hero' | 'html' | 'imageUrl';
+
+export interface EmailModalPreviewResolution {
+  /** Which surface to show first for fast display */
+  previewType: EmailModalPreviewType;
+  /** Chosen image URL (hero or fallback imageUrl); use with displayUrl for <img src> */
+  url?: string;
+  /** Prefer this for <img src> when set (e.g. CDN-resized); otherwise use url */
+  displayUrl?: string;
+  /** HTML for iframe when previewType is html, or as fallback after image error */
+  html?: string;
+}
+
+/**
+ * True when URL is big enough for a modal hero (not thin wordmarks / icons).
+ * Uses path/query dimension hints; without hints, allows known large-asset hosts only.
+ */
+export function isQualifyingModalHeroUrl(url: string): boolean {
+  const raw = url.trim();
+  if (!raw || raw.startsWith('data:')) return false;
+  if (isLikelyNonHeroImageUrl(raw) || isLikelyLogoHeaderOrBranding(raw)) return false;
+
+  const { w, h } = parseDimensionHintsFromUrl(raw);
+  if (w > 0 && h > 0) {
+    const area = w * h;
+    const minSide = Math.min(w, h);
+    const maxSide = Math.max(w, h);
+    if (area < 28_000 && maxSide < 320) return false;
+    if (minSide <= 32 && maxSide >= 80) return false;
+    if (area >= 35_000) return true;
+    if (w >= 280 && h >= 100) return true;
+    if (w >= 400 && h >= 80) return true;
+    return false;
+  }
+
+  try {
+    const u = new URL(raw.startsWith('//') ? `https:${raw}` : raw);
+    const host = u.hostname.toLowerCase();
+    if (/braze-images\.com$/i.test(host) && /\/images\//i.test(u.pathname)) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/**
+ * Optional smaller URL for modal (faster load). Safe transforms only — unknown CDNs return unchanged.
+ */
+export function getModalOptimizedImageUrl(url: string): string {
+  const t = url.trim();
+  if (!t) return t;
+  try {
+    const abs = t.startsWith('//') ? `https:${t}` : t;
+    const u = new URL(abs);
+    if (u.hostname.endsWith('imgix.net')) {
+      u.searchParams.set('w', '640');
+      u.searchParams.set('auto', 'format,compress');
+      return u.toString();
+    }
+  } catch {
+    /* ignore */
+  }
+  return t;
+}
+
+/**
+ * Email modal preview resolution: hero image (large) → HTML snapshot → direct imageUrl only if large UI.
+ * Does not fetch resources; caller passes merged `raw_details` (+ optional live overrides).
+ */
+export function resolveEmailModalPreview(
+  raw: Record<string, unknown> | null | undefined,
+): EmailModalPreviewResolution {
+  const html = extractEmailHtmlPreview(raw ?? undefined);
+  const htmlOk = Boolean(html && emailLooksLikeHtml(html));
+
+  const extracted = extractPreviewImageUrl(raw ?? undefined);
+  if (extracted && isQualifyingModalHeroUrl(extracted)) {
+    const displayUrl = getModalOptimizedImageUrl(extracted);
+    return {
+      previewType: 'hero',
+      url: extracted,
+      displayUrl,
+      html: htmlOk ? html : undefined,
+    };
+  }
+
+  if (htmlOk) {
+    return { previewType: 'html', html: html! };
+  }
+
+  const direct =
+    typeof raw?.preview_image_url === 'string'
+      ? raw.preview_image_url.trim()
+      : typeof raw?.image_url === 'string'
+        ? raw.image_url.trim()
+        : typeof raw?.thumbnail_url === 'string'
+          ? raw.thumbnail_url.trim()
+          : '';
+
+  if (direct && isQualifyingModalHeroUrl(direct) && !isLikelyNonHeroImageUrl(direct) && !isLikelyLogoHeaderOrBranding(direct)) {
+    const displayUrl = getModalOptimizedImageUrl(direct);
+    return {
+      previewType: 'imageUrl',
+      url: direct,
+      displayUrl,
+      html: undefined,
+    };
+  }
+
+  return { previewType: 'html', html: htmlOk ? html : undefined };
 }
 
 /**
@@ -667,7 +912,7 @@ export function extractEmailHtmlPreview(raw: Record<string, unknown> | null | un
 
 /** Wrap fragment or full document HTML for a sandboxed iframe `srcDoc`. */
 export function wrapHtmlForIframePreview(html: string): string {
-  const t = html.trim();
+  const t = stripBrazeLiquidFromEmailHtmlForPreview(html).trim();
   if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) return t;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}body{padding:12px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;overflow:auto;box-sizing:border-box;min-height:100%}</style></head><body>${t}</body></html>`;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -88,12 +88,11 @@ import {
   getCampaignPreviewLine,
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
-  extractEmailHtmlPreview,
   resolveCampaignPreviewImageUrl,
+  resolveEmailModalPreview,
+  getModalOptimizedImageUrl,
   sanitizeCampaignDisplayText,
   sanitizeCampaignDisplayWithMeta,
-  isLikelyNonHeroImageUrl,
-  isLikelyLogoHeaderOrBranding,
   type CampaignChannelUi,
   type CampaignPreviewFields,
 } from '@/lib/campaignDisplay';
@@ -101,6 +100,11 @@ import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHer
 import { EmailModalCreative } from '@/components/campaigns/EmailModalCreative';
 import { PushSmsModalHero } from '@/components/campaigns/PushSmsModalHero';
 import { buildCampaignModalStatRows } from '@/lib/campaignModalStats';
+import {
+  commitCreativeToCaches,
+  loadBrazeCreativeSessionCache,
+  warmSessionCacheImagesIdle,
+} from '@/lib/brazeCreativeSessionCache';
 
 interface PlaceholderCampaign {
   id: string;
@@ -938,57 +942,164 @@ export default function Campaigns() {
     [selectedRawRow],
   );
 
-  /** From Supabase row / view-model only (before live Braze fallback). */
-  const modalImageFromSupabase = useMemo(
-    () => resolveCampaignPreviewImageUrl(selectedCampaign, selectedRawRow),
-    [selectedCampaign, selectedRawRow],
-  );
-
-  /** Email HTML from synced `raw_details` only. */
-  const modalEmailHtmlFromSupabase = useMemo(() => {
-    if (!selectedRawRow?.raw_details || typeof selectedRawRow.raw_details !== 'object') return undefined;
-    return extractEmailHtmlPreview(selectedRawRow.raw_details as Record<string, unknown>);
-  }, [selectedRawRow]);
-
   /** Live `/campaigns/details` when preview image or email HTML is missing in DB. */
   const [brazeCreativeOverride, setBrazeCreativeOverride] = useState<{
     preview_image_url?: string;
     email_html_preview?: string;
   } | null>(null);
 
+  const creativePrefetchCacheRef = useRef(
+    new Map<string, { preview_image_url?: string; email_html_preview?: string }>(),
+  );
+  const creativePrefetchInFlightRef = useRef(new Set<string>());
+  const selectedCampaignIdRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    setBrazeCreativeOverride(null);
+    if (!workspaceClientId || !brazePlatform?.id) {
+      creativePrefetchCacheRef.current = new Map();
+      return;
+    }
+    const loaded = loadBrazeCreativeSessionCache(workspaceClientId, brazePlatform.id);
+    creativePrefetchCacheRef.current = loaded;
+    warmSessionCacheImagesIdle(loaded);
+  }, [workspaceClientId, brazePlatform?.id]);
+
+  useEffect(() => {
+    const id = selectedCampaign?.id;
+    selectedCampaignIdRef.current = id;
+    if (!id) {
+      setBrazeCreativeOverride(null);
+      return;
+    }
+    const cached = creativePrefetchCacheRef.current.get(id);
+    setBrazeCreativeOverride(cached ? { ...cached } : null);
   }, [selectedCampaign?.id]);
 
-  const effectiveModalImageUrl = useMemo(() => {
-    const fromDb = modalImageFromSupabase;
-    if (fromDb && !isLikelyNonHeroImageUrl(fromDb) && !isLikelyLogoHeaderOrBranding(fromDb)) {
-      return fromDb;
+  /** Hero → HTML iframe → large direct image only; merges live Braze creative when fetched. */
+  const emailModalPreview = useMemo(() => {
+    const raw = selectedRawRow?.raw_details;
+    const base: Record<string, unknown> =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? { ...(raw as Record<string, unknown>) }
+        : {};
+    if (brazeCreativeOverride?.preview_image_url) {
+      base.preview_image_url = brazeCreativeOverride.preview_image_url;
     }
-    const o = brazeCreativeOverride?.preview_image_url;
-    const t = typeof o === 'string' ? o.trim() : '';
-    if (t && !isLikelyNonHeroImageUrl(t) && !isLikelyLogoHeaderOrBranding(t)) return t;
-    return undefined;
-  }, [modalImageFromSupabase, brazeCreativeOverride]);
+    if (brazeCreativeOverride?.email_html_preview) {
+      base.email_html_preview = brazeCreativeOverride.email_html_preview;
+    }
+    return resolveEmailModalPreview(Object.keys(base).length ? base : null);
+  }, [selectedRawRow, brazeCreativeOverride]);
 
-  const effectiveModalEmailHtml = useMemo(() => {
-    if (modalEmailHtmlFromSupabase) return modalEmailHtmlFromSupabase;
-    const o = brazeCreativeOverride?.email_html_preview;
-    return typeof o === 'string' && o.trim() ? o.trim() : undefined;
-  }, [modalEmailHtmlFromSupabase, brazeCreativeOverride]);
+  const modalHeroImageUrl = emailModalPreview.displayUrl ?? emailModalPreview.url;
+
+  /** Warm browser cache for modal hero as soon as we know the URL (before <img> paints). */
+  useEffect(() => {
+    if (!selectedCampaign || selectedCampaign.channel !== 'email') return;
+    const t = emailModalPreview.previewType;
+    if (t !== 'hero' && t !== 'imageUrl') return;
+    const url = (emailModalPreview.displayUrl ?? emailModalPreview.url)?.trim();
+    if (!url) return;
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+  }, [selectedCampaign?.id, selectedCampaign?.channel, emailModalPreview]);
+
+  function mergeRawWithCachedCreative(
+    campaignId: string,
+    row: BrazeCampaignRow | null | undefined,
+  ): Record<string, unknown> | null {
+    const raw = row?.raw_details;
+    const base: Record<string, unknown> =
+      raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? { ...(raw as Record<string, unknown>) }
+        : {};
+    const cached = creativePrefetchCacheRef.current.get(campaignId);
+    if (cached?.preview_image_url) base.preview_image_url = cached.preview_image_url;
+    if (cached?.email_html_preview) base.email_html_preview = cached.email_html_preview;
+    return Object.keys(base).length ? base : null;
+  }
+
+  function isCreativeResolvedFromMerged(merged: Record<string, unknown> | null): boolean {
+    const r = resolveEmailModalPreview(merged);
+    return (
+      r.previewType === 'hero' ||
+      r.previewType === 'imageUrl' ||
+      (r.previewType === 'html' && Boolean(r.html))
+    );
+  }
+
+  const prefetchCampaignCreative = useCallback(
+    (campaign: PlaceholderCampaign, row: BrazeCampaignRow | undefined) => {
+      const clientId = workspaceClientId;
+      const platformId = brazePlatform?.id;
+      if (!showLiveCampaigns || !clientId || !platformId) return;
+      const id = campaign.id;
+      if (creativePrefetchInFlightRef.current.has(id)) return;
+
+      const merged = mergeRawWithCachedCreative(id, row);
+      const fromDb = resolveCampaignPreviewImageUrl(campaign, row ?? undefined);
+      if (fromDb) {
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = getModalOptimizedImageUrl(fromDb);
+      }
+
+      if (isCreativeResolvedFromMerged(merged)) return;
+
+      creativePrefetchInFlightRef.current.add(id);
+      void supabase.functions
+        .invoke<{
+          preview_image_url?: string | null;
+          email_html_preview?: string | null;
+          persisted?: boolean;
+        }>('braze-campaign-creative', {
+          body: {
+            clientId,
+            platformId,
+            brazeCampaignId: id,
+            persist: true,
+          },
+        })
+        .then(({ data, error }) => {
+          creativePrefetchInFlightRef.current.delete(id);
+          if (error) {
+            logger.warn('[Campaigns] braze-campaign-creative prefetch failed', error);
+            return;
+          }
+          const payload = {
+            preview_image_url: data?.preview_image_url ?? undefined,
+            email_html_preview: data?.email_html_preview ?? undefined,
+          };
+          commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, id, payload);
+          if (selectedCampaignIdRef.current === id) {
+            setBrazeCreativeOverride(payload);
+          }
+          if (data?.persisted) {
+            queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
+          }
+        })
+        .catch(e => {
+          creativePrefetchInFlightRef.current.delete(id);
+          logger.warn('[Campaigns] braze-campaign-creative prefetch', e);
+        });
+    },
+    [showLiveCampaigns, workspaceClientId, brazePlatform?.id, queryClient, isAdmin],
+  );
 
   useEffect(() => {
-    if (!selectedCampaign || !showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
-    const fromDb = resolveCampaignPreviewImageUrl(selectedCampaign, selectedRawRow);
-    const hasHtml =
-      Boolean(selectedRawRow?.raw_details) &&
-      typeof selectedRawRow?.raw_details === 'object' &&
-      Boolean(extractEmailHtmlPreview(selectedRawRow.raw_details as Record<string, unknown>));
-    const emailCh = selectedCampaign.channel === 'email';
-    const needFetch = !fromDb || (emailCh && !hasHtml);
-    if (!needFetch) return;
+    const clientId = workspaceClientId;
+    const platformId = brazePlatform?.id;
+    if (!selectedCampaign || !showLiveCampaigns || !clientId || !platformId) return;
+
+    const id = selectedCampaign.id;
+    const merged = mergeRawWithCachedCreative(id, selectedRawRow);
+    if (isCreativeResolvedFromMerged(merged)) return;
+
+    if (creativePrefetchInFlightRef.current.has(id)) return;
 
     let cancelled = false;
+    creativePrefetchInFlightRef.current.add(id);
     void (async () => {
       try {
         const { data, error } = await supabase.functions.invoke<{
@@ -997,25 +1108,30 @@ export default function Campaigns() {
           persisted?: boolean;
         }>('braze-campaign-creative', {
           body: {
-            clientId: workspaceClientId,
-            platformId: brazePlatform.id,
-            brazeCampaignId: selectedCampaign.id,
+            clientId,
+            platformId,
+            brazeCampaignId: id,
             persist: true,
           },
         });
+        creativePrefetchInFlightRef.current.delete(id);
         if (cancelled) return;
         if (error) {
           logger.warn('[Campaigns] braze-campaign-creative invoke failed', error);
           return;
         }
-        setBrazeCreativeOverride({
+        const payload = {
           preview_image_url: data?.preview_image_url ?? undefined,
           email_html_preview: data?.email_html_preview ?? undefined,
-        });
+        };
+        commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, id, payload);
+        if (selectedCampaignIdRef.current !== id) return;
+        setBrazeCreativeOverride(payload);
         if (data?.persisted) {
           queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
         }
       } catch (e) {
+        creativePrefetchInFlightRef.current.delete(id);
         if (!cancelled) logger.warn('[Campaigns] braze-campaign-creative', e);
       }
     })();
@@ -1025,11 +1141,10 @@ export default function Campaigns() {
   }, [
     selectedCampaign?.id,
     selectedCampaign?.channel,
+    selectedRawRow,
     showLiveCampaigns,
     workspaceClientId,
     brazePlatform?.id,
-    modalImageFromSupabase,
-    modalEmailHtmlFromSupabase,
     queryClient,
     isAdmin,
   ]);
@@ -1385,6 +1500,12 @@ export default function Campaigns() {
                     'group flex cursor-pointer flex-col overflow-hidden transition-all duration-200 hover:border-primary/50 hover:shadow-md motion-safe:hover:-translate-y-0.5',
                     viewMode === 'grid' && 'h-full min-h-0',
                   )}
+                  onPointerEnter={() => {
+                    const row = (dbCampaigns as BrazeCampaignRow[] | undefined)?.find(
+                      r => String(r.braze_campaign_id ?? r.id) === campaign.id,
+                    );
+                    prefetchCampaignCreative(campaign, row);
+                  }}
                   onClick={() => setSelectedCampaign(campaign)}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -1397,7 +1518,6 @@ export default function Campaigns() {
                     <CampaignCreativeHero
                       channel={campaign.channel}
                       previewText={previewLine}
-                      previewImageUrl={campaign.preview_image_url}
                       campaignName={campaign.name}
                       variant="card"
                       gridThumbnail
@@ -1555,8 +1675,10 @@ export default function Campaigns() {
                 {selectedCampaign.channel === 'email' ? (
                   <EmailModalCreative
                     key={selectedCampaign.id}
-                    imageUrl={effectiveModalImageUrl}
-                    htmlContent={effectiveModalEmailHtml}
+                    imageUrl={emailModalPreview.url}
+                    displayImageUrl={emailModalPreview.displayUrl}
+                    htmlContent={emailModalPreview.html}
+                    previewMode={emailModalPreview.previewType}
                   />
                 ) : (
                   <PushSmsModalHero
@@ -1580,7 +1702,7 @@ export default function Campaigns() {
                     }
                     titlePersonalized={selectedCampaignModalCopy.pushTitle.hadLiquid}
                     bodyPersonalized={selectedCampaignModalCopy.pushBody.hadLiquid}
-                    previewImageUrl={effectiveModalImageUrl}
+                    previewImageUrl={modalHeroImageUrl}
                   />
                 )}
 

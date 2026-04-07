@@ -1,14 +1,22 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { ImageIcon, ImageOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { wrapHtmlForIframePreview } from '@/lib/campaignDisplay';
+import { wrapHtmlForIframePreview, type EmailModalPreviewType } from '@/lib/campaignDisplay';
 
 export interface EmailModalCreativeProps {
-  /** Hero image URL from Braze (preferred when present). */
+  /** Hero / fallback image URL from Braze. */
   imageUrl?: string | null;
+  /** Prefer for <img src> when set (e.g. CDN-resized). */
+  displayImageUrl?: string | null;
   /** Email HTML from `raw_details.email_html_preview` or `messages.*` (iframe when no usable image). */
   htmlContent?: string | null;
+  /**
+   * hero | imageUrl: show image first, then HTML on error.
+   * html: iframe only (fast path, no external image fetch).
+   * auto: legacy — use image when URL present, else HTML.
+   */
+  previewMode?: EmailModalPreviewType | 'auto';
   className?: string;
 }
 
@@ -18,7 +26,9 @@ export interface EmailModalCreativeProps {
  */
 export const EmailModalCreative = memo(function EmailModalCreative({
   imageUrl,
+  displayImageUrl,
   htmlContent,
+  previewMode = 'auto',
   className,
 }: EmailModalCreativeProps) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -26,18 +36,44 @@ export const EmailModalCreative = memo(function EmailModalCreative({
   const [iframeFailed, setIframeFailed] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
 
-  const url = typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : undefined;
+  const display =
+    typeof displayImageUrl === 'string' && displayImageUrl.trim()
+      ? displayImageUrl.trim()
+      : typeof imageUrl === 'string' && imageUrl.trim()
+        ? imageUrl.trim()
+        : undefined;
   const html = typeof htmlContent === 'string' && htmlContent.trim() ? htmlContent.trim() : undefined;
 
-  const hasUrl = Boolean(url);
+  const hasUrl = Boolean(display);
   const hasHtml = Boolean(html);
 
   const iframeDoc = useMemo(() => (html ? wrapHtmlForIframePreview(html) : ''), [html]);
 
-  const useImageBranch = hasUrl && !imgFailed;
-  const useHtmlBranch = !useImageBranch && hasHtml && !iframeFailed;
+  const tryImageFirst =
+    previewMode === 'auto' || previewMode === 'hero' || previewMode === 'imageUrl';
+  const htmlOnly = previewMode === 'html';
 
-  const loadFailed = iframeFailed || Boolean(hasUrl && imgFailed && !hasHtml);
+  const useImageBranch = !htmlOnly && tryImageFirst && hasUrl && !imgFailed;
+  /** HTML as main surface (no hero attempt, or image failed / skipped). */
+  const useHtmlBranchPrimary =
+    (htmlOnly && hasHtml && !iframeFailed) ||
+    (!useImageBranch && hasHtml && !iframeFailed);
+  /** HTML behind a loading hero so the modal is not an empty gray box while the image downloads. */
+  const useHtmlBranchUnderHero =
+    Boolean(useImageBranch && hasHtml && !iframeFailed && !htmlOnly);
+  const showIframe = useHtmlBranchPrimary || useHtmlBranchUnderHero;
+  /** Skip the image skeleton when HTML is visible underneath (faster perceived load). */
+  const showImgSkeleton = Boolean(useImageBranch && display && !imgLoaded && !useHtmlBranchUnderHero);
+
+  useEffect(() => {
+    setImgFailed(false);
+    setImgLoaded(false);
+    setIframeFailed(false);
+    setIframeLoaded(false);
+  }, [display, html, previewMode]);
+
+  const loadFailed =
+    iframeFailed || Boolean(hasUrl && imgFailed && !hasHtml && !useHtmlBranchUnderHero);
 
   return (
     <div
@@ -52,23 +88,50 @@ export const EmailModalCreative = memo(function EmailModalCreative({
       >
         <div className="absolute inset-0 bg-muted" aria-hidden />
 
-        {useImageBranch && url && (
+        {showIframe && iframeDoc && (
           <>
-            {!imgLoaded && (
+            {!iframeLoaded && (
+              <Skeleton
+                className={cn(
+                  'pointer-events-none absolute inset-0 rounded-none',
+                  useHtmlBranchUnderHero ? 'z-[2]' : 'z-[3]',
+                )}
+                aria-hidden
+              />
+            )}
+            <iframe
+              title="Email HTML preview"
+              sandbox=""
+              srcDoc={iframeDoc}
+              className={cn(
+                'absolute inset-0 h-full w-full border-0 bg-white transition-opacity duration-300',
+                useHtmlBranchUnderHero ? 'z-[2]' : 'z-[4]',
+                iframeLoaded ? 'opacity-100' : 'opacity-0',
+              )}
+              onLoad={() => setIframeLoaded(true)}
+              onError={() => setIframeFailed(true)}
+            />
+          </>
+        )}
+
+        {useImageBranch && display && (
+          <>
+            {showImgSkeleton && (
               <Skeleton className="pointer-events-none absolute inset-0 z-[1] rounded-none" aria-hidden />
             )}
             <img
-              src={url}
+              src={display}
               alt=""
               width={920}
               height={400}
               loading="eager"
               decoding="async"
               fetchPriority="high"
-            className={cn(
-              'absolute inset-0 z-[2] h-full w-full object-cover object-top transition-opacity duration-300 ease-out',
-              imgLoaded ? 'opacity-100' : 'opacity-0',
-            )}
+              className={cn(
+                'absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300 ease-out',
+                useHtmlBranchUnderHero ? 'z-[3]' : 'z-[2]',
+                imgLoaded ? 'opacity-100' : 'opacity-0',
+              )}
               onLoad={() => setImgLoaded(true)}
               onError={() => {
                 setImgFailed(true);
@@ -78,26 +141,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
           </>
         )}
 
-        {useHtmlBranch && iframeDoc && (
-          <>
-            {!iframeLoaded && (
-              <Skeleton className="pointer-events-none absolute inset-0 z-[3] rounded-none" aria-hidden />
-            )}
-            <iframe
-              title="Email HTML preview"
-              sandbox=""
-              srcDoc={iframeDoc}
-              className={cn(
-                'absolute inset-0 z-[4] h-full w-full border-0 bg-white transition-opacity duration-300',
-                iframeLoaded ? 'opacity-100' : 'opacity-0',
-              )}
-              onLoad={() => setIframeLoaded(true)}
-              onError={() => setIframeFailed(true)}
-            />
-          </>
-        )}
-
-        {!useImageBranch && !useHtmlBranch && (
+        {!useImageBranch && !useHtmlBranchPrimary && (
           <div
             className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 px-6 text-center"
             aria-hidden
