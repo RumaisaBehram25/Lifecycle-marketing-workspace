@@ -17,6 +17,8 @@ export interface EmailModalCreativeProps {
    * auto: legacy — use image when URL present, else HTML.
    */
   previewMode?: EmailModalPreviewType | 'auto';
+  /** When true, creative data is still being fetched — show a skeleton instead of "no preview". */
+  loading?: boolean;
   className?: string;
 }
 
@@ -29,6 +31,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
   displayImageUrl,
   htmlContent,
   previewMode = 'auto',
+  loading = false,
   className,
 }: EmailModalCreativeProps) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -142,21 +145,25 @@ export const EmailModalCreative = memo(function EmailModalCreative({
         )}
 
         {!useImageBranch && !useHtmlBranchPrimary && (
-          <div
-            className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 px-6 text-center"
-            aria-hidden
-          >
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted-foreground/10 ring-1 ring-border">
-              {loadFailed ? (
-                <ImageOff className="h-7 w-7 text-muted-foreground/50" aria-hidden />
-              ) : (
-                <ImageIcon className="h-7 w-7 text-muted-foreground/45" aria-hidden />
-              )}
+          loading ? (
+            <Skeleton className="absolute inset-0 z-[5] rounded-none" aria-label="Loading creative preview" />
+          ) : (
+            <div
+              className="absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2 px-6 text-center"
+              aria-hidden
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted-foreground/10 ring-1 ring-border">
+                {loadFailed ? (
+                  <ImageOff className="h-7 w-7 text-muted-foreground/50" aria-hidden />
+                ) : (
+                  <ImageIcon className="h-7 w-7 text-muted-foreground/45" aria-hidden />
+                )}
+              </div>
+              <p className="max-w-[260px] text-xs text-muted-foreground">
+                {loadFailed ? 'Preview could not be loaded' : 'No creative preview available'}
+              </p>
             </div>
-            <p className="max-w-[260px] text-xs text-muted-foreground">
-              {loadFailed ? 'Preview could not be loaded' : 'No creative preview available'}
-            </p>
-          </div>
+          )
         )}
       </div>
     </div>

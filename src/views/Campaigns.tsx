@@ -948,6 +948,9 @@ export default function Campaigns() {
     email_html_preview?: string;
   } | null>(null);
 
+  /** True while the edge function is fetching creative for the selected campaign. */
+  const [creativeLoading, setCreativeLoading] = useState(false);
+
   const creativePrefetchCacheRef = useRef(
     new Map<string, { preview_image_url?: string; email_html_preview?: string }>(),
   );
@@ -973,6 +976,7 @@ export default function Campaigns() {
     }
     const cached = creativePrefetchCacheRef.current.get(id);
     setBrazeCreativeOverride(cached ? { ...cached } : null);
+    setCreativeLoading(false);
   }, [selectedCampaign?.id]);
 
   /** Hero → HTML iframe → large direct image only; merges live Braze creative when fetched. */
@@ -1096,10 +1100,14 @@ export default function Campaigns() {
     const merged = mergeRawWithCachedCreative(id, selectedRawRow);
     if (isCreativeResolvedFromMerged(merged)) return;
 
-    if (creativePrefetchInFlightRef.current.has(id)) return;
+    if (creativePrefetchInFlightRef.current.has(id)) {
+      setCreativeLoading(true);
+      return;
+    }
 
     let cancelled = false;
     creativePrefetchInFlightRef.current.add(id);
+    setCreativeLoading(true);
     void (async () => {
       try {
         const { data, error } = await supabase.functions.invoke<{
@@ -1118,6 +1126,7 @@ export default function Campaigns() {
         if (cancelled) return;
         if (error) {
           logger.warn('[Campaigns] braze-campaign-creative invoke failed', error);
+          setCreativeLoading(false);
           return;
         }
         const payload = {
@@ -1127,12 +1136,16 @@ export default function Campaigns() {
         commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, id, payload);
         if (selectedCampaignIdRef.current !== id) return;
         setBrazeCreativeOverride(payload);
+        setCreativeLoading(false);
         if (data?.persisted) {
           queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
         }
       } catch (e) {
         creativePrefetchInFlightRef.current.delete(id);
-        if (!cancelled) logger.warn('[Campaigns] braze-campaign-creative', e);
+        if (!cancelled) {
+          logger.warn('[Campaigns] braze-campaign-creative', e);
+          setCreativeLoading(false);
+        }
       }
     })();
     return () => {
@@ -1148,6 +1161,28 @@ export default function Campaigns() {
     queryClient,
     isAdmin,
   ]);
+
+  /** Idle-prefetch creatives for visible campaigns so they're ready before hover/click. */
+  useEffect(() => {
+    if (!paginatedCampaigns.length || !showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
+    const dbRows = dbCampaigns as BrazeCampaignRow[] | undefined;
+    const ids: Array<{ campaign: (typeof paginatedCampaigns)[0]; row: BrazeCampaignRow | undefined }> = [];
+    for (const c of paginatedCampaigns) {
+      const row = dbRows?.find(r => String(r.braze_campaign_id ?? r.id) === c.id);
+      ids.push({ campaign: c, row });
+    }
+    let cancelled = false;
+    const handle = (typeof requestIdleCallback === 'function' ? requestIdleCallback : setTimeout)(() => {
+      if (cancelled) return;
+      for (const { campaign, row } of ids) {
+        prefetchCampaignCreative(campaign, row);
+      }
+    });
+    return () => {
+      cancelled = true;
+      (typeof cancelIdleCallback === 'function' ? cancelIdleCallback : clearTimeout)(handle);
+    };
+  }, [paginatedCampaigns, showLiveCampaigns, workspaceClientId, brazePlatform?.id, dbCampaigns, prefetchCampaignCreative]);
 
   const modalStatPayload = useMemo(() => {
     if (!selectedCampaign) return null;
@@ -1679,6 +1714,7 @@ export default function Campaigns() {
                     displayImageUrl={emailModalPreview.displayUrl}
                     htmlContent={emailModalPreview.html}
                     previewMode={emailModalPreview.previewType}
+                    loading={creativeLoading}
                   />
                 ) : (
                   <PushSmsModalHero
