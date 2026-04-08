@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -49,9 +48,6 @@ import {
   ChevronRight,
   Bug,
   Database,
-  Copy,
-  Check,
-  ChevronDown,
   MessageSquare,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -591,9 +587,6 @@ export default function Campaigns() {
   const [dateFilter, setDateFilter] = useState('All Time');
   const [sortBy, setSortBy] = useState<CampaignSortKey>('data_desc');
   const [page, setPage] = useState(1);
-  const [devRawJsonOpen, setDevRawJsonOpen] = useState(false);
-  const [rawJsonCopied, setRawJsonCopied] = useState(false);
-
   const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -937,11 +930,6 @@ export default function Campaigns() {
     );
   }, [selectedCampaign, dbCampaigns]);
 
-  const selectedRawJson = useMemo(
-    () => (selectedRawRow ? JSON.stringify(selectedRawRow, null, 2) : ''),
-    [selectedRawRow],
-  );
-
   /** Live `/campaigns/details` when preview image or email HTML is missing in DB. */
   const [brazeCreativeOverride, setBrazeCreativeOverride] = useState<{
     preview_image_url?: string;
@@ -1230,28 +1218,6 @@ export default function Campaigns() {
       pushBody: sanitizeCampaignDisplayWithMeta(pushBodyRaw),
     };
   }, [selectedCampaign]);
-
-  useEffect(() => {
-    if (!selectedCampaign) {
-      setDevRawJsonOpen(false);
-      setRawJsonCopied(false);
-    }
-  }, [selectedCampaign]);
-
-  const copyRawCampaignJson = async () => {
-    if (!selectedRawJson) return;
-    try {
-      await navigator.clipboard.writeText(selectedRawJson);
-      setRawJsonCopied(true);
-      toast({
-        title: 'Copied to clipboard',
-        description: 'Raw braze_campaigns row as JSON.',
-      });
-      window.setTimeout(() => setRawJsonCopied(false), 2000);
-    } catch {
-      toast({ title: 'Could not copy', variant: 'destructive' });
-    }
-  };
 
   const queryErrorMessage =
     error instanceof Error ? error.message : 'Something went wrong while loading campaigns.';
@@ -1740,73 +1706,6 @@ export default function Campaigns() {
                     bodyPersonalized={selectedCampaignModalCopy.pushBody.hadLiquid}
                     previewImageUrl={modalHeroImageUrl}
                   />
-                )}
-
-                {import.meta.env.DEV && isAdmin && selectedRawRow && (
-                  <Collapsible
-                    open={devRawJsonOpen}
-                    onOpenChange={setDevRawJsonOpen}
-                    className="overflow-hidden rounded-xl border border-amber-500/25 bg-amber-500/[0.07] dark:bg-amber-950/25"
-                  >
-                    <CollapsibleTrigger className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-amber-500/10 dark:hover:bg-amber-950/40">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300">
-                        <Database className="h-4 w-4" aria-hidden />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">Raw database row</span>
-                          <Badge
-                            variant="outline"
-                            className="border-amber-500/40 text-[10px] font-normal text-amber-900 dark:text-amber-200"
-                          >
-                            Dev only
-                          </Badge>
-                        </div>
-                        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                          Full{' '}
-                          <code className="rounded bg-muted/80 px-1 py-px font-mono text-[10px] text-foreground/90">
-                            braze_campaigns
-                          </code>{' '}
-                          rowset from Supabase — use when copy or fields look wrong in the UI.
-                        </p>
-                      </div>
-                      <ChevronDown
-                        className={cn(
-                          'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
-                          devRawJsonOpen && 'rotate-180',
-                        )}
-                        aria-hidden
-                      />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-2 border-t border-amber-500/20 px-3 pb-3 pt-2">
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            className="h-8 gap-1.5 text-xs"
-                            onClick={e => {
-                              e.stopPropagation();
-                              void copyRawCampaignJson();
-                            }}
-                          >
-                            {rawJsonCopied ? (
-                              <Check className="h-3.5 w-3.5 text-green-600" aria-hidden />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" aria-hidden />
-                            )}
-                            {rawJsonCopied ? 'Copied' : 'Copy JSON'}
-                          </Button>
-                        </div>
-                        <ScrollArea className="h-52 rounded-lg border border-amber-500/15 bg-background/80">
-                          <pre className="select-text p-3 font-mono text-[11px] leading-relaxed text-foreground/90">
-                            {selectedRawJson}
-                          </pre>
-                        </ScrollArea>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
                 )}
 
                 {selectedCampaign.channel === 'email' && (

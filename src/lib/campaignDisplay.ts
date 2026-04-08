@@ -40,7 +40,56 @@ export function containsBrazeLiquidSyntax(input: string | null | undefined): boo
 }
 
 const LIQUID_TAG_RE = /\{%[\s\S]*?%\}/g;
-const LIQUID_VAR_RE = /\{\{[\s\S]*?\}\}/g;
+
+/**
+ * Find the index of the first `}` in the closing `}}` for a `{{ … }}` tag at `openIdx`,
+ * where `openIdx` points at the first `{` of `{{`. Handles `}` inside `${ … }` (Braze
+ * `{{custom_attribute.${username}}}`), which a naive `*?\}\}` regex breaks on.
+ */
+function findClosingDoubleBraceLiquid(html: string, openIdx: number): number {
+  if (html[openIdx] !== '{' || html[openIdx + 1] !== '{') return -1;
+  let i = openIdx + 2;
+  let depth = 0;
+  while (i < html.length - 1) {
+    if (html[i] === '$' && html[i + 1] === '{') {
+      depth++;
+      i += 2;
+      continue;
+    }
+    if (depth > 0 && html[i] === '}') {
+      depth--;
+      i++;
+      continue;
+    }
+    if (depth === 0 && html[i] === '}' && html[i + 1] === '}') {
+      return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
+function replaceLiquidDoubleBraceTags(html: string, replaceTag: (fullTag: string) => string): string {
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    const j = html.indexOf('{{', i);
+    if (j === -1) {
+      out += html.slice(i);
+      break;
+    }
+    out += html.slice(i, j);
+    const close = findClosingDoubleBraceLiquid(html, j);
+    if (close === -1) {
+      out += html.slice(j);
+      break;
+    }
+    const fullTag = html.slice(j, close + 2);
+    out += replaceTag(fullTag);
+    i = close + 2;
+  }
+  return out;
+}
 
 const LIQUID_DEFAULT_RE = /\|\s*default:\s*(['"])([\s\S]*?)\1/i;
 
@@ -81,7 +130,9 @@ function replaceBrazeLiquidVariableTagForPreview(fullTag: string): string {
  */
 export function stripBrazeLiquidFromEmailHtmlForPreview(html: string): string {
   let s = html.replace(LIQUID_TAG_RE, '');
-  s = s.replace(LIQUID_VAR_RE, replaceBrazeLiquidVariableTagForPreview);
+  s = replaceLiquidDoubleBraceTags(s, replaceBrazeLiquidVariableTagForPreview);
+  // Safety: if any legacy partial tag leaked "…}" next to an ellipsis, strip the stray brace
+  s = s.replace(/\u2026\s*\}/g, '\u2026');
   return s;
 }
 
@@ -95,7 +146,8 @@ export function stripBrazeLiquidForDisplay(input: string): string {
   if (elseMatch) {
     s = elseMatch[1].trim();
   }
-  s = s.replace(LIQUID_TAG_RE, ' ').replace(LIQUID_VAR_RE, ' ');
+  s = s.replace(LIQUID_TAG_RE, ' ');
+  s = replaceLiquidDoubleBraceTags(s, () => ' ');
   s = s.replace(/\s+/g, ' ').trim();
   return s;
 }
@@ -914,5 +966,5 @@ export function extractEmailHtmlPreview(raw: Record<string, unknown> | null | un
 export function wrapHtmlForIframePreview(html: string): string {
   const t = stripBrazeLiquidFromEmailHtmlForPreview(html).trim();
   if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) return t;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}body{padding:12px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;overflow:auto;box-sizing:border-box;min-height:100%}</style></head><body>${t}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}html{overflow:visible}body{padding:12px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;overflow:visible;overflow-x:hidden;box-sizing:border-box}</style></head><body>${t}</body></html>`;
 }

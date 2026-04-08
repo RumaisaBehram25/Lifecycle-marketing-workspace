@@ -75,7 +75,7 @@ export const PushSmsModalHero = memo(function PushSmsModalHero({
   return (
     <div
       className={cn(
-        'min-h-[220px] overflow-hidden rounded-xl border border-border/80 bg-gradient-to-b from-muted/80 to-background shadow-sm dark:border-border/60',
+        'min-h-[220px] rounded-xl border border-border/80 bg-gradient-to-b from-muted/80 to-background shadow-sm dark:border-border/60',
         className,
       )}
       aria-label={isInApp ? 'In-app message preview' : 'Push notification preview'}
@@ -89,11 +89,11 @@ export const PushSmsModalHero = memo(function PushSmsModalHero({
         {isInApp ? 'In-app message' : 'Push notification'}
       </div>
       {url ? (
-        <div className="relative h-28 w-full bg-muted">
+        <div className="relative w-full bg-muted">
           <img
             src={url}
             alt=""
-            className="h-full w-full object-cover object-top"
+            className="block h-auto w-full max-w-full object-contain object-top"
             loading="eager"
             decoding="async"
           />
