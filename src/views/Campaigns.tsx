@@ -1637,7 +1637,7 @@ export default function Campaigns() {
       </TooltipProvider>
 
       <Dialog open={!!selectedCampaign} onOpenChange={open => !open && setSelectedCampaign(null)}>
-        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 duration-300 sm:max-w-xl">
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 duration-300 sm:max-w-2xl">
           {selectedCampaign && selectedCampaignModalCopy && (
             <>
               <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">

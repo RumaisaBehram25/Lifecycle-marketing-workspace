@@ -962,9 +962,25 @@ export function extractEmailHtmlPreview(raw: Record<string, unknown> | null | un
   return pickBestEmailHtmlString(raw);
 }
 
+/**
+ * HTML email iframe preview zoom — keep in sync with {@link IFRAME_PREVIEW_ZOOM_STYLE}.
+ * Used by the client to size the iframe to the *visible* height after zoom.
+ */
+export const IFRAME_HTML_PREVIEW_ZOOM = 0.88;
+
+const IFRAME_PREVIEW_ZOOM_STYLE = `html{zoom:${IFRAME_HTML_PREVIEW_ZOOM};overflow:visible}`;
+
 /** Wrap fragment or full document HTML for a sandboxed iframe `srcDoc`. */
 export function wrapHtmlForIframePreview(html: string): string {
   const t = stripBrazeLiquidFromEmailHtmlForPreview(html).trim();
-  if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) return t;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}html{overflow:visible}body{padding:12px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;overflow:visible;overflow-x:hidden;box-sizing:border-box}</style></head><body>${t}</body></html>`;
+  if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) {
+    const zoomInject = `<style type="text/css" data-email-preview-zoom>${IFRAME_PREVIEW_ZOOM_STYLE}</style>`;
+    const headMatch = t.match(/<head[^>]*>/i);
+    if (headMatch && headMatch.index !== undefined) {
+      const i = headMatch.index + headMatch[0].length;
+      return `${t.slice(0, i)}${zoomInject}${t.slice(i)}`;
+    }
+    return `${zoomInject}${t}`;
+  }
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}${IFRAME_PREVIEW_ZOOM_STYLE}body{padding:10px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12.5px;line-height:1.42;overflow:visible;overflow-x:hidden;box-sizing:border-box}</style></head><body>${t}</body></html>`;
 }

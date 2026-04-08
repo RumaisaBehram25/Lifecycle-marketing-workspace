@@ -24,24 +24,50 @@ export interface EmailModalCreativeProps {
 
 const IFRAME_MIN_PX = 200;
 
-/** Size iframe to document height so no inner scrollbar (outer modal scroll only). */
+/**
+ * Size iframe to match the *visible* creative height. With `html { zoom }`, layout scrollHeight is
+ * often pre-zoom; multiply by zoom so the frame is not too tall. Re-measure on the next frame after
+ * images/fonts settle.
+ */
 function fitIframeToContent(el: HTMLIFrameElement) {
-  try {
-    const doc = el.contentDocument;
-    const h =
-      doc?.documentElement?.scrollHeight ??
-      doc?.body?.scrollHeight ??
-      0;
-    el.style.minHeight = '';
-    if (h > 0) {
-      el.style.height = `${h + 24}px`;
-      el.style.overflow = 'hidden';
-    } else {
+  const apply = () => {
+    try {
+      const doc = el.contentDocument;
+      const htmlEl = doc?.documentElement;
+      const body = doc?.body;
+      if (!htmlEl || !body) return;
+
+      const win = doc.defaultView;
+      let zoomScale = 1;
+      if (win) {
+        const z = win.getComputedStyle(htmlEl).zoom;
+        if (z && z !== 'normal' && z !== '') {
+          const p = parseFloat(z);
+          if (Number.isFinite(p) && p > 0 && p < 1) zoomScale = p;
+        }
+      }
+
+      const raw = Math.max(htmlEl.scrollHeight, body.scrollHeight, htmlEl.offsetHeight, body.offsetHeight);
+      const pad = 24;
+      const fitted = zoomScale < 1 ? Math.ceil(raw * zoomScale + pad) : raw + pad;
+
+      el.style.minHeight = '';
+      if (raw > 0) {
+        el.style.height = `${fitted}px`;
+        el.style.overflow = 'hidden';
+      } else {
+        el.style.minHeight = `${IFRAME_MIN_PX}px`;
+      }
+    } catch {
       el.style.minHeight = `${IFRAME_MIN_PX}px`;
     }
-  } catch {
-    el.style.minHeight = `${IFRAME_MIN_PX}px`;
-  }
+  };
+
+  apply();
+  requestAnimationFrame(() => {
+    apply();
+    requestAnimationFrame(apply);
+  });
 }
 
 /**
