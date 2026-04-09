@@ -1,13 +1,7 @@
-/** Supabase Storage public object URLs include this path segment (Image Transformation query params apply). */
+/** Supabase Storage public object URLs include this path segment. */
 const PUBLIC_OBJECT_SEGMENT = '/storage/v1/object/public/';
 
 export type CampaignImageDisplayVariant = 'thumbnail' | 'default' | 'detail';
-
-const WIDTH_PX: Record<CampaignImageDisplayVariant, number> = {
-  thumbnail: 400,
-  default: 800,
-  detail: 1200,
-};
 
 export function isSupabaseStoragePublicObjectUrl(url: string): boolean {
   const t = url.trim();
@@ -22,30 +16,43 @@ export function isSupabaseStoragePublicObjectUrl(url: string): boolean {
 }
 
 /**
- * Appends CDN-style params for Supabase Image Transformation on public bucket URLs only.
- * External URLs (Braze, imgix, etc.) are returned unchanged.
+ * Normalizes URLs for `<img src>`: Supabase **public** Storage URLs are returned **without**
+ * `?width=&quality=&format=`. Those params trigger Supabase Image Transformation, which returns
+ * **400** when resizing is not enabled for the project. External URLs are unchanged. `variant` is unused (reserved).
  */
 export function campaignImageDisplayUrl(
   url: string | null | undefined,
-  variant: CampaignImageDisplayVariant = 'default',
+  _variant: CampaignImageDisplayVariant = 'default',
 ): string | undefined {
   const raw = typeof url === 'string' ? url.trim() : '';
   if (!raw) return undefined;
   if (!isSupabaseStoragePublicObjectUrl(raw)) return raw;
-  try {
-    const abs = raw.startsWith('//') ? `https:${raw}` : raw;
-    const u = new URL(abs);
-    u.searchParams.set('width', String(WIDTH_PX[variant]));
-    u.searchParams.set('quality', '80');
-    u.searchParams.set('format', 'webp');
-    return u.toString();
-  } catch {
-    return raw;
-  }
+  return plainSupabasePublicObjectUrl(raw) ?? raw;
 }
 
 /**
- * Unique `detail` Image-Transform URLs for Supabase public campaign creatives (same as modal hero `img` src).
+ * Public Storage object URL without Image Transformation query params (same as `getPublicUrl`).
+ */
+export function plainSupabasePublicObjectUrl(url: string): string | undefined {
+  const t = url.trim();
+  if (!t || !isSupabaseStoragePublicObjectUrl(t)) return undefined;
+  try {
+    const abs = t.startsWith('//') ? `https:${t}` : t;
+    const u = new URL(abs);
+    u.search = '';
+    return u.toString();
+  } catch {
+    const i = t.indexOf('?');
+    return i === -1 ? t : t.slice(0, i);
+  }
+}
+
+/** Opt-in: set `VITE_PRELOAD_CAMPAIGN_BUCKET_IMAGES=true` to run proactive `Image()` warming. */
+export const isCampaignBucketPreloadEnabled =
+  import.meta.env.VITE_PRELOAD_CAMPAIGN_BUCKET_IMAGES === 'true';
+
+/**
+ * Unique plain public-object URLs for Supabase campaign creatives (no transform query — matches prefetch target).
  */
 export function collectCampaignBucketDetailImageUrls(
   previewUrls: ReadonlyArray<string | undefined | null>,
@@ -54,8 +61,8 @@ export function collectCampaignBucketDetailImageUrls(
   const out: string[] = [];
   for (const raw of previewUrls) {
     const t = typeof raw === 'string' ? raw.trim() : '';
-    if (!t || !isSupabaseStoragePublicObjectUrl(t)) continue;
-    const u = campaignImageDisplayUrl(t, 'detail');
+    if (!t) continue;
+    const u = plainSupabasePublicObjectUrl(t);
     if (u && !seen.has(u)) {
       seen.add(u);
       out.push(u);
@@ -63,6 +70,9 @@ export function collectCampaignBucketDetailImageUrls(
   }
   return out;
 }
+
+/** Max distinct bucket URLs to preload per Campaigns visit (avoids hundreds of parallel requests). */
+const MAX_CAMPAIGN_BUCKET_PRELOAD_URLS = 120;
 
 /**
  * Defer until the browser is idle, then batch-fetch images so HTTP cache is warm before scroll/modal.
@@ -72,8 +82,13 @@ export function schedulePreloadCampaignBucketDetailImages(
   previewUrls: ReadonlyArray<string | undefined | null>,
   concurrency = 8,
 ): void {
-  const urls = collectCampaignBucketDetailImageUrls(previewUrls);
+  if (!isCampaignBucketPreloadEnabled) return;
+
+  let urls = collectCampaignBucketDetailImageUrls(previewUrls);
   if (urls.length === 0) return;
+  if (urls.length > MAX_CAMPAIGN_BUCKET_PRELOAD_URLS) {
+    urls = urls.slice(0, MAX_CAMPAIGN_BUCKET_PRELOAD_URLS);
+  }
 
   const run = (): void => {
     void (async () => {

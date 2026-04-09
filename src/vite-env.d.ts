@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_ANON_KEY?: string;
   /** Public Storage bucket id for campaign creatives (default: campaign-creatives) */
   readonly VITE_SUPABASE_CAMPAIGN_CREATIVES_BUCKET?: string;
+  /** "true" | "false" — campaign bucket image preload; see .env.example */
+  readonly VITE_PRELOAD_CAMPAIGN_BUCKET_IMAGES?: string;
 }
 
 interface ImportMeta {

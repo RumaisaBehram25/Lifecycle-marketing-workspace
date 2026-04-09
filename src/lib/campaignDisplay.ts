@@ -1034,14 +1034,22 @@ export function getModalOptimizedImageUrl(url: string): string {
 }
 
 /**
- * Email modal preview resolution: hero image (large) → HTML snapshot → direct imageUrl only if large UI.
+ * Email modal preview resolution: valid HTML iframe first → else hero image → else direct imageUrl.
  * Does not fetch resources; caller passes merged `raw_details` (+ optional live overrides).
+ *
+ * When both HTML and a qualifying hero URL exist, we prefer **iframe-only**. The hero URL is often
+ * scraped from the same HTML (header wordmark, store badge, or `emailHeaderLogoFallback`) and showing
+ * it as a stacked `<img>` on top of the iframe duplicates branding and looks like an unwanted logo overlay.
  */
 export function resolveEmailModalPreview(
   raw: Record<string, unknown> | null | undefined,
 ): EmailModalPreviewResolution {
   const html = extractEmailHtmlPreview(raw ?? undefined);
   const htmlOk = Boolean(html && emailLooksLikeHtml(html));
+
+  if (htmlOk) {
+    return { previewType: 'html', html: html! };
+  }
 
   const extracted = extractPreviewImageUrl(raw ?? undefined);
   if (extracted && isQualifyingModalHeroUrl(extracted)) {
@@ -1050,12 +1058,8 @@ export function resolveEmailModalPreview(
       previewType: 'hero',
       url: extracted,
       displayUrl,
-      html: htmlOk ? html : undefined,
+      html: undefined,
     };
-  }
-
-  if (htmlOk) {
-    return { previewType: 'html', html: html! };
   }
 
   const direct =

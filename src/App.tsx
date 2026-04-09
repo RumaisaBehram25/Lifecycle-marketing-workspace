@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -5,19 +6,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { LoadingPage } from "@/components/ui/loading-spinner";
-import Auth from "./views/Auth";
-import Dashboard from "./views/Dashboard";
-import Briefs from "./views/Briefs";
-import Campaigns from "./views/Campaigns";
-import Lifecycle from "./views/Lifecycle";
-import ResourceCenter from "./views/ResourceCenter";
-import Onboarding from "./views/Onboarding";
-import Settings from "./views/Settings";
-import Chat from "./views/Chat";
-import Analytics from "./views/Analytics";
-import NotFound from "./views/NotFound";
-import PendingApproval from "./views/PendingApproval";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
+
+/** Route-level lazy imports — only the active page’s JS loads on first paint / navigation (smaller dev graph, faster prod TTI). */
+const Auth = lazy(() => import("./views/Auth"));
+const Dashboard = lazy(() => import("./views/Dashboard"));
+const Briefs = lazy(() => import("./views/Briefs"));
+const Campaigns = lazy(() => import("./views/Campaigns"));
+const Lifecycle = lazy(() => import("./views/Lifecycle"));
+const ResourceCenter = lazy(() => import("./views/ResourceCenter"));
+const Onboarding = lazy(() => import("./views/Onboarding"));
+const Settings = lazy(() => import("./views/Settings"));
+const Chat = lazy(() => import("./views/Chat"));
+const Analytics = lazy(() => import("./views/Analytics"));
+const NotFound = lazy(() => import("./views/NotFound"));
+const PendingApproval = lazy(() => import("./views/PendingApproval"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,32 +49,34 @@ function ApprovalRoute() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/auth" element={<Auth />} />
-      <Route path="/pending-approval" element={<ApprovalRoute />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/briefs" element={<ProtectedRoute><Briefs /></ProtectedRoute>} />
-      <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
-      <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
-      <Route path="/resources" element={<ProtectedRoute><ResourceCenter /></ProtectedRoute>} />
-      <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-      <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-      {/* Redirects for old routes */}
-      <Route path="/brand" element={<Navigate to="/resources" replace />} />
-      <Route path="/audience" element={<Navigate to="/resources" replace />} />
-      <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
-      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
-      <Route path="/analytical" element={<Navigate to="/analytics" replace />} />
-      <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
-      <Route path="/users" element={<Navigate to="/settings" replace />} />
-      <Route path="/clients" element={<Navigate to="/resources" replace />} />
-      <Route path="/clients/:id" element={<Navigate to="/resources" replace />} />
-      <Route path="/platforms" element={<Navigate to="/resources" replace />} />
-      <Route path="/creative" element={<Navigate to="/lifecycle" replace />} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <Suspense fallback={<LoadingPage />}>
+      <Routes>
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/pending-approval" element={<ApprovalRoute />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/briefs" element={<ProtectedRoute><Briefs /></ProtectedRoute>} />
+        <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
+        <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
+        <Route path="/resources" element={<ProtectedRoute><ResourceCenter /></ProtectedRoute>} />
+        <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+        <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+        {/* Redirects for old routes */}
+        <Route path="/brand" element={<Navigate to="/resources" replace />} />
+        <Route path="/audience" element={<Navigate to="/resources" replace />} />
+        <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
+        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+        <Route path="/analytical" element={<Navigate to="/analytics" replace />} />
+        <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
+        <Route path="/users" element={<Navigate to="/settings" replace />} />
+        <Route path="/clients" element={<Navigate to="/resources" replace />} />
+        <Route path="/clients/:id" element={<Navigate to="/resources" replace />} />
+        <Route path="/platforms" element={<Navigate to="/resources" replace />} />
+        <Route path="/creative" element={<Navigate to="/lifecycle" replace />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

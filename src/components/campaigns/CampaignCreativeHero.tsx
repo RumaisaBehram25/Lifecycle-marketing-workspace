@@ -145,7 +145,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
           height={360}
           loading={eagerImage ? 'eager' : 'lazy'}
           decoding="async"
-          fetchPriority={eagerImage ? 'high' : 'low'}
+          fetchpriority={eagerImage ? 'high' : 'low'}
           className={cn(
             'absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-500 ease-out',
             modalImageClean ? 'object-top' : 'object-center',

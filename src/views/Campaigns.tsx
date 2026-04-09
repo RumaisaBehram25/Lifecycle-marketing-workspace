@@ -66,7 +66,10 @@ import {
   startOfYear,
 } from 'date-fns';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
-import { schedulePreloadCampaignBucketDetailImages } from '@/lib/campaignCreativeImageUrl';
+import {
+  isCampaignBucketPreloadEnabled,
+  schedulePreloadCampaignBucketDetailImages,
+} from '@/lib/campaignCreativeImageUrl';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -996,8 +999,9 @@ export default function Campaigns() {
 
   const modalHeroImageUrl = emailModalPreview.displayUrl ?? emailModalPreview.url;
 
-  /** Warm browser cache for modal hero as soon as we know the URL (before <img> paints). */
+  /** Optional duplicate fetch to warm cache before modal <img> (same preload gate as bucket/session warm). */
   useEffect(() => {
+    if (!isCampaignBucketPreloadEnabled) return;
     if (!selectedCampaign || selectedCampaign.channel !== 'email') return;
     const t = emailModalPreview.previewType;
     if (t !== 'hero' && t !== 'imageUrl') return;

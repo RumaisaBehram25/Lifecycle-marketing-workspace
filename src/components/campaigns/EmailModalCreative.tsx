@@ -186,7 +186,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
               height={400}
               loading="eager"
               decoding="async"
-              fetchPriority="high"
+              fetchpriority="high"
               className={cn(
                 'relative z-[2] block h-auto w-full max-w-full object-contain object-top transition-opacity duration-300 ease-out',
                 useHtmlBranchUnderHero && 'max-w-full',

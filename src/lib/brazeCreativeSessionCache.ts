@@ -1,4 +1,9 @@
 import { getModalOptimizedImageUrl } from '@/lib/campaignDisplay';
+import {
+  isCampaignBucketPreloadEnabled,
+  isSupabaseStoragePublicObjectUrl,
+  plainSupabasePublicObjectUrl,
+} from '@/lib/campaignCreativeImageUrl';
 
 export type CachedCreativePayload = {
   preview_image_url?: string;
@@ -78,13 +83,17 @@ export function saveBrazeCreativeSessionEntry(
   }
 }
 
-/** Start loading preview image into the browser HTTP cache (modal-sized URL when possible). */
+/** Start loading preview image into the browser HTTP cache (plain public URL for Storage — no transform params). */
 export function warmCreativePreviewImage(previewImageUrl: string | undefined | null): void {
+  if (!isCampaignBucketPreloadEnabled) return;
   const u = typeof previewImageUrl === 'string' ? previewImageUrl.trim() : '';
   if (!u) return;
   const img = new Image();
   img.decoding = 'async';
-  img.src = getModalOptimizedImageUrl(u);
+  const src = isSupabaseStoragePublicObjectUrl(u)
+    ? plainSupabasePublicObjectUrl(u) ?? u
+    : getModalOptimizedImageUrl(u);
+  img.src = src;
 }
 
 export function warmCachedCreativePayload(payload: CachedCreativePayload): void {
@@ -108,10 +117,14 @@ export function commitCreativeToCaches(
 }
 
 export function warmSessionCacheImagesIdle(map: Map<string, CachedCreativePayload>): void {
+  if (!isCampaignBucketPreloadEnabled) return;
   const urls: string[] = [];
   for (const p of map.values()) {
     const u = p.preview_image_url?.trim();
-    if (u) urls.push(getModalOptimizedImageUrl(u));
+    if (!u) continue;
+    urls.push(
+      isSupabaseStoragePublicObjectUrl(u) ? plainSupabasePublicObjectUrl(u) ?? u : getModalOptimizedImageUrl(u),
+    );
   }
   const slice = urls.slice(0, IDLE_WARM_BATCH);
   if (slice.length === 0) return;
