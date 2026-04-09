@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -340,89 +339,79 @@ export default function Analytics() {
   if (!clientId) {
     if (isClientLoading) {
       return (
-        <AppLayout>
-          <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
-            <LoadingPage message="Loading client..." />
-          </div>
-        </AppLayout>
+        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
+          <LoadingPage message="Loading client..." />
+        </div>
       );
     }
     return (
-      <AppLayout>
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
-          <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardContent className="flex flex-col items-center pt-10 pb-10 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
-                <BarChart2 className="h-7 w-7 text-primary" />
-              </div>
-              <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
-              <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-                Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
-              </p>
-              <Button asChild className="mt-6">
-                <Link to="/dashboard" className="inline-flex items-center gap-2">
-                  <UploadCloud className="h-4 w-4" />
-                  Go to Dashboard
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </AppLayout>
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
+        <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardContent className="flex flex-col items-center pt-10 pb-10 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+              <BarChart2 className="h-7 w-7 text-primary" />
+            </div>
+            <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
+            <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
+              Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
+            </p>
+            <Button asChild className="mt-6">
+              <Link to="/dashboard" className="inline-flex items-center gap-2">
+                <UploadCloud className="h-4 w-4" />
+                Go to Dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   if (isLoading) {
     return (
-      <AppLayout>
-        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
-          <LoadingPage message="Loading analytics (campaigns, journeys, KPIs, email health)…" />
-        </div>
-      </AppLayout>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
+        <LoadingPage message="Loading analytics (campaigns, journeys, KPIs, email health)…" />
+      </div>
     );
   }
 
   if (error) {
     return (
-      <AppLayout>
-        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
-          <p className="text-destructive font-medium">{error.message}</p>
-          <Button onClick={() => refetch()} variant="outline">
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Retry
-          </Button>
-        </div>
-      </AppLayout>
+      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
+        <p className="text-destructive font-medium">{error.message}</p>
+        <Button onClick={() => refetch()} variant="outline">
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Retry
+        </Button>
+      </div>
     );
   }
 
   if (!hasAnyData) {
     return (
-      <AppLayout>
-        <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
-          <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardContent className="flex flex-col items-center pt-10 pb-10 text-center">
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
-                <BarChart2 className="h-7 w-7 text-primary" />
-              </div>
-              <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
-              <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-                Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
-              </p>
-              <Button asChild className="mt-6">
-                <Link to="/dashboard" className="inline-flex items-center gap-2">
-                  <UploadCloud className="h-4 w-4" />
-                  Go to Dashboard
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </AppLayout>
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
+        <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardContent className="flex flex-col items-center pt-10 pb-10 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+              <BarChart2 className="h-7 w-7 text-primary" />
+            </div>
+            <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
+            <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
+              Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
+            </p>
+            <Button asChild className="mt-6">
+              <Link to="/dashboard" className="inline-flex items-center gap-2">
+                <UploadCloud className="h-4 w-4" />
+                Go to Dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -558,8 +547,7 @@ export default function Analytics() {
   const chartMutedFill = 'hsl(var(--muted-foreground))';
 
   return (
-    <AppLayout>
-      <div className="min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
+    <div className="min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
         <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <PageHeader
@@ -1210,6 +1198,5 @@ export default function Analytics() {
         </Card>
         </div>
       </div>
-    </AppLayout>
   );
 }

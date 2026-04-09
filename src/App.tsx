@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { LoadingPage } from "@/components/ui/loading-spinner";
 import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
+import { MainAppShell } from "@/components/layout/MainAppShell";
 
 /** Route-level lazy imports — only the active page’s JS loads on first paint / navigation (smaller dev graph, faster prod TTI). */
 const Auth = lazy(() => import("./views/Auth"));
@@ -48,35 +49,35 @@ function ApprovalRoute() {
 
 function AppRoutes() {
   return (
-    <Suspense fallback={<LoadingPage />}>
-      <Routes>
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/pending-approval" element={<ApprovalRoute />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/briefs" element={<ProtectedRoute><Briefs /></ProtectedRoute>} />
-        <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
-        <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
-        <Route path="/resources" element={<ProtectedRoute><ResourceCenter /></ProtectedRoute>} />
+    <Routes>
+      <Route path="/auth" element={<Suspense fallback={<LoadingPage />}><Auth /></Suspense>} />
+      <Route path="/pending-approval" element={<Suspense fallback={<LoadingPage />}><ApprovalRoute /></Suspense>} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route element={<ProtectedRoute><MainAppShell /></ProtectedRoute>}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/briefs" element={<Briefs />} />
+        <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/lifecycle" element={<Lifecycle />} />
+        <Route path="/resources" element={<ResourceCenter />} />
         {/* Onboarding page hidden for now — keep route so old links land somewhere sensible */}
-        <Route path="/onboarding" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-        <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-        {/* Redirects for old routes */}
-        <Route path="/brand" element={<Navigate to="/resources" replace />} />
-        <Route path="/audience" element={<Navigate to="/resources" replace />} />
-        <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
-        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
-        <Route path="/analytical" element={<Navigate to="/analytics" replace />} />
-        <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
-        <Route path="/users" element={<Navigate to="/settings" replace />} />
-        <Route path="/clients" element={<Navigate to="/resources" replace />} />
-        <Route path="/clients/:id" element={<Navigate to="/resources" replace />} />
-        <Route path="/platforms" element={<Navigate to="/resources" replace />} />
-        <Route path="/creative" element={<Navigate to="/lifecycle" replace />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+        <Route path="/onboarding" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/chat" element={<Chat />} />
+        <Route path="/analytics" element={<Analytics />} />
+      </Route>
+      {/* Redirects for old routes */}
+      <Route path="/brand" element={<Navigate to="/resources" replace />} />
+      <Route path="/audience" element={<Navigate to="/resources" replace />} />
+      <Route path="/knowledge" element={<Navigate to="/resources" replace />} />
+      <Route path="/analytical" element={<Navigate to="/analytics" replace />} />
+      <Route path="/generate/code" element={<Navigate to="/resources" replace />} />
+      <Route path="/users" element={<Navigate to="/settings" replace />} />
+      <Route path="/clients" element={<Navigate to="/resources" replace />} />
+      <Route path="/clients/:id" element={<Navigate to="/resources" replace />} />
+      <Route path="/platforms" element={<Navigate to="/resources" replace />} />
+      <Route path="/creative" element={<Navigate to="/lifecycle" replace />} />
+      <Route path="*" element={<Suspense fallback={<LoadingPage />}><NotFound /></Suspense>} />
+    </Routes>
   );
 }
 

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -1171,7 +1170,7 @@ export default function Campaigns() {
   const rangeEnd = Math.min(sortedCampaigns.length, Math.min(page, totalPages) * PAGE_SIZE);
 
   return (
-    <AppLayout>
+    <>
       <TooltipProvider delayDuration={300}>
       <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
         <PageHeader
@@ -1706,6 +1705,6 @@ export default function Campaigns() {
           )}
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </>
   );
 }

@@ -11,7 +11,6 @@ import {
 } from '@/lib/dashboard-surface';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -627,7 +626,7 @@ export default function Lifecycle() {
   }, [filteredJourneys]);
 
   return (
-    <AppLayout>
+    <>
       <TooltipProvider delayDuration={300}>
       <div className="relative mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
         <div
@@ -1146,7 +1145,7 @@ export default function Lifecycle() {
           })()}
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </>
   );
 }
 

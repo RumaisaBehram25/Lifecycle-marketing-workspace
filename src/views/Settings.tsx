@@ -3,7 +3,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { UserManagementPanel } from '@/components/settings/UserManagementPanel';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -285,8 +284,7 @@ export default function Settings() {
   }, [brazeData?.segments, segmentSearch, showStarredOnly, starredMap]);
 
   return (
-    <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-8">
         <PageHeader
           title="Settings"
           description="Manage your account and data preferences."
@@ -613,7 +611,6 @@ export default function Settings() {
           )}
         </Tabs>
       </div>
-    </AppLayout>
   );
 }
 

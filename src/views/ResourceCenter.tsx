@@ -1,6 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { useClientForChat } from '@/hooks/useClientForChat';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { BrandVoiceTab } from '@/components/brand/BrandVoiceTab';
@@ -116,9 +115,5 @@ function ResourceCenterContent() {
 }
 
 export default function ResourceCenter() {
-  return (
-    <AppLayout>
-      <ResourceCenterContent />
-    </AppLayout>
-  );
+  return <ResourceCenterContent />;
 }

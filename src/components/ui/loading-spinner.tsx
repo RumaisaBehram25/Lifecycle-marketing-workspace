@@ -32,3 +32,15 @@ export function LoadingPage({ message = 'Loading...' }: LoadingPageProps) {
     </div>
   );
 }
+
+/** Spinner for the main pane only (sidebar stays visible). Used inside {@link MainAppShell}. */
+export function LoadingRouteContent({ message = 'Loading...' }: LoadingPageProps) {
+  return (
+    <div className="flex min-h-[calc(100vh-4rem)] w-full flex-1 items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <LoadingSpinner size="lg" />
+        <p className="text-muted-foreground">{message}</p>
+      </div>
+    </div>
+  );
+}

@@ -5,7 +5,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useResolvedClientId, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { useDashboardBrazeMetrics } from '@/hooks/useDashboardBrazeMetrics';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -543,8 +542,7 @@ export default function Dashboard() {
   }, [clientId, brazeMetricsClientId]);
 
   return (
-    <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
         {/* Brand Header */}
         <Card className={dashboardSurfaceCardInteractive}>
           <div className={dashboardTopAccentClass} aria-hidden />
@@ -792,6 +790,5 @@ export default function Dashboard() {
         </Card>
 
       </div>
-    </AppLayout>
   );
 }

@@ -1,5 +1,4 @@
 import { useSearchParams } from 'react-router-dom';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { ClientChat } from '@/components/chat/ClientChat';
 import { useClientForChat } from '@/hooks/useClientForChat';
 import { LoadingPage } from '@/components/ui/loading-spinner';
@@ -49,16 +48,11 @@ export default function Chat() {
   } = useClientForChat();
 
   if (clientLoading) {
-    return (
-      <AppLayout>
-        <LoadingPage />
-      </AppLayout>
-    );
+    return <LoadingPage />;
   }
 
   return (
-    <AppLayout>
-      <div className="flex h-[calc(100vh-4rem)] lg:min-h-screen lg:h-screen bg-gradient-to-br from-sidebar via-background to-primary/[0.04]">
+    <div className="flex h-[calc(100vh-4rem)] lg:min-h-screen lg:h-screen bg-gradient-to-br from-sidebar via-background to-primary/[0.04]">
         <div className="flex-1 flex flex-col min-h-0 p-2 sm:p-3 md:p-4 overflow-hidden">
           {client ? (
             <div className="flex-1 flex flex-col min-h-0 rounded-2xl border border-border/70 bg-background/80 shadow-xl shadow-primary/[0.06] backdrop-blur-sm overflow-hidden">
@@ -120,6 +114,5 @@ export default function Chat() {
           )}
         </div>
       </div>
-    </AppLayout>
   );
 }
