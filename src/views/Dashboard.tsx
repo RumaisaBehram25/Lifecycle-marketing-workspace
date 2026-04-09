@@ -537,7 +537,7 @@ export default function Dashboard() {
         brazeMetricsClientId.slice(0, 8) + '…',
         '— Drive/briefs use',
         clientId.slice(0, 8) + '…',
-        '(admin: latest Braze sync when DoubleGood has no Braze row).',
+        '(admin: latest Braze sync when the BRCG workspace has no Braze row).',
       );
     }
   }, [clientId, brazeMetricsClientId]);

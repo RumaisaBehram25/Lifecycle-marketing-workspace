@@ -7,11 +7,11 @@ import { useAuth } from '@/hooks/useAuth';
 const DOUBLEGOOD_SLUG = 'doublegood';
 const DOUBLEGOOD_NAME = 'BRCG';
 
-// DoubleGood brand defaults based on website research
+// Seed defaults for the shared admin workspace (`slug = doublegood`); display name is BRCG.
 const DOUBLEGOOD_BRAND_DEFAULTS = {
   name: DOUBLEGOOD_NAME,
   slug: DOUBLEGOOD_SLUG,
-  website_url: 'https://www.doublegood.com',
+  website_url: 'https://www.brcg.com',
   industry: 'Fundraising / Food & Beverage',
   is_active: true,
   tagline: 'Fundraising has never been easier',
@@ -90,7 +90,7 @@ export function queryStillResolving(q: {
 
 /**
  * Workspace `clients.id` for the current session.
- * - Admins: shared DoubleGood (`slug = doublegood`) + legacy fallback to oldest client.
+ * - Admins: shared BRCG workspace (`slug = doublegood`) + legacy fallback to oldest client.
  * - Members: personal workspace from `ensure_personal_workspace_client` (own Braze/CSV/Drive data).
  */
 export function useResolvedClientId() {
@@ -186,7 +186,7 @@ export function useActiveClientRow() {
   };
 }
 
-// Hook to get or create the single DoubleGood client (admin shared workspace; also used internally by useResolvedClientId for admins)
+// Hook to get or create the shared BRCG admin client (`slug = doublegood`; also used by useResolvedClientId for admins)
 export function useDoubleGoodClient() {
   const { isLoading: authLoading, session } = useAuth();
   return useQuery({
@@ -194,7 +194,7 @@ export function useDoubleGoodClient() {
     /** Without a session, PostgREST uses `anon` — `clients` RLS only allows `authenticated`, → 403 spam on app load. */
     enabled: !authLoading && Boolean(session?.user),
     queryFn: async () => {
-      // Try to get existing DoubleGood client
+      // Try to get existing shared BRCG client row
       const { data: existing, error: fetchError } = await supabase
         .from('clients')
         .select('*')
@@ -217,7 +217,7 @@ export function useDoubleGoodClient() {
         return existing as Client;
       }
       
-      // Create DoubleGood client if it doesn't exist
+      // Create shared BRCG client row if it doesn't exist
       const { data: created, error: createError } = await supabase
         .from('clients')
         .insert(DOUBLEGOOD_BRAND_DEFAULTS)

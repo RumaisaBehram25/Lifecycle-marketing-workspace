@@ -17,6 +17,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { BRCGIcon } from '@/components/BRCGLogo';
 import { ClientChat } from '@/components/chat/ClientChat';
 import { useQueryClient } from '@tanstack/react-query';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -122,10 +123,10 @@ export default function Brand() {
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
                 <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center">
-                  <span className="text-2xl">🍿</span>
+                  <BRCGIcon className="h-7 w-7 text-primary-foreground" />
                 </div>
                 <div>
-                  <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-snug pt-0.5 pb-0.5">Double Good</h1>
+                  <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-snug pt-0.5 pb-0.5">BRCG</h1>
                   <p className="text-sm text-muted-foreground">CRM Brand Guidelines</p>
                 </div>
               </div>

@@ -9,9 +9,9 @@ import { useAuth } from '@/hooks/useAuth';
  *
  * - **Members:** always the personal workspace (`useResolvedClientId`), optionally
  *   confirmed via a Braze row on that client (same id).
- * - **Admins:** the resolved workspace (e.g. DoubleGood) **if** it has a Braze platform
+ * - **Admins:** the resolved workspace (e.g. BRCG shared `slug = doublegood`) **if** it has a Braze platform
  *   row; otherwise the **globally most recently synced Braze** client. That matches where
- *   API/CSV sync typically lands when admins use DoubleGood for Drive but members (or a
+ *   API/CSV sync typically lands when admins use the BRCG workspace for Drive but members (or a
  *   single shared sync) wrote Braze data under another `clients.id` — without this,
  *   Analytics “Performance Snapshot” and segment/campaign hygiene diverge from the member
  *   view despite identical credentials.

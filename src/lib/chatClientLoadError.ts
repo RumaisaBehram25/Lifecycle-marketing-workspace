@@ -41,7 +41,7 @@ export interface ChatClientLoadHelp {
 }
 
 const RLS_INSERT_HINT =
-  'RLS: only admins can insert into clients (migration policy "Admins can insert clients"). If you are not an admin and no client rows exist yet, the app cannot auto-create the DoubleGood client — ask an admin to add a client or adjust policies.';
+  'RLS: only admins can insert into clients (migration policy "Admins can insert clients"). If you are not an admin and no client rows exist yet, the app cannot auto-create the BRCG shared workspace client — ask an admin to add a client or adjust policies.';
 
 const NETWORK_HINT =
   'Supabase / network: confirm the request reaches your project (VITE_SUPABASE_URL, anon key), check the browser Network tab for failed REST calls to clients or client_platforms_public, and rule out VPN or firewall blocks.';

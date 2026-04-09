@@ -108,7 +108,7 @@ export default function Settings() {
     return `${id.slice(0, 8)}…`;
   };
 
-  /** Same Braze client as Analytics / KPIs — admins see schema from the workspace that actually synced (not only DoubleGood). */
+  /** Same Braze client as Analytics / KPIs — admins see schema from the workspace that actually synced (not only the BRCG shared row). */
   const { data: dashboardBrazePlatform } = useQuery({
     queryKey: ['braze-platform-schema-dashboard', brazeDashboardClientId],
     queryFn: async () => {

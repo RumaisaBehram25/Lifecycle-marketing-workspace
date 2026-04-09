@@ -5,7 +5,7 @@ import { useResolvedClientId, queryStillResolving } from '@/hooks/useDoubleGoodC
 import { buildCrmPlatformContexts, type CrmChatPlatformContext } from '@/lib/crmChatContext';
 
 /**
- * Active workspace `clients` row (admin = DoubleGood or fallback; member = personal workspace)
+ * Active workspace `clients` row (admin = BRCG shared workspace or fallback; member = personal workspace)
  * and platform schema for Chat / Copilot.
  */
 export function useClientForChat() {
