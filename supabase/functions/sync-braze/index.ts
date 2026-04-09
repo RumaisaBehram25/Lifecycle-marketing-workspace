@@ -5,6 +5,7 @@ import {
   pickBestImageUrlFromHtml,
   pickBestPreviewImageFromCandidateUrls,
 } from "../_shared/campaignPreviewImage.ts";
+import { migrateCampaignCreativesAfterCampaignUpsert } from "../_shared/campaignCreativeMigration.ts";
 import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
@@ -4064,6 +4065,7 @@ Deno.serve(async (req) => {
         if (batchUpsertErr) {
           console.warn("Batch campaign upsert failed, retrying per row:", batchUpsertErr.message);
           pushDbErr("braze_campaigns(batch)", batchUpsertErr);
+          const brazeIdsForCreativeMigrate: string[] = [];
           for (const row of rowsToUpsert) {
             const { error: oneErr } = await supabase
               .from("braze_campaigns")
@@ -4075,7 +4077,11 @@ Deno.serve(async (req) => {
               campaignsProcessedCount++;
               const st = row.status as string;
               if (st === "sent" || st === "scheduled") campaignsEnabledCount++;
+              brazeIdsForCreativeMigrate.push(String(row.braze_campaign_id));
             }
+          }
+          if (brazeIdsForCreativeMigrate.length > 0) {
+            await migrateCampaignCreativesAfterCampaignUpsert(supabase, clientId, brazeIdsForCreativeMigrate);
           }
         } else {
           campaignsProcessedCount += rowsToUpsert.length;
@@ -4083,6 +4089,11 @@ Deno.serve(async (req) => {
             const st = row.status as string;
             if (st === "sent" || st === "scheduled") campaignsEnabledCount++;
           }
+          await migrateCampaignCreativesAfterCampaignUpsert(
+            supabase,
+            clientId,
+            rowsToUpsert.map((r) => String(r.braze_campaign_id)),
+          );
         }
       }
 

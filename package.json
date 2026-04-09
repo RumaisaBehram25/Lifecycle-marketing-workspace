@@ -13,7 +13,10 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "migrate:users": "node scripts/migrate-auth-and-user-data.mjs"
+    "migrate:users": "node scripts/migrate-auth-and-user-data.mjs",
+    "backfill:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/backfill-campaign-creatives.ts",
+    "migrate:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-creatives.ts",
+    "sync:missing-raw-details": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/sync-missing-raw-details.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

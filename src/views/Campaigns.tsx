@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -84,9 +84,7 @@ import {
   getCampaignPreviewLine,
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
-  resolveCampaignPreviewImageUrl,
   resolveEmailModalPreview,
-  getModalOptimizedImageUrl,
   sanitizeCampaignDisplayText,
   sanitizeCampaignDisplayWithMeta,
   type CampaignChannelUi,
@@ -175,6 +173,8 @@ type BrazeCampaignRow = {
   segment?: string | null;
   creative_preview?: string | null;
   raw_details?: Record<string, unknown> | null;
+  /** Full public URL for an uploaded creative in Supabase Storage */
+  image_url?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
   synced_at?: string | null;
@@ -733,8 +733,9 @@ export default function Campaigns() {
       const push_title = typeof rawDetails.push_title === 'string' ? rawDetails.push_title : undefined;
       const push_body = typeof rawDetails.push_body === 'string' ? rawDetails.push_body : undefined;
       const description = typeof rawDetails.description === 'string' ? rawDetails.description : undefined;
+      const fromColumn = typeof row.image_url === 'string' ? row.image_url.trim() : '';
       /** Do not fall back to raw `preview_image_url` — it bypasses Linktree/non-hero filtering in {@link extractPreviewImageUrl}. */
-      const preview_image_url = extractPreviewImageUrl(rawDetails);
+      const preview_image_url = fromColumn || extractPreviewImageUrl(rawDetails);
 
       const base: PlaceholderCampaign = {
         id: String(row.braze_campaign_id ?? row.id),
@@ -980,6 +981,9 @@ export default function Campaigns() {
     if (brazeCreativeOverride?.email_html_preview) {
       base.email_html_preview = brazeCreativeOverride.email_html_preview;
     }
+    if (typeof selectedRawRow?.image_url === 'string' && selectedRawRow.image_url.trim()) {
+      base.preview_image_url = selectedRawRow.image_url.trim();
+    }
     return resolveEmailModalPreview(Object.keys(base).length ? base : null);
   }, [selectedRawRow, brazeCreativeOverride]);
 
@@ -1009,6 +1013,9 @@ export default function Campaigns() {
     const cached = creativePrefetchCacheRef.current.get(campaignId);
     if (cached?.preview_image_url) base.preview_image_url = cached.preview_image_url;
     if (cached?.email_html_preview) base.email_html_preview = cached.email_html_preview;
+    if (typeof row?.image_url === 'string' && row.image_url.trim()) {
+      base.preview_image_url = row.image_url.trim();
+    }
     return Object.keys(base).length ? base : null;
   }
 
@@ -1020,64 +1027,6 @@ export default function Campaigns() {
       (r.previewType === 'html' && Boolean(r.html))
     );
   }
-
-  const prefetchCampaignCreative = useCallback(
-    (campaign: PlaceholderCampaign, row: BrazeCampaignRow | undefined) => {
-      const clientId = workspaceClientId;
-      const platformId = brazePlatform?.id;
-      if (!showLiveCampaigns || !clientId || !platformId) return;
-      const id = campaign.id;
-      if (creativePrefetchInFlightRef.current.has(id)) return;
-
-      const merged = mergeRawWithCachedCreative(id, row);
-      const fromDb = resolveCampaignPreviewImageUrl(campaign, row ?? undefined);
-      if (fromDb) {
-        const img = new Image();
-        img.decoding = 'async';
-        img.src = getModalOptimizedImageUrl(fromDb);
-      }
-
-      if (isCreativeResolvedFromMerged(merged)) return;
-
-      creativePrefetchInFlightRef.current.add(id);
-      void supabase.functions
-        .invoke<{
-          preview_image_url?: string | null;
-          email_html_preview?: string | null;
-          persisted?: boolean;
-        }>('braze-campaign-creative', {
-          body: {
-            clientId,
-            platformId,
-            brazeCampaignId: id,
-            persist: true,
-          },
-        })
-        .then(({ data, error }) => {
-          creativePrefetchInFlightRef.current.delete(id);
-          if (error) {
-            logger.warn('[Campaigns] braze-campaign-creative prefetch failed', error);
-            return;
-          }
-          const payload = {
-            preview_image_url: data?.preview_image_url ?? undefined,
-            email_html_preview: data?.email_html_preview ?? undefined,
-          };
-          commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, id, payload);
-          if (selectedCampaignIdRef.current === id) {
-            setBrazeCreativeOverride(payload);
-          }
-          if (data?.persisted) {
-            queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
-          }
-        })
-        .catch(e => {
-          creativePrefetchInFlightRef.current.delete(id);
-          logger.warn('[Campaigns] braze-campaign-creative prefetch', e);
-        });
-    },
-    [showLiveCampaigns, workspaceClientId, brazePlatform?.id, queryClient, isAdmin],
-  );
 
   useEffect(() => {
     const clientId = workspaceClientId;
@@ -1149,28 +1098,6 @@ export default function Campaigns() {
     queryClient,
     isAdmin,
   ]);
-
-  /** Idle-prefetch creatives for visible campaigns so they're ready before hover/click. */
-  useEffect(() => {
-    if (!paginatedCampaigns.length || !showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
-    const dbRows = dbCampaigns as BrazeCampaignRow[] | undefined;
-    const ids: Array<{ campaign: (typeof paginatedCampaigns)[0]; row: BrazeCampaignRow | undefined }> = [];
-    for (const c of paginatedCampaigns) {
-      const row = dbRows?.find(r => String(r.braze_campaign_id ?? r.id) === c.id);
-      ids.push({ campaign: c, row });
-    }
-    let cancelled = false;
-    const handle = (typeof requestIdleCallback === 'function' ? requestIdleCallback : setTimeout)(() => {
-      if (cancelled) return;
-      for (const { campaign, row } of ids) {
-        prefetchCampaignCreative(campaign, row);
-      }
-    });
-    return () => {
-      cancelled = true;
-      (typeof cancelIdleCallback === 'function' ? cancelIdleCallback : clearTimeout)(handle);
-    };
-  }, [paginatedCampaigns, showLiveCampaigns, workspaceClientId, brazePlatform?.id, dbCampaigns, prefetchCampaignCreative]);
 
   const modalStatPayload = useMemo(() => {
     if (!selectedCampaign) return null;
@@ -1501,12 +1428,6 @@ export default function Campaigns() {
                     'group flex cursor-pointer flex-col overflow-hidden transition-all duration-200 hover:border-primary/50 hover:shadow-md motion-safe:hover:-translate-y-0.5',
                     viewMode === 'grid' && 'h-full min-h-0',
                   )}
-                  onPointerEnter={() => {
-                    const row = (dbCampaigns as BrazeCampaignRow[] | undefined)?.find(
-                      r => String(r.braze_campaign_id ?? r.id) === campaign.id,
-                    );
-                    prefetchCampaignCreative(campaign, row);
-                  }}
                   onClick={() => setSelectedCampaign(campaign)}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.key === ' ') {

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Bell, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { Badge } from '@/components/ui/badge';
 import type { CampaignChannelUi } from '@/lib/campaignDisplay';
 
@@ -28,6 +29,7 @@ export const PushSmsModalHero = memo(function PushSmsModalHero({
   bodyPersonalized,
 }: PushSmsModalHeroProps) {
   const url = typeof previewImageUrl === 'string' && previewImageUrl.trim() ? previewImageUrl.trim() : undefined;
+  const imgSrc = url ? campaignImageDisplayUrl(url, 'detail') : undefined;
   const isSms = channel === 'sms';
   const isInApp = channel === 'inapp';
 
@@ -88,10 +90,10 @@ export const PushSmsModalHero = memo(function PushSmsModalHero({
         )}
         {isInApp ? 'In-app message' : 'Push notification'}
       </div>
-      {url ? (
+      {url && imgSrc ? (
         <div className="relative w-full bg-muted">
           <img
-            src={url}
+            src={imgSrc}
             alt=""
             className="block h-auto w-full max-w-full object-contain object-top"
             loading="eager"

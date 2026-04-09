@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -261,7 +262,11 @@ function CreativePreview({ step }: { step: CanvasStep }) {
         </div>
         <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center shadow-lg">
           {message?.image_url ? (
-            <img src={message.image_url} alt="" className="w-20 h-20 object-cover rounded-xl mx-auto mb-5" />
+            <img
+              src={campaignImageDisplayUrl(message.image_url, 'thumbnail') ?? message.image_url}
+              alt=""
+              className="w-20 h-20 object-cover rounded-xl mx-auto mb-5"
+            />
           ) : (
             <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-5">
               <Smartphone className="h-8 w-8 text-primary" />
@@ -1211,7 +1216,11 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
       <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
         <div className="w-full max-w-sm bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
           {message?.image_url ? (
-            <img src={message.image_url} alt="" className="w-24 h-24 object-cover rounded-xl mx-auto mb-6" />
+            <img
+              src={campaignImageDisplayUrl(message.image_url, 'thumbnail') ?? message.image_url}
+              alt=""
+              className="w-24 h-24 object-cover rounded-xl mx-auto mb-6"
+            />
           ) : (
             <div className="h-20 w-20 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-6">
               <Smartphone className="h-10 w-10 text-primary" />

@@ -3,6 +3,7 @@ import { ImageIcon, ImageOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { wrapHtmlForIframePreview, type EmailModalPreviewType } from '@/lib/campaignDisplay';
+import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 
 export interface EmailModalCreativeProps {
   /** Hero / fallback image URL from Braze. */
@@ -94,6 +95,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
         : undefined;
   const html = typeof htmlContent === 'string' && htmlContent.trim() ? htmlContent.trim() : undefined;
 
+  const imgSrc = display ? campaignImageDisplayUrl(display, 'detail') : undefined;
   const hasUrl = Boolean(display);
   const hasHtml = Boolean(html);
 
@@ -159,7 +161,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
           </div>
         )}
 
-        {useImageBranch && display && (
+        {useImageBranch && display && imgSrc && (
           <div
             className={cn(
               'relative z-[3] w-full',
@@ -178,7 +180,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
               />
             )}
             <img
-              src={display}
+              src={imgSrc}
               alt=""
               width={920}
               height={400}

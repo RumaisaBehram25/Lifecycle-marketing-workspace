@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string;
   /** Same as anon JWT; optional alias for VITE_SUPABASE_PUBLISHABLE_KEY */
   readonly VITE_SUPABASE_ANON_KEY?: string;
+  /** Public Storage bucket id for campaign creatives (default: campaign-creatives) */
+  readonly VITE_SUPABASE_CAMPAIGN_CREATIVES_BUCKET?: string;
 }
 
 interface ImportMeta {

@@ -1,6 +1,7 @@
 import { memo, useState, type ReactNode } from 'react';
 import { Mail, Bell, Smartphone, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CampaignChannelUi } from '@/lib/campaignDisplay';
 
@@ -56,8 +57,8 @@ export interface CampaignCreativeHeroProps {
   /** Load image immediately (e.g. campaign detail modal is open). */
   eagerImage?: boolean;
   /**
-   * Campaigns grid: fixed-height thumbnail, full-bleed image (no overlay/icon/text on image),
-   * icon-only placeholder when there is no image — no subject/preheader in the hero.
+   * Campaigns grid: fixed-height area with channel icon only (no image, no skeleton, no async load).
+   * Preview images are reserved for modal/detail.
    */
   gridThumbnail?: boolean;
 }
@@ -78,14 +79,24 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
 }: CampaignCreativeHeroProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
-  const url = typeof previewImageUrl === 'string' && previewImageUrl.trim() ? previewImageUrl.trim() : undefined;
+  const isModal = variant === 'modal';
+  const url =
+    gridThumbnail
+      ? undefined
+      : typeof previewImageUrl === 'string' && previewImageUrl.trim()
+        ? previewImageUrl.trim()
+        : undefined;
+  const imgSrc =
+    url &&
+    campaignImageDisplayUrl(
+      url,
+      isModal ? 'detail' : 'default',
+    );
   const showImg = Boolean(url && !imgFailed);
 
   const gradient = journeyPlaceholder?.surfaceGradient ?? creativeGradients[channel];
   const iconSm = channelIconsSm[channel];
   const iconLg = channelIconsLg[channel];
-
-  const isModal = variant === 'modal';
 
   /** Modal: full-bleed creative only — no channel badge or caption on top of the image. */
   const modalImageClean =
@@ -98,11 +109,11 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
   /** Card (non-grid): dimming gradient + icon + caption over image. */
   const showCardStyleImageOverlay = showImg && !isModal && !gridThumbnail;
 
-  /** Grid: never stack text/icon on top of a creative image. */
+  /** Grid: always show channel icon; never stack on an image (grid has no image). */
   const showFooterOverlay =
     (!isModal || modalShowPlaceholder) &&
     !modalImageLoading &&
-    !(gridThumbnail && showImg);
+    (!gridThumbnail || !showImg);
 
   return (
     <div
@@ -117,7 +128,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
         className={cn(
           'absolute inset-0 bg-gradient-to-br transition-opacity duration-500',
           !showImg && gradient,
-          showImg && !imgLoaded && (gridThumbnail ? 'bg-muted' : cn(gradient, 'opacity-70')),
+          showImg && !imgLoaded && cn(gradient, 'opacity-70'),
           showImg && imgLoaded && 'pointer-events-none opacity-0',
         )}
         aria-hidden
@@ -126,9 +137,9 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
         <Skeleton className="pointer-events-none absolute inset-0 z-[1] rounded-none opacity-40" aria-hidden />
       )}
 
-      {showImg && url && (
+      {showImg && url && imgSrc && (
         <img
-          src={url}
+          src={imgSrc}
           alt=""
           width={640}
           height={360}
@@ -137,7 +148,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
           fetchPriority={eagerImage ? 'high' : 'low'}
           className={cn(
             'absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-500 ease-out',
-            modalImageClean || gridThumbnail ? 'object-top' : 'object-center',
+            modalImageClean ? 'object-top' : 'object-center',
             isModal && modalImageClean && 'rounded-xl',
             imgLoaded ? 'opacity-100' : 'opacity-0',
           )}

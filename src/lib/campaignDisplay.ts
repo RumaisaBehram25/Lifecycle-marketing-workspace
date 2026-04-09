@@ -1,3 +1,5 @@
+import { campaignImageDisplayUrl, isSupabaseStoragePublicObjectUrl } from '@/lib/campaignCreativeImageUrl';
+
 /**
  * Normalize Braze `channel` strings for Campaigns UI (badges, gradients, icons).
  * Braze returns values like `email`, `android_push`, `web_push`, `sms`, `in_app_message`.
@@ -720,10 +722,112 @@ function takeBetterPreviewCandidate(
 }
 
 /**
+ * True when Braze `raw_details` indicates an email campaign (hero pick + header-logo fallback apply here only).
+ */
+export function rawDetailsIsEmailCampaign(raw: Record<string, unknown> | null | undefined): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  if (typeof raw.email_html_preview === 'string' && raw.email_html_preview.trim()) return true;
+
+  const ch = raw.channels;
+  if (Array.isArray(ch) && ch.some((c) => String(c).toLowerCase().includes('email'))) return true;
+  if (typeof raw.channel === 'string' && raw.channel.toLowerCase().includes('email')) return true;
+
+  const messages = raw.messages as Record<string, unknown> | undefined;
+  if (messages && typeof messages === 'object' && !Array.isArray(messages)) {
+    for (const key of Object.keys(messages)) {
+      if (key.toLowerCase().includes('email')) return true;
+    }
+    for (const msg of Object.values(messages)) {
+      if (!msg || typeof msg !== 'object') continue;
+      const c = String((msg as Record<string, unknown>).channel ?? '').toLowerCase();
+      if (c === 'email' || c.includes('email')) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Reject only obvious junk for email header/logo fallback — does not treat “logo” paths as non-hero.
+ */
+function isEmailPreviewFallbackHardReject(url: string): boolean {
+  const raw = url.trim();
+  if (!raw || raw.startsWith('data:')) return true;
+  const u = raw.toLowerCase();
+  if (
+    /ct\.pinterest|facebook\.com\/tr|google-analytics|googletagmanager|doubleclick\.net\/.*(pixel|track)/i.test(u)
+  ) {
+    return true;
+  }
+  if (/1x1|spacer|blank\.(gif|png)|pixel\.gif|\/tracking\b/i.test(u)) return true;
+  if (/\/favicon|apple-touch-icon/i.test(u)) return true;
+  if (/[?&]s=(?:1[0-9]?|2[0-9]?|[1-9])(?:&|$)/i.test(raw)) return true;
+  return false;
+}
+
+export type PickBestImageUrlFromHtmlOptions = {
+  /**
+   * When no hero qualifies, use the best available &lt;img&gt; (e.g. header/logo) for email campaigns only.
+   */
+  emailHeaderLogoFallback?: boolean;
+};
+
+/**
+ * If hero scoring found nothing, pick a header/logo-style &lt;img&gt; (largest area hint wins; tie → earlier in HTML).
+ */
+function pickEmailHeaderLogoFallbackFromHtml(
+  html: string | undefined,
+): { url: string; score: number } | undefined {
+  if (!html || typeof html !== 'string') return undefined;
+  const tags = html.match(/<img\b[^>]*>/gi) ?? [];
+  let bestUrl: string | undefined;
+  let bestArea = -1;
+  let bestOrder = Number.MAX_SAFE_INTEGER;
+  let order = 0;
+  for (const tag of tags) {
+    const parts = collectUrlsFromImgTag(tag);
+    for (const p of parts) {
+      const n = normalizeImageUrlString(p.url);
+      if (!n || isEmailPreviewFallbackHardReject(n)) continue;
+      if (!n.startsWith('http://') && !n.startsWith('https://')) continue;
+      const w = p.widthHint;
+      const h = p.heightHint;
+      const area = w > 0 && h > 0 ? w * h : w > 0 ? w * w : h > 0 ? h * h : 0;
+      const better =
+        bestUrl === undefined ||
+        area > bestArea ||
+        (area === bestArea && order < bestOrder);
+      if (better) {
+        bestUrl = n;
+        bestArea = area;
+        bestOrder = order;
+      }
+      order++;
+    }
+  }
+  if (!bestUrl) return undefined;
+  return { url: bestUrl, score: 0 };
+}
+
+/** True when any &lt;img&gt; resolves to an http(s) URL (after lazy-attr extraction). */
+function htmlHasImgWithHttpSrc(html: string): boolean {
+  const tags = html.match(/<img\b[^>]*>/gi) ?? [];
+  for (const tag of tags) {
+    for (const p of collectUrlsFromImgTag(tag)) {
+      const n = normalizeImageUrlString(p.url);
+      if (n && (n.startsWith('http://') || n.startsWith('https://'))) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Best &lt;img&gt; / CSS background URL from email HTML: skips logos and small branding, prefers larger
  * content/UI-style images; later &lt;img&gt; tags get a tie-break bonus (hero often below the header).
  */
-export function pickBestImageUrlFromHtml(html: string | undefined): { url: string; score: number } | undefined {
+export function pickBestImageUrlFromHtml(
+  html: string | undefined,
+  options?: PickBestImageUrlFromHtmlOptions,
+): { url: string; score: number } | undefined {
   if (!html || typeof html !== 'string') return undefined;
 
   let best: { url: string; score: number } | undefined;
@@ -776,7 +880,11 @@ export function pickBestImageUrlFromHtml(html: string | undefined): { url: strin
     best = takeBetterPreviewCandidate(best, n, meta);
   }
 
-  return best;
+  if (best) return best;
+  if (options?.emailHeaderLogoFallback) {
+    return pickEmailHeaderLogoFallbackFromHtml(html);
+  }
+  return undefined;
 }
 
 /** @see {@link pickBestImageUrlFromHtml} */
@@ -791,9 +899,21 @@ export function extractBestImageUrlFromHtml(html: string | undefined): string | 
 export function extractPreviewImageUrl(raw: Record<string, unknown> | null | undefined): string | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
 
+  const uploaded =
+    typeof raw.preview_image_url === 'string'
+      ? raw.preview_image_url.trim()
+      : typeof raw.image_url === 'string'
+        ? raw.image_url.trim()
+        : '';
+  if (uploaded && isSupabaseStoragePublicObjectUrl(uploaded)) {
+    return uploaded;
+  }
+
   const htmlBlob = pickBestEmailHtmlString(raw);
   if (htmlBlob) {
-    const fromHtml = pickBestImageUrlFromHtml(htmlBlob);
+    const fromHtml = pickBestImageUrlFromHtml(htmlBlob, {
+      emailHeaderLogoFallback: rawDetailsIsEmailCampaign(raw) && htmlHasImgWithHttpSrc(htmlBlob),
+    });
     if (fromHtml?.url) {
       // Real HTML present: Braze `preview_image_url` / message fields usually duplicate the first `<img>` (Linktree logo).
       return fromHtml.url;
@@ -829,8 +949,10 @@ export function extractPreviewImageUrl(raw: Record<string, unknown> | null | und
  */
 export function resolveCampaignPreviewImageUrl(
   campaign: { preview_image_url?: string | null } | null | undefined,
-  rawRow?: { raw_details?: unknown } | null,
+  rawRow?: { raw_details?: unknown; image_url?: string | null } | null,
 ): string | undefined {
+  const fromUpload = typeof rawRow?.image_url === 'string' ? rawRow.image_url.trim() : '';
+  if (fromUpload) return fromUpload;
   if (rawRow?.raw_details != null && typeof rawRow.raw_details === 'object') {
     const fromParsed = extractPreviewImageUrl(rawRow.raw_details as Record<string, unknown>);
     if (fromParsed) return fromParsed;
@@ -863,6 +985,7 @@ export interface EmailModalPreviewResolution {
 export function isQualifyingModalHeroUrl(url: string): boolean {
   const raw = url.trim();
   if (!raw || raw.startsWith('data:')) return false;
+  if (isSupabaseStoragePublicObjectUrl(raw)) return true;
   if (isLikelyNonHeroImageUrl(raw) || isLikelyLogoHeaderOrBranding(raw)) return false;
 
   const { w, h } = parseDimensionHintsFromUrl(raw);
@@ -894,6 +1017,8 @@ export function isQualifyingModalHeroUrl(url: string): boolean {
 export function getModalOptimizedImageUrl(url: string): string {
   const t = url.trim();
   if (!t) return t;
+  const supabaseDisplay = campaignImageDisplayUrl(t, 'detail');
+  if (supabaseDisplay && supabaseDisplay !== t) return supabaseDisplay;
   try {
     const abs = t.startsWith('//') ? `https:${t}` : t;
     const u = new URL(abs);
