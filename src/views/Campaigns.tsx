@@ -66,6 +66,7 @@ import {
   startOfYear,
 } from 'date-fns';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
+import { schedulePreloadCampaignBucketDetailImages } from '@/lib/campaignCreativeImageUrl';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -817,6 +818,12 @@ export default function Campaigns() {
     isLoading,
     schemaCacheCampaignRows,
   ]);
+
+  /** Warm browser cache for Storage campaign creatives (detail transform) after list is ready. */
+  useEffect(() => {
+    if (campaigns.length === 0) return;
+    schedulePreloadCampaignBucketDetailImages(campaigns.map(c => c.preview_image_url));
+  }, [campaigns]);
 
   const showLoading =
     workspaceClientLoading ||

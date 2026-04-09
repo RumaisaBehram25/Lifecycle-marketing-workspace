@@ -43,3 +43,61 @@ export function campaignImageDisplayUrl(
     return raw;
   }
 }
+
+/**
+ * Unique `detail` Image-Transform URLs for Supabase public campaign creatives (same as modal hero `img` src).
+ */
+export function collectCampaignBucketDetailImageUrls(
+  previewUrls: ReadonlyArray<string | undefined | null>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of previewUrls) {
+    const t = typeof raw === 'string' ? raw.trim() : '';
+    if (!t || !isSupabaseStoragePublicObjectUrl(t)) continue;
+    const u = campaignImageDisplayUrl(t, 'detail');
+    if (u && !seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  }
+  return out;
+}
+
+/**
+ * Defer until the browser is idle, then batch-fetch images so HTTP cache is warm before scroll/modal.
+ * Non-bucket URLs are skipped (external Braze/imgix URLs are unchanged by {@link campaignImageDisplayUrl} but not preloaded here).
+ */
+export function schedulePreloadCampaignBucketDetailImages(
+  previewUrls: ReadonlyArray<string | undefined | null>,
+  concurrency = 8,
+): void {
+  const urls = collectCampaignBucketDetailImageUrls(previewUrls);
+  if (urls.length === 0) return;
+
+  const run = (): void => {
+    void (async () => {
+      for (let i = 0; i < urls.length; i += concurrency) {
+        const batch = urls.slice(i, i + concurrency);
+        await Promise.all(
+          batch.map(
+            url =>
+              new Promise<void>(resolve => {
+                const img = new Image();
+                img.decoding = 'async';
+                img.onload = () => resolve();
+                img.onerror = () => resolve();
+                img.src = url;
+              }),
+          ),
+        );
+      }
+    })();
+  };
+
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 2500 });
+  } else {
+    setTimeout(run, 0);
+  }
+}
