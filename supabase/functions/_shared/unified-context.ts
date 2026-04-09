@@ -503,7 +503,7 @@ ${knowledge.supportingDocs.map(doc => `- **${doc.title}** [${doc.platform || 'ge
     prompt += `### MORE DOCS AVAILABLE
 ${knowledge.availableDocs.map(doc => `- ${doc.title} [${doc.platform || 'general'}/${doc.category || 'general'}]`).join('\n')}
 
-Use the search_client_knowledge tool to get full content from these docs.
+You only have titles/metadata for these unless full text appears under PRIMARY REFERENCE DOCS above.
 
 `;
   }
@@ -523,7 +523,13 @@ Use the search_client_knowledge tool to get full content from these docs.
 - When suggesting segmentation, reference their actual lists and profile properties
 - When asked about Liquid/templating, provide complete syntax examples
 - If data seems stale (synced > 24 hours ago), mention the user may want to re-sync
-- Provide specific, actionable advice - not generic recommendations
+- Provide specific, actionable advice - not generic recommendations${
+    purpose === 'chat'
+      ? `
+- **Metrics & CRM facts:** Use only numbers and names from **ANALYTICS & CRM DATA** and **PLATFORM** sections in this prompt. Never guess sends, rates, revenue, or segment sizes. If a subsection is empty, say there is no data yet (sync/import).
+- **No hallucinated access errors:** Do not tell the user you cannot query their database or Analytics; this prompt is already loaded from Supabase for their workspace.`
+      : ''
+  }
 
 ## RESPONSE FORMATTING
 Format all responses using proper Markdown for optimal readability:

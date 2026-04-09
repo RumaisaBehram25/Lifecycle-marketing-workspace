@@ -15,7 +15,6 @@ const Briefs = lazy(() => import("./views/Briefs"));
 const Campaigns = lazy(() => import("./views/Campaigns"));
 const Lifecycle = lazy(() => import("./views/Lifecycle"));
 const ResourceCenter = lazy(() => import("./views/ResourceCenter"));
-const Onboarding = lazy(() => import("./views/Onboarding"));
 const Settings = lazy(() => import("./views/Settings"));
 const Chat = lazy(() => import("./views/Chat"));
 const Analytics = lazy(() => import("./views/Analytics"));
@@ -59,7 +58,8 @@ function AppRoutes() {
         <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
         <Route path="/lifecycle" element={<ProtectedRoute><Lifecycle /></ProtectedRoute>} />
         <Route path="/resources" element={<ProtectedRoute><ResourceCenter /></ProtectedRoute>} />
-        <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+        {/* Onboarding page hidden for now — keep route so old links land somewhere sensible */}
+        <Route path="/onboarding" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
         {/* Redirects for old routes */}

@@ -358,12 +358,12 @@ export default function Analytics() {
               </div>
               <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
               <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-                Upload your Braze campaign, segment, or usage CSVs on the onboarding page to see charts and benchmarks here.
+                Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
               </p>
               <Button asChild className="mt-6">
-                <Link to="/onboarding" className="inline-flex items-center gap-2">
+                <Link to="/dashboard" className="inline-flex items-center gap-2">
                   <UploadCloud className="h-4 w-4" />
-                  Go to Onboarding
+                  Go to Dashboard
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -410,12 +410,12 @@ export default function Analytics() {
               </div>
               <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
               <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-                Upload your Braze campaign, segment, or usage CSVs on the onboarding page to see charts and benchmarks here.
+                Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
               </p>
               <Button asChild className="mt-6">
-                <Link to="/onboarding" className="inline-flex items-center gap-2">
+                <Link to="/dashboard" className="inline-flex items-center gap-2">
                   <UploadCloud className="h-4 w-4" />
-                  Go to Onboarding
+                  Go to Dashboard
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -972,10 +972,10 @@ export default function Analytics() {
             {segmentChartDataByDate.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <UploadCloud className="h-8 w-8 text-muted-foreground/70" />
-                <p className="text-sm text-muted-foreground">Upload your Braze CSVs on the onboarding page.</p>
+                <p className="text-sm text-muted-foreground">Segment history appears after Braze sync or when data is available.</p>
                 <Button asChild variant="link" className="text-primary hover:text-primary/90">
-                  <Link to="/onboarding" className="inline-flex items-center gap-1.5">
-                    Go to Onboarding <ArrowRight className="h-3.5 w-3.5" />
+                  <Link to="/dashboard" className="inline-flex items-center gap-1.5">
+                    Go to Dashboard <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </Button>
               </div>

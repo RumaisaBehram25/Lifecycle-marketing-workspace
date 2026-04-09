@@ -84,6 +84,28 @@ function avgRate(rows: Record<string, unknown>[], key: string): number {
   return withVal.reduce((s, r) => s + num(r[key]), 0) / withVal.length;
 }
 
+/** Mirrors `src/lib/campaignDisplay.ts` normalizeCampaignChannel — used for Copilot directory counts. */
+function normalizeCampaignChannelForSnapshot(
+  raw: string | null | undefined,
+): "email" | "sms" | "inapp" | "push" {
+  const s = String(raw ?? "").toLowerCase().trim();
+  if (!s) return "email";
+  if (s === "email" || s.includes("email")) return "email";
+  if (s === "sms" || s.includes("sms")) return "sms";
+  if (
+    s.includes("in_app") ||
+    s.includes("in-app") ||
+    s === "content_card" ||
+    s === "inapp"
+  ) {
+    return "inapp";
+  }
+  if (s.includes("push") || s.includes("android") || s.includes("ios") || s.includes("web_push")) {
+    return "push";
+  }
+  return "email";
+}
+
 function formatJsonRows(label: string, rows: unknown[], maxLines: number): string {
   if (!Array.isArray(rows) || rows.length === 0) {
     return `\n### ${label}\n- No rows for this client.\n`;
@@ -133,7 +155,22 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
   block += formatJsonRows("braze_segment_analytics", bundle.braze_segments as unknown[], 30);
   block += formatJsonRows("customerio_campaigns", bundle.customerio_campaigns as unknown[], 40);
   block += formatJsonRows("customerio_broadcasts", bundle.customerio_broadcasts as unknown[], 20);
-  block += formatJsonRows("braze_canvases (lifecycle)", bundle.braze_canvases as unknown[], 25);
+
+  const cvTot = bundle.braze_canvases_totals as Record<string, unknown> | undefined;
+  if (cvTot != null) {
+    block += `\n### braze_canvases (workspace totals — matches Lifecycle “Entries (60d)” hero sum)\n`;
+    block += `- **Canvas rows** in \`braze_canvases\`: **${Number(cvTot.canvas_row_count ?? 0).toLocaleString()}**\n`;
+    block += `- **Sum entries_last_60d** (all canvases): **${Number(cvTot.sum_entries_last_60d ?? 0).toLocaleString()}**\n`;
+    block += `- **Sum entries_last_30d** (all canvases): **${Number(cvTot.sum_entries_last_30d ?? 0).toLocaleString()}**\n`;
+    block += `- **Sum sends_last_30d** (all canvases): **${Number(cvTot.sum_sends_last_30d ?? 0).toLocaleString()}**\n`;
+    block += `- Rows below are a **sample** (≤50) ordered by **entries_last_60d** descending — not the full directory.\n`;
+  }
+
+  block += formatJsonRows(
+    "braze_canvases (top ≤50 by entries_last_60d)",
+    bundle.braze_canvases as unknown[],
+    25,
+  );
 
   const kpiSum = bundle.braze_kpi_summary as Record<string, unknown> | undefined;
   if (kpiSum != null) {
@@ -152,8 +189,20 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
     block += formatJsonRows("braze_kpi_series (recent points)", bundle.braze_kpi_series as unknown[], 40);
   }
 
+  const campTot = bundle.braze_campaigns_totals as Record<string, unknown> | undefined;
+  if (campTot != null) {
+    block += `\n### braze_campaigns (workspace totals — matches Campaigns tab “Showing 1–N of N” when channel = All)\n`;
+    block += `- **Campaign rows** in \`braze_campaigns\`: **${Number(campTot.row_count ?? 0).toLocaleString()}**\n`;
+    block += `- **Email channel rows** (normalized like Campaigns filter “Email”): **${Number(campTot.email_row_count ?? 0).toLocaleString()}**\n`;
+    block += `- Rows below are a **sample** (≤50) ordered by **sent_date** descending — not the full directory.\n`;
+  }
+
   if (Array.isArray(bundle.braze_campaigns)) {
-    block += formatJsonRows("braze_campaigns (Campaigns tab / API sync)", bundle.braze_campaigns as unknown[], 35);
+    block += formatJsonRows(
+      "braze_campaigns (top ≤50 by sent_date — Campaigns tab sample)",
+      bundle.braze_campaigns as unknown[],
+      35,
+    );
   }
 
   if (bundle.braze_segments_sync_count != null) {
@@ -190,7 +239,8 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
   block +=
     "\nFor **Overview** / email performance, prefer **braze_campaign_totals** and **braze_usage**. " +
     "For **DAU/MAU/new users**, prefer **braze_kpi_summary** and **braze_usage**. " +
-    "For **named one-off campaigns**, use **braze_campaigns**. For journeys, use **braze_canvases**.\n";
+    "For **named one-off campaign counts**, use **braze_campaigns_totals** (full directory); the **braze_campaigns** list is a capped sample. " +
+    "For **lifecycle entry volume**, use **braze_canvases_totals** (workspace sums); per-canvas lines are a capped sample.\n";
 
   return block;
 }
@@ -202,7 +252,7 @@ async function buildAnalyticsSnapshotFallback(
   let block =
     `\n## ANALYTICS & CRM DATA (client_id: \`${clientId}\`) — fallback reader\n` +
     `**Note:** RPC \`analytics_bundle_for_copilot\` unavailable; using paged reads (may be slower / capped). ` +
-    `Run migration \`20260322100000_analytics_bundle_for_copilot.sql\` for exact totals.\n`;
+    `Apply latest \`analytics_bundle_for_copilot\` migration (e.g. \`20260410120000_analytics_bundle_braze_campaigns_totals.sql\`) for RPC-backed totals.\n`;
 
   const { totals, error: brazeErr } = await aggregateBrazeCampaignAnalyticsPaged(
     supabase,
@@ -246,15 +296,74 @@ async function buildAnalyticsSnapshotFallback(
   }
 
   try {
-    const { data: camps } = await supabase
+    const { data: allCamps, error: campErr } = await supabase
       .from("braze_campaigns")
-      .select("name,channel,status,sent_date,opens,clicks,deliveries,open_rate,click_rate")
-      .eq("client_id", clientId)
-      .order("sent_date", { ascending: false, nullsFirst: false })
-      .limit(40);
-    block += formatJsonRows("braze_campaigns (fallback)", (camps ?? []) as unknown[], 30);
-  } catch {
-    block += "\n### braze_campaigns\n- Error or table missing.\n";
+      .select("name,channel,status,sent_date,opens,clicks,deliveries,open_rate,click_rate,unsubs,segment")
+      .eq("client_id", clientId);
+    if (campErr) {
+      block += `\n### braze_campaigns (fallback)\n- Error: ${campErr.message}\n`;
+    } else {
+      const rows = (allCamps ?? []) as Record<string, unknown>[];
+      let emailN = 0;
+      for (const r of rows) {
+        if (normalizeCampaignChannelForSnapshot(String(r.channel ?? null)) === "email") emailN++;
+      }
+      block += `\n### braze_campaigns (workspace totals — fallback, matches Campaigns tab counts)\n`;
+      block += `- **Campaign rows**: **${rows.length.toLocaleString()}**\n`;
+      block += `- **Email channel rows** (normalized): **${emailN.toLocaleString()}**\n`;
+      const sentMs = (r: Record<string, unknown>) => {
+        const d = r.sent_date;
+        if (d == null) return 0;
+        const t = new Date(String(d)).getTime();
+        return Number.isNaN(t) ? 0 : t;
+      };
+      const top = [...rows].sort((a, b) => sentMs(b) - sentMs(a)).slice(0, 50);
+      block += formatJsonRows(
+        "braze_campaigns (top 50 by sent_date, fallback)",
+        top as unknown[],
+        35,
+      );
+    }
+  } catch (e) {
+    block += `\n### braze_campaigns (fallback)\n- Error: ${String(e).slice(0, 200)}\n`;
+  }
+
+  try {
+    const { data: cvRows, error: cvErr } = await supabase
+      .from("braze_canvases")
+      .select("entries_last_60d, entries_last_30d, sends_last_30d, name, enabled")
+      .eq("client_id", clientId);
+    if (cvErr) {
+      block += `\n### braze_canvases (fallback)\n- Error: ${cvErr.message}\n`;
+    } else {
+      const rows = (cvRows ?? []) as Array<{
+        entries_last_60d?: number | null;
+        entries_last_30d?: number | null;
+        sends_last_30d?: number | null;
+      }>;
+      let sum60 = 0;
+      let sum30 = 0;
+      let sumSends = 0;
+      for (const r of rows) {
+        sum60 += Number(r.entries_last_60d ?? 0) || 0;
+        sum30 += Number(r.entries_last_30d ?? 0) || 0;
+        sumSends += Number(r.sends_last_30d ?? 0) || 0;
+      }
+      block += `\n### braze_canvases (workspace totals — fallback, matches Lifecycle Entries sum)\n`;
+      block += `- **Canvas rows**: **${rows.length.toLocaleString()}**\n`;
+      block += `- **Sum entries_last_60d**: **${sum60.toLocaleString()}**\n`;
+      block += `- **Sum entries_last_30d**: **${sum30.toLocaleString()}**\n`;
+      block += `- **Sum sends_last_30d**: **${sumSends.toLocaleString()}**\n`;
+      const top = [...rows]
+        .sort(
+          (a, b) =>
+            (Number(b.entries_last_60d ?? 0) || 0) - (Number(a.entries_last_60d ?? 0) || 0),
+        )
+        .slice(0, 50);
+      block += formatJsonRows("braze_canvases (top 50 by entries_last_60d, fallback)", top as unknown[], 25);
+    }
+  } catch (e) {
+    block += `\n### braze_canvases (fallback)\n- Error: ${String(e).slice(0, 200)}\n`;
   }
 
   return block;

@@ -21,11 +21,15 @@ type ChatProvider = {
 function getChatProvider(): ChatProvider | null {
   const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY')?.trim();
   if (!anthropicKey) return null;
+  // Pinned ID — matches `generate-analytics-insights`. Avoid deprecated aliases like
+  // `claude-3-sonnet-latest` / `claude-3-5-sonnet-latest` (Anthropic may return 404).
+  const defaultModel =
+    Deno.env.get('ANTHROPIC_MODEL')?.trim() || 'claude-haiku-4-5-20251001';
   return {
     kind: 'anthropic',
     url: 'https://api.anthropic.com/v1/messages',
     apiKey: anthropicKey,
-    defaultModel: Deno.env.get('ANTHROPIC_MODEL')?.trim() || 'claude-3-5-sonnet-latest',
+    defaultModel,
   };
 }
 
@@ -309,6 +313,14 @@ serve(async (req) => {
     let systemPrompt = buildSystemPromptFromContext(unifiedContext, 'chat');
     systemPrompt += await buildWorkspaceSnapshot(supabase, client.id);
     systemPrompt += await buildAnalyticsSnapshotBlock(supabase, analyticsClientId);
+
+    systemPrompt += `\n## DATA ACCURACY & SUPABASE ACCESS (mandatory)\n` +
+      `- **Snapshot time:** ${unifiedContext.generatedAt} (UTC). Numbers are a point-in-time read for this chat request.\n` +
+      `- **Client scope:** \`clients.id\` = \`${client.id}\`. **Analytics / Braze bundle** uses \`analyticsClientId\` = \`${analyticsClientId}\` (aligned with Dashboard Braze tiles when that ID matches your synced workspace).\n` +
+      `- **How this is loaded:** This Edge Function uses the Supabase **service role** to **read** rows for those IDs (same underlying tables as in-app Analytics, Campaigns, KPIs). That is **not** “no access” — it is the server-side, API-grounded snapshot injected into your context.\n` +
+      `- **Answer rules:** State **only** metrics, campaign names, segment names, and counts that appear in **ANALYTICS & CRM DATA**, **LIVE WORKSPACE SNAPSHOT**, **PLATFORM**, and **CLIENT CONTEXT** above. **Do not invent** sends, opens, revenue, or list sizes. If something is not in the snapshot, say it is **not in the current data** and suggest Braze sync or checking Analytics / Campaigns.\n` +
+      `- **Forbidden claims:** Do **not** say you lack “API access”, “Supabase access”, or “can’t see the Analytics tab” — this prompt already contains what the app exposed for this turn.\n`;
+
     systemPrompt += `\n## COPILOT VOICE\nYou are **CRM Copilot** for lifecycle marketersâ€”warm, decisive, and concise. Prefer short sections and bullet points. Be actionable and slightly catchy without being cheesy. If a metric is missing from the snapshots above, say it is not synced or not in the database yetâ€”do not invent numbersâ€”and still give strong best-practice guidance.\n`;
 
     console.log('Context built:', {
@@ -330,7 +342,7 @@ serve(async (req) => {
     const completionText = await anthropicComplete(provider, {
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       max_tokens: 8192,
-      temperature: 0.4,
+      temperature: 0.35,
     });
 
     if (completionText.startsWith('Anthropic error')) {

@@ -22,7 +22,6 @@ import {
   Workflow,
   User,
   BookOpen,
-  ClipboardList,
   Volume2,
   Palette,
   Ruler,
@@ -66,7 +65,6 @@ export function AppSidebar() {
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Onboarding', href: '/onboarding', icon: ClipboardList },
     { name: 'Campaigns', href: '/campaigns', icon: Send },
     { name: 'Lifecycle', href: '/lifecycle', icon: Workflow },
     { name: 'Analytics', href: '/analytics', icon: BarChart3 },
