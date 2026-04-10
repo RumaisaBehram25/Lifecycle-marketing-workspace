@@ -28,6 +28,8 @@ export interface ClientContext {
   key_messaging_pillars?: string[];
   differentiators?: string[];
   competitors?: Array<{ name: string; url?: string; notes?: string }>;
+  /** Resource Center copy rules (channel character limits), from `clients.copy_rules` */
+  copy_rules?: Record<string, unknown>[];
 }
 
 export interface PlatformData {
@@ -151,7 +153,32 @@ async function fetchClient(supabase: SupabaseClient, clientId: string): Promise<
     key_messaging_pillars: toArray(data.key_messaging_pillars),
     differentiators: toArray(data.differentiators),
     competitors: toArray(data.competitors),
+    copy_rules: normalizeCopyRules(data.copy_rules),
   };
+}
+
+function normalizeCopyRules(val: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(val)) return [];
+  return val.filter((x) => x && typeof x === "object") as Record<string, unknown>[];
+}
+
+function formatCopyRulesForPrompt(rules: Record<string, unknown>[] | undefined): string {
+  if (!rules || rules.length === 0) return "";
+  const lines: string[] = [];
+  for (const r of rules) {
+    if (r.isActive === false) continue;
+    const ch = String(r.channel ?? "?");
+    const el = String(r.element ?? "?");
+    const min = typeof r.minChars === "number" ? r.minChars : Number(r.minChars);
+    const max = typeof r.maxChars === "number" ? r.maxChars : Number(r.maxChars);
+    const dev = Array.isArray(r.deviceTypes) ? (r.deviceTypes as string[]).join(", ") : "";
+    const range =
+      Number.isFinite(min) && Number.isFinite(max) ? `${min}–${max} characters` : "see workspace";
+    lines.push(
+      `- **${ch} · ${el}**: ${range}${dev ? ` (${dev})` : ""}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 // ============= Platform Data Fetcher =============
@@ -403,6 +430,14 @@ export function buildSystemPromptFromContext(
 
 `;
 
+  const copyRulesBlock = formatCopyRulesForPrompt(client.copy_rules);
+  if (copyRulesBlock) {
+    prompt += `### Copy Rules (character limits — from Resource Center → Rules)
+${copyRulesBlock}
+
+`;
+  }
+
   // Target Audience
   if (client.target_audience && client.target_audience.length > 0) {
     prompt += `### Target Audience
@@ -519,6 +554,7 @@ You only have titles/metadata for these unless full text appears under PRIMARY R
   // Guidelines
   prompt += `## GUIDELINES
 - Always use the client's brand voice and adhere to their do's and don'ts
+- **Resource Center copy limits:** Character limits for email/SMS/push/in-app appear under **CLIENT CONTEXT → Copy Rules** when configured (saved on the client workspace in Supabase — not from Braze template sync). **Always** apply those limits when drafting or critiquing copy. **Never** say copy rules are "missing", "not synced", or "not in the snapshot" **only** because **PLATFORM** events, lists, or templates are empty — empty platform sync does **not** mean copy rules are absent if **Copy Rules** appears above.
 - When suggesting entry criteria, use the actual events available in their platform
 - When suggesting segmentation, reference their actual lists and profile properties
 - When asked about Liquid/templating, provide complete syntax examples
@@ -526,7 +562,7 @@ You only have titles/metadata for these unless full text appears under PRIMARY R
 - Provide specific, actionable advice - not generic recommendations${
     purpose === 'chat'
       ? `
-- **Metrics & CRM facts:** Use only numbers and names from **ANALYTICS & CRM DATA** and **PLATFORM** sections in this prompt. Never guess sends, rates, revenue, or segment sizes. If a subsection is empty, say there is no data yet (sync/import).
+- **Metrics & CRM facts:** For **sends, opens, clicks, revenue, segment sizes, campaign performance, and list counts**, use only numbers and names from **ANALYTICS & CRM DATA** and **PLATFORM** in this prompt; never invent those. If those subsections are empty, say that operational data is not synced yet — this does **not** apply to **brand voice**, **do/don't rules**, or **Copy Rules** under **CLIENT CONTEXT** (use those whenever present).
 - **No hallucinated access errors:** Do not tell the user you cannot query their database or Analytics; this prompt is already loaded from Supabase for their workspace.`
       : ''
   }

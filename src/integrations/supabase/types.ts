@@ -418,6 +418,7 @@ export type Database = {
           brand_voice: string | null
           competitors: Json | null
           copy_examples: Json | null
+          copy_rules: Json | null
           created_at: string
           differentiators: Json | null
           do_rules: Json | null
@@ -443,6 +444,7 @@ export type Database = {
           brand_voice?: string | null
           competitors?: Json | null
           copy_examples?: Json | null
+          copy_rules?: Json | null
           created_at?: string
           differentiators?: Json | null
           do_rules?: Json | null
@@ -468,6 +470,7 @@ export type Database = {
           brand_voice?: string | null
           competitors?: Json | null
           copy_examples?: Json | null
+          copy_rules?: Json | null
           created_at?: string
           differentiators?: Json | null
           do_rules?: Json | null

@@ -164,10 +164,16 @@ export default function Brand() {
             {/* Tab Content */}
             {activeTab === 'voice' && (
               <BrandVoiceTab 
+                clientId={client.id}
+                onSaved={() => {
+                  refetchClient();
+                  queryClient.invalidateQueries({ queryKey: ['client-row-for-chat', client.id] });
+                }}
                 client={{
                   brand_voice: client.brand_voice,
                   do_rules: Array.isArray(client.do_rules) ? client.do_rules as string[] : null,
                   dont_rules: Array.isArray(client.dont_rules) ? client.dont_rules as string[] : null,
+                  tone_presets: Array.isArray(client.tone_presets) ? client.tone_presets as string[] : null,
                   value_propositions: Array.isArray((client as any).value_propositions) 
                     ? (client as any).value_propositions as string[] 
                     : null,
@@ -183,7 +189,14 @@ export default function Brand() {
             )}
 
             {activeTab === 'rules' && (
-              <RulesTab clientId={client.id} />
+              <RulesTab
+                clientId={client.id}
+                initialCopyRules={client.copy_rules}
+                onPersist={() => {
+                  refetchClient();
+                  queryClient.invalidateQueries({ queryKey: ['client-row-for-chat', client.id] });
+                }}
+              />
             )}
 
             {/* Footer */}

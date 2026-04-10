@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { BRAZE_CANVASES_LIST_SELECT } from '@/lib/brazeCanvasesListSelect';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
@@ -31,6 +31,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -63,6 +65,7 @@ import {
   Star,
   RefreshCw,
   TrendingUp,
+  Eye,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -205,8 +208,50 @@ function sortJourneysByTouchpointsDesc<
   });
 }
 
+/** Elapsed ms since first entry (journey "running since"); null if unknown. */
+function timeRunningSinceFirstEntryMs(firstEntry: string | undefined): number | null {
+  if (!firstEntry) return null;
+  const t = Date.parse(String(firstEntry));
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Date.now() - t);
+}
+
+/**
+ * Sort by how long the journey has been running since first_entry.
+ * `asc` = shortest running first (most recent starts), `desc` = longest running first.
+ */
+function sortJourneysByTimeRunning<
+  T extends { first_entry?: string; name?: string; displayName?: string },
+>(rows: T[], direction: 'asc' | 'desc'): T[] {
+  return [...rows].sort((a, b) => {
+    const aMs = timeRunningSinceFirstEntryMs(a.first_entry);
+    const bMs = timeRunningSinceFirstEntryMs(b.first_entry);
+    const aNull = aMs == null;
+    const bNull = bMs == null;
+    if (aNull && bNull) {
+      return String(a.displayName ?? a.name ?? '').localeCompare(
+        String(b.displayName ?? b.name ?? ''),
+        undefined,
+        { sensitivity: 'base' },
+      );
+    }
+    if (aNull) return 1;
+    if (bNull) return -1;
+    const cmp = direction === 'asc' ? aMs - bMs : bMs - aMs;
+    if (cmp !== 0) return cmp;
+    return String(a.displayName ?? a.name ?? '').localeCompare(
+      String(b.displayName ?? b.name ?? ''),
+      undefined,
+      { sensitivity: 'base' },
+    );
+  });
+}
+
 /** Journey cards per page (between 25–30 for readable grids). */
 const JOURNEY_PAGE_SIZE = 27;
+
+/** localStorage key for Lifecycle “Canvases” hide list (per workspace client id). */
+const LIFECYCLE_HIDDEN_CANVAS_IDS_KEY = 'lifecycle:hidden_canvas_db_ids';
 
 function LifecycleMetricTile({
   icon: Icon,
@@ -270,6 +315,13 @@ export default function Lifecycle() {
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [journeyPage, setJourneyPage] = useState(1);
+  /** Page-only: hide journeys by DB row id (Settings visibility is separate). */
+  const [hiddenCanvasDbIds, setHiddenCanvasDbIds] = useState<Set<string>>(() => new Set());
+  /** After localStorage hydrate for this workspace — avoids save effect wiping LS before load. */
+  const [lifecycleCanvasPrefsReady, setLifecycleCanvasPrefsReady] = useState(false);
+  const [lifecycleSortMode, setLifecycleSortMode] = useState<
+    'touchpoints' | 'time_running_short' | 'time_running_long'
+  >('touchpoints');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
 
@@ -391,6 +443,7 @@ export default function Lifecycle() {
       queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
+      queryClient.invalidateQueries({ queryKey: ['braze_segments_sync'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     } catch (error: unknown) {
       logger.error('Sync error:', error);
@@ -539,16 +592,90 @@ export default function Lifecycle() {
     );
   }, [normalizedCanvases, canViewLifecycleFromBraze]);
 
-  const isItemVisible = (brazeOrVisibilityId: string) => {
+  const isItemVisible = useCallback((brazeOrVisibilityId: string) => {
     const explicitSetting = visibilityMap.get(brazeOrVisibilityId);
     if (explicitSetting !== undefined) return explicitSetting;
     return true;
-  };
+  }, [visibilityMap]);
 
-  // Filter journeys (keep same touchpoint-first order as the full list)
+  const pickableJourneys = useMemo(
+    () =>
+      [...journeys]
+        .filter((j) => isItemVisible(j.id))
+        .sort((a, b) =>
+          String(a.displayName ?? a.name ?? '').localeCompare(
+            String(b.displayName ?? b.name ?? ''),
+            undefined,
+            { sensitivity: 'base' },
+          ),
+        ),
+    [journeys, isItemVisible],
+  );
+
+  /** Restore page-level hidden canvases after refresh (browser only). Layout runs before paint so persist effect does not overwrite LS with an empty Set. */
+  useLayoutEffect(() => {
+    setLifecycleCanvasPrefsReady(false);
+    if (!brazeReadClientId) {
+      setHiddenCanvasDbIds(new Set());
+      setLifecycleCanvasPrefsReady(true);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(
+        `${LIFECYCLE_HIDDEN_CANVAS_IDS_KEY}:${brazeReadClientId}`,
+      );
+      if (!raw) {
+        setHiddenCanvasDbIds(new Set());
+      } else {
+        const arr = JSON.parse(raw) as unknown;
+        if (!Array.isArray(arr)) {
+          setHiddenCanvasDbIds(new Set());
+        } else {
+          setHiddenCanvasDbIds(
+            new Set(arr.filter((x): x is string => typeof x === 'string' && x.length > 0)),
+          );
+        }
+      }
+    } catch {
+      setHiddenCanvasDbIds(new Set());
+    } finally {
+      setLifecycleCanvasPrefsReady(true);
+    }
+  }, [brazeReadClientId]);
+
+  /** Drop hidden ids that no longer exist in the synced list (after data has loaded). */
+  useEffect(() => {
+    if (normalizedCanvases === undefined) return;
+    const valid = new Set(
+      normalizedCanvases.map((row) => String((row as { id?: unknown }).id ?? '')),
+    );
+    setHiddenCanvasDbIds((prev) => {
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (valid.has(id)) next.add(id);
+      });
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+      return next;
+    });
+  }, [normalizedCanvases]);
+
+  useEffect(() => {
+    if (!brazeReadClientId || !lifecycleCanvasPrefsReady) return;
+    try {
+      localStorage.setItem(
+        `${LIFECYCLE_HIDDEN_CANVAS_IDS_KEY}:${brazeReadClientId}`,
+        JSON.stringify([...hiddenCanvasDbIds]),
+      );
+    } catch {
+      /* quota / private mode */
+    }
+  }, [brazeReadClientId, hiddenCanvasDbIds, lifecycleCanvasPrefsReady]);
+
+  // Filter journeys, then sort (touchpoints vs time running)
   const filteredJourneys = useMemo(() => {
     const filtered = journeys.filter((journey) => {
       if (!isItemVisible(journey.id)) return false;
+      if (hiddenCanvasDbIds.has(journey.dbId)) return false;
 
       const matchesSearch =
         journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -583,14 +710,24 @@ export default function Lifecycle() {
 
       return matchesSearch && matchesChannel && matchesLaunchDate;
     });
-    return sortJourneysByTouchpointsDesc(filtered);
-  }, [journeys, searchQuery, channelFilter, launchDateFilter, visibilityMap]);
+    if (lifecycleSortMode === 'touchpoints') return sortJourneysByTouchpointsDesc(filtered);
+    if (lifecycleSortMode === 'time_running_short') return sortJourneysByTimeRunning(filtered, 'asc');
+    return sortJourneysByTimeRunning(filtered, 'desc');
+  }, [
+    journeys,
+    searchQuery,
+    channelFilter,
+    launchDateFilter,
+    hiddenCanvasDbIds,
+    lifecycleSortMode,
+    isItemVisible,
+  ]);
 
   const journeyTotalPages = Math.max(1, Math.ceil(filteredJourneys.length / JOURNEY_PAGE_SIZE));
 
   useEffect(() => {
     setJourneyPage(1);
-  }, [searchQuery, channelFilter, launchDateFilter]);
+  }, [searchQuery, channelFilter, launchDateFilter, lifecycleSortMode, hiddenCanvasDbIds]);
 
   useEffect(() => {
     setJourneyPage((p) => Math.min(p, journeyTotalPages));
@@ -775,6 +912,125 @@ export default function Lifecycle() {
                     <SelectItem value="year">Last 12 Months</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select
+                  value={lifecycleSortMode}
+                  onValueChange={(v) =>
+                    setLifecycleSortMode(v as 'touchpoints' | 'time_running_short' | 'time_running_long')
+                  }
+                >
+                  <SelectTrigger className="w-[220px] border-border/70 bg-background/80">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="touchpoints">Touchpoints (most first)</SelectItem>
+                    <SelectItem value="time_running_short">Time running · shortest first</SelectItem>
+                    <SelectItem value="time_running_long">Time running · longest first</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-border/70 bg-background/80 shadow-sm"
+                      aria-label="Choose which canvases to show on this page"
+                    >
+                      <Eye className="mr-2 h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" />
+                      Canvases
+                      {hiddenCanvasDbIds.size > 0 ? (
+                        <Badge
+                          variant="secondary"
+                          className="ml-2 tabular-nums text-[10px] font-normal"
+                        >
+                          {
+                            pickableJourneys.filter((j) => !hiddenCanvasDbIds.has(j.dbId)).length
+                          }
+                          /{pickableJourneys.length}
+                        </Badge>
+                      ) : null}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[min(100vw-2rem,22rem)] p-0"
+                    align="start"
+                    side="bottom"
+                    sideOffset={6}
+                    avoidCollisions={false}
+                  >
+                    <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
+                      <p className="text-sm font-medium text-foreground">Show on page</p>
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => setHiddenCanvasDbIds(new Set())}
+                        >
+                          All
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          onClick={() =>
+                            setHiddenCanvasDbIds(new Set(pickableJourneys.map((j) => j.dbId)))
+                          }
+                        >
+                          None
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Vertical scroll for the whole menu; one shared horizontal scroll for all rows (not per-row). */}
+                    <div
+                      className={cn(
+                        'max-h-[min(50vh,280px)] w-full min-w-0 overflow-y-auto overflow-x-hidden',
+                        '[scrollbar-width:thin]',
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'w-full min-w-0 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]',
+                          '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+                        )}
+                      >
+                        <ul className="w-max min-w-full space-y-0.5 p-2" role="list">
+                          {pickableJourneys.map((j) => {
+                            const label = String(j.displayName ?? j.name ?? 'Journey');
+                            const checked = !hiddenCanvasDbIds.has(j.dbId);
+                            return (
+                              <li key={j.dbId}>
+                                <label
+                                  className="flex w-max min-w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
+                                  htmlFor={`lifecycle-canvas-${j.dbId}`}
+                                  title={label}
+                                >
+                                  <Checkbox
+                                    id={`lifecycle-canvas-${j.dbId}`}
+                                    checked={checked}
+                                    onCheckedChange={(v) => {
+                                      const on = v === true;
+                                      setHiddenCanvasDbIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (on) next.delete(j.dbId);
+                                        else next.add(j.dbId);
+                                        return next;
+                                      });
+                                    }}
+                                    className="shrink-0"
+                                    aria-label={label}
+                                  />
+                                  <span className="whitespace-nowrap leading-snug">{label}</span>
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
               <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/40 p-1 dark:bg-muted/20">
                 <Button

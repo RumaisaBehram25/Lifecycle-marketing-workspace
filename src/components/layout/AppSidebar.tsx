@@ -26,7 +26,6 @@ import {
   Palette,
   Ruler,
   Users,
-  Route,
   Database,
   BarChart3,
 } from 'lucide-react';
@@ -52,7 +51,6 @@ const resourceSubItems = [
   { name: 'Design', href: '/resources?tab=design', icon: Palette },
   { name: 'Rules', href: '/resources?tab=rules', icon: Ruler },
   { name: 'Audience', href: '/resources?tab=audience', icon: Users },
-  { name: 'User Journeys', href: '/resources?tab=journeys', icon: Route },
   { name: 'Events & Attributes', href: '/resources?tab=events', icon: Database },
 ];
 

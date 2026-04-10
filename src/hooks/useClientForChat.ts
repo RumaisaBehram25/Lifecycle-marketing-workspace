@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Client, ClientPlatform } from '@/lib/types';
 import { useResolvedClientId, queryStillResolving } from '@/hooks/useDoubleGoodClient';
+import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { buildCrmPlatformContexts, type CrmChatPlatformContext } from '@/lib/crmChatContext';
 
 /**
@@ -24,6 +26,8 @@ export function useClientForChat() {
 
   const client = clientQuery.data ?? null;
 
+  const { data: brazeSegmentDirectory = [] } = useBrazeSegmentsDirectory(clientId);
+
   const platformsQuery = useQuery({
     queryKey: ['client-platforms-public', clientId],
     queryFn: async () => {
@@ -38,9 +42,14 @@ export function useClientForChat() {
     staleTime: 1000 * 60 * 2,
   });
 
-  const platformContexts: CrmChatPlatformContext[] = buildCrmPlatformContexts(
-    (platformsQuery.data ?? []) as ClientPlatform[]
-  );
+  const platformContexts: CrmChatPlatformContext[] = useMemo(() => {
+    const base = buildCrmPlatformContexts((platformsQuery.data ?? []) as ClientPlatform[]);
+    const names = brazeSegmentDirectory.map((s) => s.name).filter(Boolean);
+    if (names.length === 0) return base;
+    return base.map((ctx) =>
+      ctx.platform === 'braze' ? { ...ctx, segments: names } : ctx,
+    );
+  }, [platformsQuery.data, brazeSegmentDirectory]);
 
   const hasPlatformConnections = (platformsQuery.data || []).some(
     (p: { is_connected?: boolean }) => p.is_connected

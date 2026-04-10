@@ -1,4 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useClientForChat } from '@/hooks/useClientForChat';
 import { Button } from '@/components/ui/button';
 import { LoadingPage } from '@/components/ui/loading-spinner';
@@ -6,10 +8,9 @@ import { BrandVoiceTab } from '@/components/brand/BrandVoiceTab';
 import { DesignTab } from '@/components/brand/DesignTab';
 import { RulesTab } from '@/components/brand/RulesTab';
 import { AudienceTab } from '@/components/lifecycle/AudienceTab';
-import { UserJourneysTab } from '@/components/resource/UserJourneysTab';
 import { EventsAttributesTab } from '@/components/resource/EventsAttributesTab';
 import { PageHeader } from '@/components/ui/page-header';
-import { RefreshCw, Volume2, Palette, Ruler, Users, Route, Database, Sparkles, MessageSquare } from 'lucide-react';
+import { RefreshCw, Volume2, Palette, Ruler, Users, Database, Sparkles, MessageSquare } from 'lucide-react';
 import { useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 
@@ -18,16 +19,22 @@ const RESOURCE_TABS = [
   { id: 'design', label: 'Design', icon: Palette },
   { id: 'rules', label: 'Rules', icon: Ruler },
   { id: 'audience', label: 'Audience', icon: Users },
-  { id: 'journeys', label: 'User Journeys', icon: Route },
   { id: 'events', label: 'Events & Attributes', icon: Database },
 ];
 
 function ResourceCenterContent() {
+  const queryClient = useQueryClient();
   const { client, isLoading: clientLoading, refetch } = useClientForChat();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab') || 'voice';
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
+
+  useEffect(() => {
+    if (tabFromUrl === 'journeys') {
+      setSearchParams({ tab: 'audience' }, { replace: true });
+    }
+  }, [tabFromUrl, setSearchParams]);
 
   if (clientLoading) {
     return <LoadingPage />;
@@ -45,8 +52,13 @@ function ResourceCenterContent() {
     );
   }
 
+  const invalidateWorkspaceClient = () => {
+    void refetch();
+    queryClient.invalidateQueries({ queryKey: ['client-row-for-chat', client.id] });
+  };
+
   return (
-    <div className="flex">
+    <div className="flex w-full min-w-0 max-w-full">
       {/* Inline tab nav when sidebar is collapsed */}
       {isCollapsed && (
         <nav className="w-48 flex-shrink-0 border-r bg-muted/20 p-3 space-y-1 min-h-[calc(100vh-4rem)]">
@@ -70,30 +82,35 @@ function ResourceCenterContent() {
         </nav>
       )}
 
-      <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <PageHeader
-            title="Resource Center"
-            description="Brand guidelines, audience segments, user journeys, and data reference"
-          />
+      <div className="mx-auto w-full min-w-0 max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+        <div className="flex w-full min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+          <div className="min-w-0 flex-1">
+            <PageHeader
+              title="Resource Center"
+              description="Brand guidelines, audience segments, and data reference — star segments here and draft copy in CRM Copilot."
+            />
+          </div>
           <Button
             asChild
-            className="shrink-0 bg-gradient-to-r from-primary to-violet-600 text-primary-foreground shadow-md shadow-primary/20 hover:opacity-[0.97]"
+            className="w-full shrink-0 bg-gradient-to-r from-primary to-violet-600 text-primary-foreground shadow-md shadow-primary/20 hover:opacity-[0.97] sm:w-auto"
           >
-            <Link to="/chat" className="gap-2">
-              <MessageSquare className="h-4 w-4" />
-              Open AI Chat
-              <Sparkles className="h-4 w-4 opacity-90" />
+            <Link to="/chat" className="inline-flex items-center justify-center gap-2">
+              <MessageSquare className="h-4 w-4 shrink-0" />
+              <span className="whitespace-nowrap">Open AI Chat</span>
+              <Sparkles className="h-4 w-4 shrink-0 opacity-90" />
             </Link>
           </Button>
         </div>
 
         {tabFromUrl === 'voice' && (
           <BrandVoiceTab 
+            clientId={client.id}
+            onSaved={invalidateWorkspaceClient}
             client={{
               brand_voice: client.brand_voice,
               do_rules: Array.isArray(client.do_rules) ? client.do_rules as string[] : null,
               dont_rules: Array.isArray(client.dont_rules) ? client.dont_rules as string[] : null,
+              tone_presets: Array.isArray(client.tone_presets) ? client.tone_presets as string[] : null,
               value_propositions: Array.isArray((client as any).value_propositions) 
                 ? (client as any).value_propositions as string[] 
                 : null,
@@ -105,9 +122,14 @@ function ResourceCenterContent() {
         )}
 
         {tabFromUrl === 'design' && <DesignTab clientId={client.id} />}
-        {tabFromUrl === 'rules' && <RulesTab clientId={client.id} />}
+        {tabFromUrl === 'rules' && (
+          <RulesTab
+            clientId={client.id}
+            initialCopyRules={client.copy_rules}
+            onPersist={invalidateWorkspaceClient}
+          />
+        )}
         {tabFromUrl === 'audience' && <AudienceTab />}
-        {tabFromUrl === 'journeys' && <UserJourneysTab />}
         {tabFromUrl === 'events' && <EventsAttributesTab />}
       </div>
     </div>

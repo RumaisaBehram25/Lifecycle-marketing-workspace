@@ -1,3 +1,5 @@
+import type { Json } from '@/integrations/supabase/types';
+
 export type PlatformType = 'braze' | 'klaviyo' | 'iterable' | 'customerio' | 'hubspot';
 export type ChannelType = 'email' | 'push' | 'sms' | 'in_app';
 export type ContentType = 'copy' | 'code';
@@ -36,6 +38,8 @@ export interface Client {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  /** Resource Center → Rules; CRM Copilot reads from DB */
+  copy_rules?: Json | null;
 }
 
 export interface ClientPlatform {

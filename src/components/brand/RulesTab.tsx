@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
 import { 
   Ruler, 
   Smartphone, 
@@ -20,23 +19,25 @@ import {
   Mail,
   Bell,
   MessageSquare,
-  Type
+  Type,
+  Save
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
+import type { Json } from '@/integrations/supabase/types';
+import {
+  DEFAULT_CLIENT_COPY_RULES,
+  parseClientCopyRules,
+  type ClientCopyRule,
+} from '@/lib/copyRules';
 
-interface CopyRule {
-  id: string;
-  channel: 'email' | 'push' | 'sms' | 'in_app';
-  element: string;
-  minChars: number;
-  maxChars: number;
-  deviceTypes: ('mobile' | 'tablet' | 'desktop' | 'watch')[];
-  isActive: boolean;
-}
+type CopyRule = ClientCopyRule;
 
 interface RulesTabProps {
   clientId: string;
-  onSave?: (rules: CopyRule[]) => Promise<void>;
+  /** Loaded from `clients.copy_rules`; CRM Copilot reads the saved row. */
+  initialCopyRules?: Json | null;
+  onPersist?: () => void;
 }
 
 const CHANNEL_ICONS = {
@@ -60,19 +61,38 @@ const DEVICE_ICONS = {
   watch: Watch,
 };
 
-const DEFAULT_RULES: CopyRule[] = [
-  { id: '1', channel: 'email', element: 'Subject Line', minChars: 20, maxChars: 50, deviceTypes: ['mobile', 'desktop'], isActive: true },
-  { id: '2', channel: 'email', element: 'Preview Text', minChars: 40, maxChars: 90, deviceTypes: ['mobile', 'desktop'], isActive: true },
-  { id: '3', channel: 'email', element: 'CTA Button', minChars: 10, maxChars: 25, deviceTypes: ['mobile', 'desktop'], isActive: true },
-  { id: '4', channel: 'push', element: 'Title', minChars: 10, maxChars: 40, deviceTypes: ['mobile', 'watch'], isActive: true },
-  { id: '5', channel: 'push', element: 'Body', minChars: 30, maxChars: 120, deviceTypes: ['mobile', 'watch'], isActive: true },
-  { id: '6', channel: 'sms', element: 'Message', minChars: 50, maxChars: 160, deviceTypes: ['mobile'], isActive: true },
-  { id: '7', channel: 'in_app', element: 'Header', minChars: 10, maxChars: 30, deviceTypes: ['mobile', 'tablet'], isActive: true },
-  { id: '8', channel: 'in_app', element: 'Body', minChars: 40, maxChars: 100, deviceTypes: ['mobile', 'tablet'], isActive: true },
-];
+export function RulesTab({ clientId, initialCopyRules, onPersist }: RulesTabProps) {
+  const rulesStorageKey = useMemo(() => JSON.stringify(initialCopyRules ?? null), [initialCopyRules]);
 
-export function RulesTab({ clientId, onSave }: RulesTabProps) {
-  const [rules, setRules] = useState<CopyRule[]>(DEFAULT_RULES);
+  const [rules, setRules] = useState<CopyRule[]>(
+    () => parseClientCopyRules(initialCopyRules ?? null) ?? DEFAULT_CLIENT_COPY_RULES,
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const parsed = parseClientCopyRules(initialCopyRules ?? null);
+    if (parsed) setRules(parsed);
+  }, [rulesStorageKey]);
+
+  const persistRules = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('clients')
+        .update({
+          copy_rules: rules as unknown as Json,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientId);
+      if (error) throw error;
+      toast.success('Copy rules saved to workspace');
+      onPersist?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save copy rules');
+    } finally {
+      setSaving(false);
+    }
+  };
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<CopyRule>>({});
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -100,7 +120,6 @@ export function RulesTab({ clientId, onSave }: RulesTabProps) {
     setRules((prev) => prev.map((r) => r.id === editingId ? { ...r, ...editForm } as CopyRule : r));
     setEditingId(null);
     setEditForm({});
-    toast.success('Rule updated');
   };
 
   const toggleRule = (id: string) => {
@@ -164,7 +183,7 @@ export function RulesTab({ clientId, onSave }: RulesTabProps) {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
             <Ruler className="h-5 w-5 text-cyan-500" />
@@ -172,12 +191,21 @@ export function RulesTab({ clientId, onSave }: RulesTabProps) {
           <div>
             <h2 className="text-xl font-bold">Copy Rules</h2>
             <p className="text-sm text-muted-foreground">Character limits and device-specific guidelines</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Click Save so CRM Copilot uses these limits on the next chat request.
+            </p>
           </div>
         </div>
-        <Button onClick={() => setIsAddingNew(true)} disabled={isAddingNew}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Rule
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="default" onClick={() => void persistRules()} disabled={saving}>
+            <Save className="h-4 w-4 mr-2" />
+            {saving ? 'Saving…' : 'Save copy rules'}
+          </Button>
+          <Button onClick={() => setIsAddingNew(true)} disabled={isAddingNew} variant="outline">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Rule
+          </Button>
+        </div>
       </div>
 
       {/* Add New Rule Form */}

@@ -1103,6 +1103,154 @@ function canvasDetailRoots(details: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+/** Roots for entry/trigger/segment parsing, including `legacy_response` blobs (Braze nests entry config there). */
+function gatherCanvasDetailMetadataRoots(details: Record<string, unknown>): Record<string, unknown>[] {
+  const base = canvasDetailRoots(details);
+  const data = details.data as Record<string, unknown> | undefined;
+  const canvasNested = details.canvas as Record<string, unknown> | undefined;
+  const dataCanvas = data?.canvas as Record<string, unknown> | undefined;
+  const legacyBlobs: unknown[] = [
+    (details as { legacy_response?: unknown }).legacy_response,
+    data?.legacy_response,
+    canvasNested?.legacy_response,
+    dataCanvas?.legacy_response,
+  ];
+  const extra: Record<string, unknown>[] = [];
+  for (const leg of legacyBlobs) {
+    if (leg && typeof leg === "object" && !Array.isArray(leg)) {
+      extra.push(leg as Record<string, unknown>);
+    }
+  }
+  const seen = new Set<Record<string, unknown>>();
+  const out: Record<string, unknown>[] = [];
+  for (const r of [...base, ...extra]) {
+    if (seen.has(r)) continue;
+    seen.add(r);
+    out.push(r);
+  }
+  return out;
+}
+
+function triggerEventLabelFromTriggerItem(t: unknown): string {
+  if (typeof t === "string") return t.trim();
+  if (!t || typeof t !== "object" || Array.isArray(t)) return "";
+  const o = t as Record<string, unknown>;
+  if (typeof o.name === "string" && o.name.trim()) return o.name.trim();
+  if (typeof o.event_name === "string" && o.event_name.trim()) return o.event_name.trim();
+  const ce = o.custom_event;
+  if (ce && typeof ce === "object" && !Array.isArray(ce)) {
+    const cn = (ce as Record<string, unknown>).custom_event_name;
+    if (typeof cn === "string" && cn.trim()) return cn.trim();
+  }
+  return "";
+}
+
+function triggerFromRecordPartial(r: Record<string, unknown>): string | undefined {
+  const es = r.entry_schedule as Record<string, unknown> | undefined;
+  if (typeof es?.trigger_event_name === "string" && es.trigger_event_name.trim()) {
+    return es.trigger_event_name.trim();
+  }
+  const te = r.trigger_events;
+  if (Array.isArray(te) && te.length > 0) {
+    const parts = te.map(triggerEventLabelFromTriggerItem).filter(Boolean);
+    const joined = [...new Set(parts)].join(", ");
+    if (joined) return joined;
+  }
+  const fromRules = summarizeEntryRulesTrigger(r.entry_rules);
+  if (fromRules) return fromRules;
+  const ce = r.custom_event as Record<string, unknown> | undefined;
+  if (typeof ce?.custom_event_name === "string" && ce.custom_event_name.trim()) {
+    return ce.custom_event_name.trim();
+  }
+  if (typeof r.trigger_event_name === "string" && r.trigger_event_name.trim()) {
+    return r.trigger_event_name.trim();
+  }
+  return undefined;
+}
+
+function segmentFromRecordPartial(r: Record<string, unknown>): string | undefined {
+  if (typeof r.entry_audience_name === "string" && r.entry_audience_name.trim()) {
+    return r.entry_audience_name.trim();
+  }
+  const seg = r.entry_segment as Record<string, unknown> | undefined;
+  if (typeof seg?.name === "string" && seg.name.trim()) return seg.name.trim();
+  const ea = r.entry_audience as Record<string, unknown> | undefined;
+  if (typeof ea?.name === "string" && ea.name.trim()) return ea.name.trim();
+  const es = r.entry_schedule as Record<string, unknown> | undefined;
+  const seg2 = es?.segment as Record<string, unknown> | undefined;
+  if (typeof seg2?.name === "string" && seg2.name.trim()) return seg2.name.trim();
+  return undefined;
+}
+
+const CANVAS_METADATA_DEEP_SKIP_KEYS = new Set([
+  "steps",
+  "scheduled_steps",
+  "components",
+  "messages",
+  "channels",
+]);
+
+function deepScanCanvasDetailsForTrigger(details: Record<string, unknown>): string | undefined {
+  const queue: unknown[] = [details];
+  const seen = new WeakSet<object>();
+  let visited = 0;
+  const maxNodes = 450;
+  while (queue.length > 0 && visited < maxNodes) {
+    const cur = queue.shift();
+    if (!cur || typeof cur !== "object") continue;
+    if (Array.isArray(cur)) {
+      for (const el of cur) queue.push(el);
+      continue;
+    }
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    visited++;
+    const o = cur as Record<string, unknown>;
+    const hit = triggerFromRecordPartial(o);
+    if (hit) return hit;
+    for (const [k, v] of Object.entries(o)) {
+      if (v == null || typeof v !== "object") continue;
+      if (CANVAS_METADATA_DEEP_SKIP_KEYS.has(k)) continue;
+      queue.push(v);
+    }
+  }
+  return undefined;
+}
+
+function deepScanCanvasDetailsForSegment(details: Record<string, unknown>): string | undefined {
+  const queue: unknown[] = [details];
+  const seen = new WeakSet<object>();
+  let visited = 0;
+  const maxNodes = 450;
+  while (queue.length > 0 && visited < maxNodes) {
+    const cur = queue.shift();
+    if (!cur || typeof cur !== "object") continue;
+    if (Array.isArray(cur)) {
+      for (const el of cur) queue.push(el);
+      continue;
+    }
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    visited++;
+    const o = cur as Record<string, unknown>;
+    const hit = segmentFromRecordPartial(o);
+    if (hit) return hit;
+    for (const [k, v] of Object.entries(o)) {
+      if (v == null || typeof v !== "object") continue;
+      if (CANVAS_METADATA_DEEP_SKIP_KEYS.has(k)) continue;
+      queue.push(v);
+    }
+  }
+  return undefined;
+}
+
+function firstNonEmptyDetailArray(...candidates: unknown[]): unknown[] | undefined {
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) return c;
+  }
+  return undefined;
+}
+
 const CANVAS_STEP_CONTAINER_KEYS = new Set([
   "steps",
   "scheduled_steps",
@@ -1558,7 +1706,7 @@ function buildMinimalTouchpointStepsFromRows(
   return steps;
 }
 
-/** Entry / trigger fields from `canvas/details` (roots + nested canvas/data). */
+/** Entry / trigger fields from `canvas/details` (roots + nested canvas/data + legacy_response + bounded deep scan). */
 function extractCanvasEntryMetadataFromDetails(
   details: Record<string, unknown>,
 ): {
@@ -1567,101 +1715,64 @@ function extractCanvasEntryMetadataFromDetails(
   trigger_event_name?: string;
   entry_segment_name?: string;
 } {
-  const roots = canvasDetailRoots(details);
+  const roots = gatherCanvasDetailMetadataRoots(details);
 
-  let entryType: string | undefined;
+  let scheduleTypeField: string | undefined;
   for (const r of roots) {
     if (typeof r.schedule_type === "string" && r.schedule_type.trim()) {
-      entryType = r.schedule_type.trim();
-      break;
-    }
-    const es = r.entry_schedule as Record<string, unknown> | undefined;
-    if (typeof es?.type === "string" && es.type.trim()) {
-      entryType = es.type.trim();
+      scheduleTypeField = r.schedule_type.trim();
       break;
     }
   }
+
+  let entryScheduleType: string | undefined;
+  for (const r of roots) {
+    const es = r.entry_schedule as Record<string, unknown> | undefined;
+    if (typeof es?.type === "string" && es.type.trim()) {
+      entryScheduleType = es.type.trim();
+      break;
+    }
+  }
+
+  const schedule_type = scheduleTypeField ?? entryScheduleType;
+  const entry_type = entryScheduleType ?? scheduleTypeField;
 
   let triggerEventName: string | undefined;
   for (const r of roots) {
-    const es = r.entry_schedule as Record<string, unknown> | undefined;
-    if (typeof es?.trigger_event_name === "string" && es.trigger_event_name.trim()) {
-      triggerEventName = es.trigger_event_name.trim();
+    const hit = triggerFromRecordPartial(r);
+    if (hit) {
+      triggerEventName = hit;
       break;
     }
   }
   if (!triggerEventName) {
-    for (const r of roots) {
-      const te = r.trigger_events;
-      if (Array.isArray(te) && te.length > 0) {
-        const joined = te
-          .map((t: unknown) =>
-            typeof t === "string"
-              ? t
-              : String(
-                  (t as Record<string, string>).name ||
-                    (t as Record<string, string>).event_name ||
-                    "",
-                ),
-          )
-          .filter(Boolean)
-          .join(", ");
-        if (joined) {
-          triggerEventName = joined;
-          break;
-        }
-      }
-    }
-  }
-  if (!triggerEventName) {
-    for (const r of roots) {
-      const fromRules = summarizeEntryRulesTrigger(r.entry_rules);
-      if (fromRules) {
-        triggerEventName = fromRules;
-        break;
-      }
+    const st = (schedule_type ?? "").toLowerCase();
+    const et = (entry_type ?? "").toLowerCase();
+    const likelyNeedsTrigger =
+      st === "action_based" ||
+      et === "action_based" ||
+      st.includes("api_trigger") ||
+      et.includes("api_trigger");
+    if (likelyNeedsTrigger) {
+      triggerEventName = deepScanCanvasDetailsForTrigger(details);
     }
   }
 
   let entrySegmentName: string | undefined;
   for (const r of roots) {
-    if (typeof r.entry_audience_name === "string" && r.entry_audience_name.trim()) {
-      entrySegmentName = r.entry_audience_name.trim();
+    const hit = segmentFromRecordPartial(r);
+    if (hit) {
+      entrySegmentName = hit;
       break;
     }
   }
   if (!entrySegmentName) {
-    for (const r of roots) {
-      const seg = r.entry_segment as Record<string, unknown> | undefined;
-      if (typeof seg?.name === "string" && seg.name.trim()) {
-        entrySegmentName = seg.name.trim();
-        break;
-      }
-    }
-  }
-  if (!entrySegmentName) {
-    for (const r of roots) {
-      const ea = r.entry_audience as Record<string, unknown> | undefined;
-      if (typeof ea?.name === "string" && ea.name.trim()) {
-        entrySegmentName = ea.name.trim();
-        break;
-      }
-    }
-  }
-  if (!entrySegmentName) {
-    for (const r of roots) {
-      const es = r.entry_schedule as Record<string, unknown> | undefined;
-      const seg = es?.segment as Record<string, unknown> | undefined;
-      if (typeof seg?.name === "string" && seg.name.trim()) {
-        entrySegmentName = seg.name.trim();
-        break;
-      }
-    }
+    entrySegmentName = deepScanCanvasDetailsForSegment(details);
   }
 
   return {
-    schedule_type: entryType,
-    entry_type: entryType,
+    schedule_type,
+    entry_type,
     trigger_event_name: triggerEventName,
     entry_segment_name: entrySegmentName,
   };
@@ -3151,6 +3262,7 @@ Deno.serve(async (req) => {
           let firstEntryIso = toIso(c.last_entry);
           let lastEntryIso = toIso(c.last_entry);
 
+          let scheduleType: string | undefined;
           let entryType: string | undefined;
           let entrySegmentName: string | undefined;
           let triggerEventName: string | undefined;
@@ -3176,6 +3288,8 @@ Deno.serve(async (req) => {
               brazeRestEndpoint,
             )) as Record<string, unknown>;
             const canvasNested = details.canvas as Record<string, unknown> | undefined;
+            const dataObj = details.data as Record<string, unknown> | undefined;
+            const dataCanvas = dataObj?.canvas as Record<string, unknown> | undefined;
 
             enabled = isTruthy(
               details.enabled ??
@@ -3191,34 +3305,68 @@ Deno.serve(async (req) => {
             lastEntryIso = toIso(details.last_entry ?? details.last_entry_at) ?? lastEntryIso;
 
             const entryMetaFromApi = extractCanvasEntryMetadataFromDetails(details);
+            scheduleType = entryMetaFromApi.schedule_type;
             entryType = entryMetaFromApi.entry_type;
             triggerEventName = entryMetaFromApi.trigger_event_name;
             entrySegmentName = entryMetaFromApi.entry_segment_name;
 
-            // Exception events
-            if (details.exception_events?.length > 0) {
-              exceptionEvents = details.exception_events.map((e: unknown) =>
-                (typeof e === 'string' ? e : (e as Record<string, string>).name || (e as Record<string, string>).custom_event_name || 'Exception')
+            // Exception events (Braze may nest under `canvas` / `data.canvas`, not only top-level)
+            const exceptionArr = firstNonEmptyDetailArray(
+              details.exception_events,
+              canvasNested?.exception_events,
+              dataObj?.exception_events,
+              dataCanvas?.exception_events,
+            );
+            if (exceptionArr) {
+              exceptionEvents = exceptionArr.map((e: unknown) =>
+                typeof e === "string"
+                  ? e
+                  : (e as Record<string, string>).name ||
+                    (e as Record<string, string>).custom_event_name ||
+                    "Exception",
               );
             }
 
             // Conversion events
-            if (details.conversion_behaviors?.length > 0) {
-              conversionEvents = details.conversion_behaviors.map((cv: Record<string, unknown>) => ({
-                name: (cv.type as string) || 'Conversion',
-                window_seconds: cv.window_conversion_production_seconds as number,
-                type: cv.type as string,
-              }));
+            const conversionArr = firstNonEmptyDetailArray(
+              details.conversion_behaviors,
+              canvasNested?.conversion_behaviors,
+              dataObj?.conversion_behaviors,
+              dataCanvas?.conversion_behaviors,
+            );
+            if (conversionArr) {
+              conversionEvents = conversionArr.map((cv: unknown) => {
+                const c = cv as Record<string, unknown>;
+                const nm =
+                  (typeof c.name === "string" && c.name.trim()) ||
+                  (typeof c.event_name === "string" && c.event_name.trim()) ||
+                  (typeof c.type === "string" && c.type.trim()) ||
+                  "Conversion";
+                return {
+                  name: nm,
+                  window_seconds: c.window_conversion_production_seconds as number,
+                  type: c.type as string,
+                };
+              });
             }
 
             // Entry filters
-            if (details.entry_audience_filters?.length > 0) {
-              entryFilters = details.entry_audience_filters.map((f: Record<string, unknown>) => ({
-                type: (f.type as string) || 'filter',
-                property: f.property as string,
-                value: f.value?.toString(),
-                comparator: f.comparator as string,
-              }));
+            const filterArr = firstNonEmptyDetailArray(
+              details.entry_audience_filters,
+              canvasNested?.entry_audience_filters,
+              dataObj?.entry_audience_filters,
+              dataCanvas?.entry_audience_filters,
+            );
+            if (filterArr) {
+              entryFilters = filterArr.map((f: unknown) => {
+                const fr = f as Record<string, unknown>;
+                return {
+                  type: (fr.type as string) || "filter",
+                  property: fr.property as string,
+                  value: fr.value?.toString(),
+                  comparator: fr.comparator as string,
+                };
+              });
             }
 
             // Parse variants (Braze field names vary: first_step_id, firstStepId, first_canvas_step_id)
@@ -3295,7 +3443,7 @@ Deno.serve(async (req) => {
             draft: c.draft,
             enabled,
             archived: c.archived,
-            schedule_type: entryType,
+            schedule_type: scheduleType ?? entryType,
             first_entry: firstEntryIso,
             last_entry: lastEntryIso,
             tags: c.tags,
@@ -3304,7 +3452,7 @@ Deno.serve(async (req) => {
             variants,
             steps,
             total_steps: Object.keys(steps).length,
-            entry_type: entryType,
+            entry_type: entryType ?? scheduleType,
             entry_segment_name: entrySegmentName,
             trigger_event_name: triggerEventName,
             exception_events: exceptionEvents.length > 0 ? exceptionEvents : undefined,

@@ -41,6 +41,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 
 interface BrazeSchemaCache {
   campaigns?: Array<{ id: string; name: string; last_sent?: string; draft?: boolean }>;
@@ -129,11 +130,13 @@ export default function Settings() {
 
   const brazeData = dashboardBrazePlatform?.schema_cache as BrazeSchemaCache | undefined;
 
+  const { data: segmentsFromSync = [] } = useBrazeSegmentsDirectory(brazeDashboardClientId);
+
   const hasBrazeVisibilityCatalog =
     Boolean(brazeData?.last_sync) ||
     (brazeData?.campaigns?.length ?? 0) > 0 ||
     (brazeData?.canvases?.length ?? 0) > 0 ||
-    (brazeData?.segments?.length ?? 0) > 0;
+    segmentsFromSync.length > 0;
 
   const visibilityClientId = brazeDashboardClientId;
 
@@ -267,21 +270,20 @@ export default function Settings() {
   }, [brazeData?.canvases, canvasSearch]);
 
   const filteredSegments = useMemo(() => {
-    if (!brazeData?.segments) return [];
-    let segments = brazeData.segments;
+    if (segmentsFromSync.length === 0) return [];
+    let segments = segmentsFromSync;
     if (showStarredOnly) {
-      segments = segments.filter(s => isSegmentStarred(s.id));
+      segments = segments.filter((s) => isSegmentStarred(s.id));
     }
     return segments
-      .filter(s => s.name.toLowerCase().includes(segmentSearch.toLowerCase()))
+      .filter((s) => s.name.toLowerCase().includes(segmentSearch.toLowerCase()))
       .sort((a, b) => {
-        // Starred first, then alphabetical
         const aStarred = isSegmentStarred(a.id);
         const bStarred = isSegmentStarred(b.id);
         if (aStarred !== bStarred) return aStarred ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-  }, [brazeData?.segments, segmentSearch, showStarredOnly, starredMap]);
+  }, [segmentsFromSync, segmentSearch, showStarredOnly, starredMap]);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-8">

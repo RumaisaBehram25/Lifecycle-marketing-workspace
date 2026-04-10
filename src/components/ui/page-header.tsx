@@ -12,7 +12,12 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, actions, className, titleClassName }: PageHeaderProps) {
   return (
-    <div className={cn("flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between", className)}>
+    <div
+      className={cn(
+        'flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between',
+        className,
+      )}
+    >
       <div className="min-w-0 flex-1">
         {/* No overflow:hidden on h1 — Tailwind `truncate` clips ascenders on large display type */}
         <h1
@@ -25,7 +30,7 @@ export function PageHeader({ title, description, actions, className, titleClassN
           {title}
         </h1>
         {description && (
-          <p className="text-muted-foreground mt-1 truncate">{description}</p>
+          <p className="mt-1 text-pretty break-words text-muted-foreground">{description}</p>
         )}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0">{actions}</div>}

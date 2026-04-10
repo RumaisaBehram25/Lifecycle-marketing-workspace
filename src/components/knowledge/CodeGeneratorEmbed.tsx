@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -103,6 +104,9 @@ export function CodeGeneratorEmbed() {
   const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
   const hasBrazeConnection = !!brazePlatform;
   const hasSyncedData = !!brazeData?.last_sync;
+  const { data: segmentsFromSync = [] } = useBrazeSegmentsDirectory(
+    client?.id && brazePlatform ? client.id : undefined,
+  );
 
   // Use synced data or fall back to common defaults
   const availableAttributes = useMemo(() => {
@@ -127,7 +131,10 @@ export function CodeGeneratorEmbed() {
     return COMMON_BRAZE_EVENTS;
   }, [brazeData?.custom_events]);
 
-  const brazeSegments = useMemo(() => brazeData?.segments || [], [brazeData]);
+  const brazeSegments = useMemo(() => {
+    if (segmentsFromSync.length > 0) return segmentsFromSync;
+    return brazeData?.segments || [];
+  }, [segmentsFromSync, brazeData?.segments]);
 
   const toggleAttribute = (attr: string) => {
     setSelectedAttributes(prev => 

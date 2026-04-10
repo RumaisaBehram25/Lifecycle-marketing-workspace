@@ -23,16 +23,16 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={handleOpenChange}>
-      <div className="flex min-h-screen w-full">
+      <div className="flex min-h-screen w-full min-w-0">
         <AppSidebar />
-        <SidebarInset className="flex flex-col">
+        <SidebarInset className="flex min-w-0 flex-col">
           {/* Top bar with trigger */}
           <header className="flex h-12 items-center gap-4 border-b border-border bg-card px-4">
             <SidebarTrigger className="-ml-1" />
           </header>
 
-          {/* Page content */}
-          <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          {/* Page content — min-w-0 so nested flex pages (e.g. Resource Center) don’t force horizontal scroll */}
+          <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
             {children}
           </main>
         </SidebarInset>

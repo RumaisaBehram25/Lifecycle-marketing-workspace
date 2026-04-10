@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -98,6 +99,7 @@ export function BrazeDataViewer({
   const [detailType, setDetailType] = useState<string>('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: segmentsFromSync = [] } = useBrazeSegmentsDirectory(clientId);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -116,6 +118,7 @@ export function BrazeDataViewer({
       queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['braze_segments_sync'] });
       onSyncComplete?.();
     } catch (error: unknown) {
       logger.error('Sync error:', error);
@@ -133,7 +136,10 @@ export function BrazeDataViewer({
   const campaigns = schemaCache?.campaigns || [];
   const canvases = schemaCache?.canvases || [];
   const templates = schemaCache?.templates || [];
-  const segments = schemaCache?.segments || [];
+  const segments = useMemo(() => {
+    if (segmentsFromSync.length > 0) return segmentsFromSync;
+    return schemaCache?.segments || [];
+  }, [segmentsFromSync, schemaCache?.segments]);
 
   const openDetail = (item: any, type: string) => {
     setSelectedItem(item);

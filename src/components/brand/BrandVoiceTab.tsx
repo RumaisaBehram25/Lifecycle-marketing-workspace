@@ -1,6 +1,13 @@
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { 
   Target, 
   Users, 
@@ -14,23 +21,67 @@ import {
   Clock,
   TrendingUp,
   Quote,
-  MessageSquare
+  MessageSquare,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 
 interface BrandVoiceTabProps {
+  clientId: string;
   client: {
     brand_voice?: string | null;
     do_rules?: string[] | null;
     dont_rules?: string[] | null;
+    tone_presets?: string[] | null;
     value_propositions?: string[] | null;
     key_messaging_pillars?: string[] | null;
   };
+  onSaved?: () => void;
 }
 
-export function BrandVoiceTab({ client }: BrandVoiceTabProps) {
+function listEditorState(arr: string[] | null | undefined): string[] {
+  if (Array.isArray(arr) && arr.length > 0) return [...arr];
+  return [''];
+}
+
+export function BrandVoiceTab({ clientId, client, onSaved }: BrandVoiceTabProps) {
   const valueProps = Array.isArray(client.value_propositions) ? client.value_propositions : null;
-  const doRules = Array.isArray(client.do_rules) ? client.do_rules : null;
-  const dontRules = Array.isArray(client.dont_rules) ? client.dont_rules : null;
+
+  const [brandVoice, setBrandVoice] = useState(() => client.brand_voice ?? '');
+  const [doList, setDoList] = useState(() => listEditorState(client.do_rules));
+  const [dontList, setDontList] = useState(() => listEditorState(client.dont_rules));
+  const [tonePresets, setTonePresets] = useState(() => listEditorState(client.tone_presets));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setBrandVoice(client.brand_voice ?? '');
+    setDoList(listEditorState(client.do_rules));
+    setDontList(listEditorState(client.dont_rules));
+    setTonePresets(listEditorState(client.tone_presets));
+  }, [clientId, client.brand_voice, client.do_rules, client.dont_rules, client.tone_presets]);
+
+  const saveGuidelines = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('clients')
+        .update({
+          brand_voice: brandVoice.trim() || null,
+          do_rules: doList.map((s) => s.trim()).filter(Boolean),
+          dont_rules: dontList.map((s) => s.trim()).filter(Boolean),
+          tone_presets: tonePresets.map((s) => s.trim()).filter(Boolean),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientId);
+      if (error) throw error;
+      toast.success('Brand guidelines saved to workspace');
+      onSaved?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-12">
@@ -314,83 +365,132 @@ export function BrandVoiceTab({ client }: BrandVoiceTabProps) {
         </div>
 
         <div className="grid gap-6">
-          {/* Brand Voice */}
-          <Card>
+          <Card className="border-primary/25">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Brand Voice</CardTitle>
+              <CardTitle className="text-base">Guidelines for CRM Copilot</CardTitle>
               <CardDescription>
-                {client.brand_voice || 'Our consistent personality across all touchpoints'}
+                Edit and save — CRM Copilot loads these fields from your workspace (same data as Brand settings).
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { trait: 'Encouraging', desc: 'We celebrate wins and motivate action' },
-                  { trait: 'Clear', desc: 'No jargon. Get to the point.' },
-                  { trait: 'Warm', desc: 'Friendly, never cold or corporate' },
-                  { trait: 'Empowering', desc: "You're in control. We're here to help." },
-                ].map((item) => (
-                  <div key={item.trait} className="p-4 border rounded-lg text-center">
-                    <p className="font-semibold">{item.trait}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{item.desc}</p>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="brand-voice-editor">Brand voice</Label>
+                <Textarea
+                  id="brand-voice-editor"
+                  rows={4}
+                  value={brandVoice}
+                  onChange={(e) => setBrandVoice(e.target.value)}
+                  placeholder="Describe how you sound across CRM touchpoints."
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Tone presets</Label>
+                <p className="text-xs text-muted-foreground">Short labels (for example Encouraging, Clear) used as tone anchors in CRM Copilot.</p>
+                {tonePresets.map((tone, i) => (
+                  <div key={i} className="flex gap-2">
+                    <Input
+                      value={tone}
+                      onChange={(e) => {
+                        const next = [...tonePresets];
+                        next[i] = e.target.value;
+                        setTonePresets(next);
+                      }}
+                      placeholder="e.g. Encouraging"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setTonePresets(tonePresets.filter((_, j) => j !== i))}
+                      disabled={tonePresets.length <= 1}
+                      aria-label="Remove tone"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))}
+                <Button type="button" variant="outline" size="sm" onClick={() => setTonePresets([...tonePresets, ''])}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add tone preset
+                </Button>
               </div>
+
+              <div className="grid sm:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-emerald-600 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Do&apos;s
+                  </Label>
+                  {doList.map((rule, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input
+                        value={rule}
+                        onChange={(e) => {
+                          const next = [...doList];
+                          next[i] = e.target.value;
+                          setDoList(next);
+                        }}
+                        placeholder="What messaging should always do"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setDoList(doList.filter((_, j) => j !== i))}
+                        disabled={doList.length <= 1}
+                        aria-label="Remove rule"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setDoList([...doList, ''])}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add do
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-red-600 flex items-center gap-2">
+                    <XCircle className="h-4 w-4" />
+                    Don&apos;ts
+                  </Label>
+                  {dontList.map((rule, i) => (
+                    <div key={i} className="flex gap-2">
+                      <Input
+                        value={rule}
+                        onChange={(e) => {
+                          const next = [...dontList];
+                          next[i] = e.target.value;
+                          setDontList(next);
+                        }}
+                        placeholder="What messaging should avoid"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setDontList(dontList.filter((_, j) => j !== i))}
+                        disabled={dontList.length <= 1}
+                        aria-label="Remove rule"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" size="sm" onClick={() => setDontList([...dontList, ''])}>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add don&apos;t
+                  </Button>
+                </div>
+              </div>
+
+              <Button type="button" onClick={() => void saveGuidelines()} disabled={saving}>
+                {saving ? 'Saving…' : 'Save guidelines'}
+              </Button>
             </CardContent>
           </Card>
-
-          {/* Do's and Don'ts */}
-          <div className="grid sm:grid-cols-2 gap-6">
-            <Card className="border-emerald-500/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2 text-emerald-600">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Do's
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {(doRules || [
-                    'Lead with the benefit, not the feature',
-                    'Use "you" language—make it about them',
-                    'Keep subject lines under 50 characters',
-                    'Include one clear CTA per email',
-                    'Use conversational, active voice',
-                  ]).map((rule, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                      {rule}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="border-red-500/20">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2 text-red-600">
-                  <XCircle className="h-4 w-4" />
-                  Don'ts
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {(dontRules || [
-                    "Don't use ALL CAPS or excessive punctuation!!!",
-                    "Don't say 'click here'—be specific",
-                    'Avoid corporate buzzwords and jargon',
-                    "Don't guilt-trip or use fear tactics",
-                    'Never send without proofreading',
-                  ]).map((rule, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-                      {rule}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
 
           {/* Tone by Context */}
           <Card>

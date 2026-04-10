@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sparkles, Send, ArrowRight, Loader2 } from 'lucide-react';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
+import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -28,6 +29,8 @@ export function EmbeddedChat() {
   const { data: client } = useDoubleGoodClient();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { clientId: brazeAnalyticsClientId } = useBrazeDashboardClientId();
+  const segmentClientId = brazeAnalyticsClientId ?? client?.id;
+  const { data: segmentsFromSync = [] } = useBrazeSegmentsDirectory(segmentClientId);
 
   // Fetch briefs for context
   const { data: briefs } = useQuery({
@@ -47,36 +50,47 @@ export function EmbeddedChat() {
   });
 
   const connectedPlatforms = platforms?.filter(p => p.is_connected) || [];
-  
-  // Build comprehensive platform context
-  const platformContexts = connectedPlatforms
-    .filter(cp => cp.schema_cache)
-    .map(cp => {
-      const cache = cp.schema_cache as any;
-      return {
-        platform: cp.platform,
-        campaigns: cache?.campaigns?.slice(0, 20)?.map((c: any) => ({
-          name: c.name,
-          channels: c.channels,
-          first_sent: c.first_sent,
-          last_sent: c.last_sent,
-          campaign_type: c.campaign_type,
-        })) || [],
-        canvases: cache?.canvases?.slice(0, 20)?.map((c: any) => ({
-          name: c.name,
-          state: c.state,
-          first_entry: c.first_entry,
-        })) || [],
-        segments: cache?.segments?.slice(0, 30)?.map((s: any) => ({
-          name: s.name,
-          size: s.size,
-        })) || [],
-        custom_events: cache?.custom_events?.slice(0, 20)?.map((e: any) => e.name) || [],
-        custom_attributes: cache?.custom_attributes?.slice(0, 20)?.map((a: any) => a.name) || [],
-        templates: cache?.templates?.slice(0, 10)?.map((t: any) => t.template_name) || [],
-        last_sync_at: cp.last_sync_at || undefined,
-      };
-    });
+
+  const platformContexts = useMemo(
+    () =>
+      connectedPlatforms
+        .filter((cp) => cp.schema_cache)
+        .map((cp) => {
+          const cache = cp.schema_cache as Record<string, unknown>;
+          const segmentPayload =
+            cp.platform === 'braze' && segmentsFromSync.length > 0
+              ? segmentsFromSync.slice(0, 30).map((s) => ({ name: s.name, size: undefined as number | undefined }))
+              : ((cache?.segments as { name?: string; size?: number }[]) || [])
+                  .slice(0, 30)
+                  .map((s) => ({ name: s.name, size: s.size }));
+          return {
+            platform: cp.platform,
+            campaigns:
+              (cache?.campaigns as object[])?.slice(0, 20)?.map((c: Record<string, unknown>) => ({
+                name: c.name,
+                channels: c.channels,
+                first_sent: c.first_sent,
+                last_sent: c.last_sent,
+                campaign_type: c.campaign_type,
+              })) || [],
+            canvases:
+              (cache?.canvases as object[])?.slice(0, 20)?.map((c: Record<string, unknown>) => ({
+                name: c.name,
+                state: c.state,
+                first_entry: c.first_entry,
+              })) || [],
+            segments: segmentPayload,
+            custom_events:
+              (cache?.custom_events as { name?: string }[])?.slice(0, 20)?.map((e) => e.name) || [],
+            custom_attributes:
+              (cache?.custom_attributes as { name?: string }[])?.slice(0, 20)?.map((a) => a.name) || [],
+            templates:
+              (cache?.templates as { template_name?: string }[])?.slice(0, 10)?.map((t) => t.template_name) || [],
+            last_sync_at: cp.last_sync_at || undefined,
+          };
+        }),
+    [connectedPlatforms, segmentsFromSync],
+  );
 
   useEffect(() => {
     if (scrollRef.current) {

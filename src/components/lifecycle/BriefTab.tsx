@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -136,9 +137,11 @@ export function BriefTab() {
     enabled: !!client?.id,
   });
 
-  // Get starred segments for dropdown
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
-  const brazeSegments: Segment[] = (brazePlatform?.schema_cache as any)?.segments || [];
+  const { data: segmentsFromSync = [] } = useBrazeSegmentsDirectory(
+    client?.id && brazePlatform ? client.id : undefined,
+  );
+  const brazeSegments: Segment[] = segmentsFromSync;
 
   const { data: visibilityData } = useQuery({
     queryKey: ['data-visibility-segments', client?.id],
