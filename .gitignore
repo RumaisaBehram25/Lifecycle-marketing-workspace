@@ -32,4 +32,10 @@ dist-ssr
 *.sw?
 config.bat
 
+# Secrets — never commit real values; use .env locally (not tracked)
+.env
+.env.*
+!.env.example
 
+# Supabase CLI local state
+supabase/.temp/
