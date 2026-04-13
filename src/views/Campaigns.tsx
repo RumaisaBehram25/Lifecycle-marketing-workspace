@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -67,8 +66,8 @@ import {
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
 import {
   isCampaignBucketPreloadEnabled,
-  schedulePreloadCampaignBucketDetailImages,
 } from '@/lib/campaignCreativeImageUrl';
+import { preloadCampaignImages } from '@/lib/campaignImagePreload';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -77,6 +76,7 @@ import {
   formatBrazeSyncInvokeError,
   type BrazeSyncInvokeBody,
 } from '@/lib/brazeSyncInvoke';
+import { useMinDurationLoading } from '@/hooks/useMinDurationLoading';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/lib/logger';
@@ -88,6 +88,7 @@ import {
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
   resolveEmailModalPreview,
+  isRawDetailsEmpty,
   sanitizeCampaignDisplayText,
   sanitizeCampaignDisplayWithMeta,
   type CampaignChannelUi,
@@ -444,43 +445,20 @@ function sortCampaigns(list: CampaignViewModel[], sortKey: CampaignSortKey): Cam
   return out;
 }
 
-function CampaignsGridSkeleton() {
+/** Neutral loading — avoids colorful fake cards; real grid/list appears once data is ready. */
+function CampaignsViewLoading({ viewMode }: { viewMode: 'grid' | 'list' | 'calendar' }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="flex h-full min-h-0 flex-col overflow-hidden">
-          <Skeleton className="h-[132px] w-full shrink-0 rounded-none" />
-          <CardContent className="flex flex-1 flex-col gap-3 p-4">
-            <Skeleton className="h-4 w-3/4" />
-            <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-              <Skeleton className="h-5 w-14 rounded-full" />
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-4 w-10" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-function CampaignsListSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <Card key={i}>
-          <CardContent className="flex items-center gap-4 p-4">
-            <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <Skeleton className="h-4 w-2/3" />
-              <Skeleton className="h-3 w-full" />
-            </div>
-            <Skeleton className="h-5 w-20 shrink-0 rounded-full" />
-          </CardContent>
-        </Card>
-      ))}
+    <div
+      className={cn(
+        'flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-border/50 bg-muted/20 px-6 py-16',
+        viewMode === 'calendar' ? 'min-h-[420px]' : 'min-h-[min(400px,55vh)]',
+      )}
+      role="status"
+      aria-live="polite"
+      aria-label="Loading campaigns"
+    >
+      <LoadingSpinner size="lg" />
+      <p className="text-sm text-muted-foreground">Loading campaigns…</p>
     </div>
   );
 }
@@ -821,12 +799,6 @@ export default function Campaigns() {
     schemaCacheCampaignRows,
   ]);
 
-  /** Warm browser cache for Storage campaign creatives (detail transform) after list is ready. */
-  useEffect(() => {
-    if (campaigns.length === 0) return;
-    schedulePreloadCampaignBucketDetailImages(campaigns.map(c => c.preview_image_url));
-  }, [campaigns]);
-
   const showLoading =
     workspaceClientLoading ||
     (Boolean(workspaceClientId) && platformsLoading) ||
@@ -893,6 +865,12 @@ export default function Campaigns() {
     [filtered, sortBy],
   );
 
+  /** Link preload + Image() warming — same URLs as {@link campaignImageDisplayUrl} on cards/modal. */
+  useEffect(() => {
+    if (sortedCampaigns.length === 0) return;
+    preloadCampaignImages(sortedCampaigns);
+  }, [sortedCampaigns]);
+
   const totalPages = Math.max(1, Math.ceil(sortedCampaigns.length / PAGE_SIZE));
 
   useEffect(() => {
@@ -946,8 +924,12 @@ export default function Campaigns() {
     email_html_preview?: string;
   } | null>(null);
 
-  /** True while the edge function is fetching creative for the selected campaign. */
-  const [creativeLoading, setCreativeLoading] = useState(false);
+  /** Creative fetch — minimum ~280ms visible so fast responses still show feedback. */
+  const {
+    loading: creativeLoading,
+    startLoading: startCreativeLoading,
+    stopLoading: stopCreativeLoading,
+  } = useMinDurationLoading(280);
 
   const creativePrefetchCacheRef = useRef(
     new Map<string, { preview_image_url?: string; email_html_preview?: string }>(),
@@ -970,12 +952,13 @@ export default function Campaigns() {
     selectedCampaignIdRef.current = id;
     if (!id) {
       setBrazeCreativeOverride(null);
+      stopCreativeLoading(true);
       return;
     }
     const cached = creativePrefetchCacheRef.current.get(id);
     setBrazeCreativeOverride(cached ? { ...cached } : null);
-    setCreativeLoading(false);
-  }, [selectedCampaign?.id]);
+    stopCreativeLoading(true);
+  }, [selectedCampaign?.id, stopCreativeLoading]);
 
   /** Hero → HTML iframe → large direct image only; merges live Braze creative when fetched. */
   const emailModalPreview = useMemo(() => {
@@ -997,6 +980,11 @@ export default function Campaigns() {
   }, [selectedRawRow, brazeCreativeOverride]);
 
   const modalHeroImageUrl = emailModalPreview.displayUrl ?? emailModalPreview.url;
+
+  const selectedRawDetailsEmpty = useMemo(
+    () => (selectedRawRow ? isRawDetailsEmpty(selectedRawRow.raw_details) : false),
+    [selectedRawRow],
+  );
 
   /** Optional duplicate fetch to warm cache before modal <img> (same preload gate as bucket/session warm). */
   useEffect(() => {
@@ -1038,6 +1026,65 @@ export default function Campaigns() {
     );
   }
 
+  const runBrazeCampaignCreativeFetch = useCallback(
+    async (campaignId: string) => {
+      const clientId = workspaceClientId;
+      const platformId = brazePlatform?.id;
+      if (!clientId || !platformId) return;
+      const { data, error } = await supabase.functions.invoke<{
+        preview_image_url?: string | null;
+        email_html_preview?: string | null;
+        persisted?: boolean;
+      }>('braze-campaign-creative', {
+        body: {
+          clientId,
+          platformId,
+          brazeCampaignId: campaignId,
+          persist: true,
+        },
+      });
+      if (error) {
+        logger.warn('[Campaigns] braze-campaign-creative invoke failed', error);
+        return;
+      }
+      const payload = {
+        preview_image_url: data?.preview_image_url ?? undefined,
+        email_html_preview: data?.email_html_preview ?? undefined,
+      };
+      commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, campaignId, payload);
+      if (selectedCampaignIdRef.current === campaignId) {
+        setBrazeCreativeOverride(payload);
+      }
+      if (data?.persisted) {
+        queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
+      }
+    },
+    [brazePlatform?.id, isAdmin, queryClient, workspaceClientId],
+  );
+
+  const handleRefreshCampaignPreview = useCallback(async () => {
+    if (!selectedCampaign || !workspaceClientId || !brazePlatform?.id) return;
+    const id = selectedCampaign.id;
+    if (creativePrefetchInFlightRef.current.has(id)) return;
+    creativePrefetchInFlightRef.current.add(id);
+    startCreativeLoading();
+    try {
+      await runBrazeCampaignCreativeFetch(id);
+    } catch (e) {
+      logger.warn('[Campaigns] braze-campaign-creative', e);
+    } finally {
+      creativePrefetchInFlightRef.current.delete(id);
+      stopCreativeLoading();
+    }
+  }, [
+    brazePlatform?.id,
+    runBrazeCampaignCreativeFetch,
+    selectedCampaign,
+    startCreativeLoading,
+    stopCreativeLoading,
+    workspaceClientId,
+  ]);
+
   useEffect(() => {
     const clientId = workspaceClientId;
     const platformId = brazePlatform?.id;
@@ -1045,58 +1092,40 @@ export default function Campaigns() {
 
     const id = selectedCampaign.id;
     const merged = mergeRawWithCachedCreative(id, selectedRawRow);
-    if (isCreativeResolvedFromMerged(merged)) return;
+    const needsBrazeDetails =
+      selectedCampaign.channel === 'email' && isRawDetailsEmpty(selectedRawRow?.raw_details);
+    if (!needsBrazeDetails && isCreativeResolvedFromMerged(merged)) return;
 
     if (creativePrefetchInFlightRef.current.has(id)) {
-      setCreativeLoading(true);
+      startCreativeLoading();
       return;
     }
 
     let cancelled = false;
     creativePrefetchInFlightRef.current.add(id);
-    setCreativeLoading(true);
+    startCreativeLoading();
     void (async () => {
       try {
-        const { data, error } = await supabase.functions.invoke<{
-          preview_image_url?: string | null;
-          email_html_preview?: string | null;
-          persisted?: boolean;
-        }>('braze-campaign-creative', {
-          body: {
-            clientId,
-            platformId,
-            brazeCampaignId: id,
-            persist: true,
-          },
-        });
+        await runBrazeCampaignCreativeFetch(id);
         creativePrefetchInFlightRef.current.delete(id);
-        if (cancelled) return;
-        if (error) {
-          logger.warn('[Campaigns] braze-campaign-creative invoke failed', error);
-          setCreativeLoading(false);
+        if (cancelled) {
+          stopCreativeLoading(true);
           return;
         }
-        const payload = {
-          preview_image_url: data?.preview_image_url ?? undefined,
-          email_html_preview: data?.email_html_preview ?? undefined,
-        };
-        commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, id, payload);
-        if (selectedCampaignIdRef.current !== id) return;
-        setBrazeCreativeOverride(payload);
-        setCreativeLoading(false);
-        if (data?.persisted) {
-          queryClient.invalidateQueries({ queryKey: ['braze_campaigns', workspaceClientId, isAdmin] });
-        }
+        stopCreativeLoading();
       } catch (e) {
         creativePrefetchInFlightRef.current.delete(id);
-        if (!cancelled) {
-          logger.warn('[Campaigns] braze-campaign-creative', e);
-          setCreativeLoading(false);
+        if (cancelled) {
+          stopCreativeLoading(true);
+          return;
         }
+        logger.warn('[Campaigns] braze-campaign-creative', e);
+        stopCreativeLoading();
       }
     })();
     return () => {
       cancelled = true;
+      stopCreativeLoading(true);
     };
   }, [
     selectedCampaign?.id,
@@ -1105,8 +1134,9 @@ export default function Campaigns() {
     showLiveCampaigns,
     workspaceClientId,
     brazePlatform?.id,
-    queryClient,
-    isAdmin,
+    runBrazeCampaignCreativeFetch,
+    startCreativeLoading,
+    stopCreativeLoading,
   ]);
 
   const modalStatPayload = useMemo(() => {
@@ -1339,13 +1369,7 @@ export default function Campaigns() {
         )}
 
         {showLoading ? (
-          viewMode === 'calendar' ? (
-            <Skeleton className="h-[420px] w-full rounded-xl" />
-          ) : viewMode === 'grid' ? (
-            <CampaignsGridSkeleton />
-          ) : (
-            <CampaignsListSkeleton />
-          )
+          <CampaignsViewLoading viewMode={viewMode} />
         ) : isError &&
           showLiveCampaigns &&
           !dbCampaigns?.length &&
@@ -1424,7 +1448,7 @@ export default function Campaigns() {
                 )}
               </div>
             ) : (
-              paginatedCampaigns.map(campaign => {
+              paginatedCampaigns.map((campaign, index) => {
                 const titleText = campaign.name;
                 const previewLine =
                   campaign.creative_preview ?? getCampaignPreviewLine(toPreviewFields(campaign));
@@ -1450,8 +1474,10 @@ export default function Campaigns() {
                     <CampaignCreativeHero
                       channel={campaign.channel}
                       previewText={previewLine}
+                      previewImageUrl={campaign.preview_image_url}
                       campaignName={campaign.name}
                       variant="card"
+                      listPageIndex={index}
                       gridThumbnail
                     />
                   )}
@@ -1568,7 +1594,7 @@ export default function Campaigns() {
       </TooltipProvider>
 
       <Dialog open={!!selectedCampaign} onOpenChange={open => !open && setSelectedCampaign(null)}>
-        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 duration-300 sm:max-w-2xl">
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 duration-300 sm:max-w-3xl">
           {selectedCampaign && selectedCampaignModalCopy && (
             <>
               <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">
@@ -1605,14 +1631,34 @@ export default function Campaigns() {
               >
                 <div className="space-y-5">
                 {selectedCampaign.channel === 'email' ? (
-                  <EmailModalCreative
-                    key={selectedCampaign.id}
-                    imageUrl={emailModalPreview.url}
-                    displayImageUrl={emailModalPreview.displayUrl}
-                    htmlContent={emailModalPreview.html}
-                    previewMode={emailModalPreview.previewType}
-                    loading={creativeLoading}
-                  />
+                  <div className="space-y-2">
+                    {selectedRawDetailsEmpty && showLiveCampaigns && brazePlatform && (
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          disabled={creativeLoading || !workspaceClientId}
+                          onClick={() => void handleRefreshCampaignPreview()}
+                        >
+                          <RefreshCw
+                            className={cn('h-3.5 w-3.5', creativeLoading && 'animate-spin')}
+                            aria-hidden
+                          />
+                          Refresh preview
+                        </Button>
+                      </div>
+                    )}
+                    <EmailModalCreative
+                      key={selectedCampaign.id}
+                      imageUrl={emailModalPreview.url}
+                      displayImageUrl={emailModalPreview.displayUrl}
+                      htmlContent={emailModalPreview.html}
+                      previewMode={emailModalPreview.previewType}
+                      loading={creativeLoading}
+                    />
+                  </div>
                 ) : (
                   <PushSmsModalHero
                     key={selectedCampaign.id}

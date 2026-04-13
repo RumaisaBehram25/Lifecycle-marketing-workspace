@@ -507,6 +507,7 @@ export function mergePreviewImagePicks(
 // --- extractPreviewImageUrl (keep aligned with src/lib/campaignDisplay.ts) ---
 
 const PUBLIC_OBJECT_SEGMENT = "/storage/v1/object/public/";
+const RENDER_IMAGE_SEGMENT = "/storage/v1/render/image/public/";
 
 export function isSupabaseStoragePublicObjectUrl(url: string): boolean {
   const t = url.trim();
@@ -514,7 +515,10 @@ export function isSupabaseStoragePublicObjectUrl(url: string): boolean {
   try {
     const abs = t.startsWith("//") ? `https:${t}` : t;
     const u = new URL(abs);
-    return u.pathname.includes(PUBLIC_OBJECT_SEGMENT);
+    return (
+      u.pathname.includes(PUBLIC_OBJECT_SEGMENT) ||
+      u.pathname.includes(RENDER_IMAGE_SEGMENT)
+    );
   } catch {
     return false;
   }

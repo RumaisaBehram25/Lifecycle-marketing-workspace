@@ -374,6 +374,26 @@ function emailBodyLooksLikeHtml(s: string): boolean {
   return /<(?:[a-z][\w-]*|\/[a-z][\w-]*|!doctype)/i.test(t);
 }
 
+/** Braze may nest copy under `messages.{id}.email` (same fields as top-level). */
+function collectEmailHtmlStringsFromMessageVariant(msg: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const pushFrom = (m: Record<string, unknown>) => {
+    if (typeof m.html_body === "string" && m.html_body.trim()) out.push(m.html_body.trim());
+    if (typeof m.html_content === "string" && m.html_content.trim()) out.push(m.html_content.trim());
+    if (typeof m.html === "string" && m.html.trim()) out.push(m.html.trim());
+    if (typeof m.body === "string" && m.body.trim()) {
+      const b = m.body.trim();
+      if (emailBodyLooksLikeHtml(b)) out.push(b);
+    }
+  };
+  pushFrom(msg);
+  const nested = msg.email;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    pushFrom(nested as Record<string, unknown>);
+  }
+  return out;
+}
+
 function numFromDay(day: Record<string, unknown>, keys: string[]): number {
   for (const k of keys) {
     const v = day[k];
@@ -3977,18 +3997,9 @@ Deno.serve(async (req) => {
               for (const msg of msgEntries) {
                 const ch = String(msg.channel ?? "").toLowerCase();
                 if (brazeMessageIsNonEmail(ch)) continue;
-                let htmlCandidate: string | undefined;
-                if (typeof msg.html_body === "string" && msg.html_body.trim()) {
-                  htmlCandidate = msg.html_body.trim();
-                } else if (typeof msg.html_content === "string" && msg.html_content.trim()) {
-                  htmlCandidate = msg.html_content.trim();
-                } else if (typeof msg.html === "string" && msg.html.trim()) {
-                  htmlCandidate = msg.html.trim();
-                } else if (typeof msg.body === "string" && msg.body.trim()) {
-                  const b = msg.body.trim();
-                  if (emailBodyLooksLikeHtml(b)) htmlCandidate = b;
+                for (const c of collectEmailHtmlStringsFromMessageVariant(msg)) {
+                  emailHtmlCandidates.push(c);
                 }
-                if (htmlCandidate) emailHtmlCandidates.push(htmlCandidate);
               }
               const htmlLike = emailHtmlCandidates.filter((c) => emailBodyLooksLikeHtml(c));
               const bestHtml =

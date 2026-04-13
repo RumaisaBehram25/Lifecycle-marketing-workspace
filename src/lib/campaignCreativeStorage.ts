@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { SUPABASE_GET_PUBLIC_URL_IMAGE_TRANSFORM } from '@/lib/campaignCreativeImageUrl';
 
 const DEFAULT_BUCKET = 'campaign-creatives';
 
@@ -8,11 +9,13 @@ export function getCampaignCreativesBucket(): string {
 }
 
 /**
- * Public URL for an object in the campaign creatives bucket (bucket is expected to be public — use getPublicUrl, not signed URLs).
+ * Public URL for an image in the campaign creatives bucket via the image render endpoint (width/quality/format).
  */
 export function getCampaignCreativePublicUrl(supabase: SupabaseClient, storagePath: string): string {
   const bucket = getCampaignCreativesBucket();
-  return supabase.storage.from(bucket).getPublicUrl(storagePath).data.publicUrl;
+  return supabase.storage.from(bucket).getPublicUrl(storagePath, {
+    transform: SUPABASE_GET_PUBLIC_URL_IMAGE_TRANSFORM,
+  }).data.publicUrl;
 }
 
 export interface UploadCampaignCreativeParams {

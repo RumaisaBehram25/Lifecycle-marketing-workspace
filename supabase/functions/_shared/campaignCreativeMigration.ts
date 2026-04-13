@@ -5,8 +5,15 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.89.0";
 import { extractPreviewImageUrl, isSupabaseStoragePublicObjectUrl } from "./campaignPreviewImage.ts";
+import { isS3CampaignCreativeConfigured, uploadCampaignCreativeToS3 } from "./s3CampaignCreative.ts";
 
 const DEFAULT_BUCKET = "campaign-creatives";
+
+const GET_PUBLIC_URL_IMAGE_TRANSFORM = {
+  width: 600,
+  quality: 80,
+  format: "origin" as const,
+};
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 25_000;
 
@@ -105,28 +112,53 @@ async function maybeMigrateOneRow(
     const bucket = getCampaignCreativesBucket();
     const mime = ct?.split(";")[0]?.trim() || `image/${ext === "jpg" ? "jpeg" : ext}`;
 
-    const blob = new Blob([buf], { type: mime });
-    const { data: uploaded, error: upErr } = await supabase.storage.from(bucket).upload(storagePath, blob, {
-      upsert: true,
-      contentType: mime,
-    });
+    const bytes = new Uint8Array(buf);
+    let publicUrl: string | undefined;
 
-    if (upErr || !uploaded?.path) {
-      console.warn(
-        `[Braze Sync] campaign creative upload failed braze_campaign_id=${row.braze_campaign_id}:`,
-        upErr?.message ?? "no path",
-      );
-      return;
+    if (isS3CampaignCreativeConfigured()) {
+      const s3 = await uploadCampaignCreativeToS3({
+        key: storagePath,
+        body: bytes,
+        contentType: mime,
+      });
+      if (s3.ok) {
+        publicUrl = s3.publicUrl;
+      } else {
+        console.warn(
+          `[Braze Sync] S3 campaign creative upload failed braze_campaign_id=${row.braze_campaign_id}:`,
+          s3.message,
+        );
+      }
     }
 
-    const { data: pub } = supabase.storage.from(bucket).getPublicUrl(uploaded.path);
-    const publicUrl = pub.publicUrl;
     if (!publicUrl) {
-      console.warn(
-        `[Braze Sync] campaign creative getPublicUrl empty braze_campaign_id=${row.braze_campaign_id}`,
-      );
-      return;
+      const blob = new Blob([buf], { type: mime });
+      const { data: uploaded, error: upErr } = await supabase.storage.from(bucket).upload(storagePath, blob, {
+        upsert: true,
+        contentType: mime,
+      });
+
+      if (upErr || !uploaded?.path) {
+        console.warn(
+          `[Braze Sync] campaign creative upload failed braze_campaign_id=${row.braze_campaign_id}:`,
+          upErr?.message ?? "no path",
+        );
+        return;
+      }
+
+      const { data: pub } = supabase.storage.from(bucket).getPublicUrl(uploaded.path, {
+        transform: GET_PUBLIC_URL_IMAGE_TRANSFORM,
+      });
+      publicUrl = pub.publicUrl;
+      if (!publicUrl) {
+        console.warn(
+          `[Braze Sync] campaign creative getPublicUrl empty braze_campaign_id=${row.braze_campaign_id}`,
+        );
+        return;
+      }
     }
+
+    if (!publicUrl) return;
 
     const { error: dbErr } = await supabase
       .from("braze_campaigns")

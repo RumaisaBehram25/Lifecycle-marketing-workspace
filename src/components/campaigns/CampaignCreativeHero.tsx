@@ -57,8 +57,13 @@ export interface CampaignCreativeHeroProps {
   /** Load image immediately (e.g. campaign detail modal is open). */
   eagerImage?: boolean;
   /**
+   * Index on the current page (0-based). First rows get `fetchpriority="high"` and eager decode hints
+   * so they match list {@link preloadCampaignImages} priority.
+   */
+  listPageIndex?: number;
+  /**
    * Campaigns grid: fixed-height area with channel icon only (no image, no skeleton, no async load).
-   * Preview images are reserved for modal/detail.
+   * Omit when `preview_image_url` exists so the hero image can show (aligned with preload URLs).
    */
   gridThumbnail?: boolean;
 }
@@ -75,6 +80,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
   className,
   journeyPlaceholder,
   eagerImage = false,
+  listPageIndex,
   gridThumbnail = false,
 }: CampaignCreativeHeroProps) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -108,6 +114,13 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
 
   /** Card (non-grid): dimming gradient + icon + caption over image. */
   const showCardStyleImageOverlay = showImg && !isModal && !gridThumbnail;
+
+  const firstPageEager =
+    typeof listPageIndex === 'number' && listPageIndex < 24;
+  const topBandHigh =
+    typeof listPageIndex === 'number' && listPageIndex < 5;
+  const loadingAttr = eagerImage || firstPageEager ? 'eager' : 'lazy';
+  const fetchPriorityAttr = eagerImage || topBandHigh ? ('high' as const) : ('low' as const);
 
   /** Grid: always show channel icon; never stack on an image (grid has no image). */
   const showFooterOverlay =
@@ -143,9 +156,9 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
           alt=""
           width={640}
           height={360}
-          loading={eagerImage ? 'eager' : 'lazy'}
+          loading={loadingAttr}
           decoding="async"
-          fetchpriority={eagerImage ? 'high' : 'low'}
+          fetchPriority={fetchPriorityAttr}
           className={cn(
             'absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-500 ease-out',
             modalImageClean ? 'object-top' : 'object-center',

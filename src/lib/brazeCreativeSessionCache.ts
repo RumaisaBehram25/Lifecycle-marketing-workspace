@@ -1,9 +1,12 @@
 import { getModalOptimizedImageUrl } from '@/lib/campaignDisplay';
 import {
+  campaignImageDisplayUrl,
   isCampaignBucketPreloadEnabled,
   isSupabaseStoragePublicObjectUrl,
-  plainSupabasePublicObjectUrl,
 } from '@/lib/campaignCreativeImageUrl';
+import { preloadedUrls } from '@/lib/campaignImagePreloadRegistry';
+
+export { preloadedUrls } from '@/lib/campaignImagePreloadRegistry';
 
 export type CachedCreativePayload = {
   preview_image_url?: string;
@@ -83,16 +86,18 @@ export function saveBrazeCreativeSessionEntry(
   }
 }
 
-/** Start loading preview image into the browser HTTP cache (plain public URL for Storage — no transform params). */
+/** Start loading preview image into the browser HTTP cache (matches display URL for Supabase render endpoint). */
 export function warmCreativePreviewImage(previewImageUrl: string | undefined | null): void {
   if (!isCampaignBucketPreloadEnabled) return;
   const u = typeof previewImageUrl === 'string' ? previewImageUrl.trim() : '';
   if (!u) return;
+  const src = isSupabaseStoragePublicObjectUrl(u)
+    ? campaignImageDisplayUrl(u) ?? u
+    : getModalOptimizedImageUrl(u);
+  if (preloadedUrls.has(src)) return;
+  preloadedUrls.add(src);
   const img = new Image();
   img.decoding = 'async';
-  const src = isSupabaseStoragePublicObjectUrl(u)
-    ? plainSupabasePublicObjectUrl(u) ?? u
-    : getModalOptimizedImageUrl(u);
   img.src = src;
 }
 
@@ -123,7 +128,7 @@ export function warmSessionCacheImagesIdle(map: Map<string, CachedCreativePayloa
     const u = p.preview_image_url?.trim();
     if (!u) continue;
     urls.push(
-      isSupabaseStoragePublicObjectUrl(u) ? plainSupabasePublicObjectUrl(u) ?? u : getModalOptimizedImageUrl(u),
+      isSupabaseStoragePublicObjectUrl(u) ? campaignImageDisplayUrl(u) ?? u : getModalOptimizedImageUrl(u),
     );
   }
   const slice = urls.slice(0, IDLE_WARM_BATCH);
@@ -132,6 +137,8 @@ export function warmSessionCacheImagesIdle(map: Map<string, CachedCreativePayloa
   const start = () => {
     slice.forEach((url, i) => {
       window.setTimeout(() => {
+        if (preloadedUrls.has(url)) return;
+        preloadedUrls.add(url);
         const img = new Image();
         img.decoding = 'async';
         img.src = url;

@@ -1,0 +1,1948 @@
+[
+  {
+    "id": "37e7b98c-9724-46cf-9690-5be292c558d1",
+    "braze_campaign_id": "d19b40ec-5d67-42cd-b299-2e4d81ba390c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d19b40ec-5d67-42cd-b299-2e4d81ba390c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.157Z"
+  },
+  {
+    "id": "ae23a4cd-e18a-49cd-9081-04a40643d616",
+    "braze_campaign_id": "deb4c5ba-cbc9-442d-b503-68972906bf5b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/deb4c5ba-cbc9-442d-b503-68972906bf5b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.160Z"
+  },
+  {
+    "id": "23b44d1b-1411-4f1c-b4d1-bc1cddd5f80f",
+    "braze_campaign_id": "d79cab44-3c13-475d-9426-f3915e1ace93",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d79cab44-3c13-475d-9426-f3915e1ace93.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.161Z"
+  },
+  {
+    "id": "3bae985c-612a-4113-b30c-91a1e61ad97c",
+    "braze_campaign_id": "0ea524ff-de79-40a3-8e4f-1c639e975c78",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0ea524ff-de79-40a3-8e4f-1c639e975c78.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.162Z"
+  },
+  {
+    "id": "7aa5672e-d7d0-43e7-b1d2-bacf4da7e841",
+    "braze_campaign_id": "2c3ed940-ddd8-4c0a-bc84-7dd65f640245",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/2c3ed940-ddd8-4c0a-bc84-7dd65f640245.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.163Z"
+  },
+  {
+    "id": "b0820896-a97d-40fa-9e76-dafe3cbd831e",
+    "braze_campaign_id": "e651923f-1f82-4555-a4e2-0ff6c53e5e92",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/e651923f-1f82-4555-a4e2-0ff6c53e5e92.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.164Z"
+  },
+  {
+    "id": "35829381-23ac-44a2-bc27-e99beedba360",
+    "braze_campaign_id": "0ea524ff-de79-40a3-8e4f-1c639e975c78",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0ea524ff-de79-40a3-8e4f-1c639e975c78.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.165Z"
+  },
+  {
+    "id": "f25ec718-ba01-4898-85be-4cf585588b12",
+    "braze_campaign_id": "6558677f-ee0f-4572-a0b3-1851d97a2913",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/6558677f-ee0f-4572-a0b3-1851d97a2913.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.166Z"
+  },
+  {
+    "id": "ee6df71f-36b1-4c98-a0e1-f9a8a945e3f0",
+    "braze_campaign_id": "6ee27bc3-2029-4d4f-bdd9-9d88fc5a179c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/6ee27bc3-2029-4d4f-bdd9-9d88fc5a179c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.167Z"
+  },
+  {
+    "id": "256979fe-fe51-4f84-be1e-54a2578363bd",
+    "braze_campaign_id": "8672311d-9d50-488d-83d3-89b547ee179a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/8672311d-9d50-488d-83d3-89b547ee179a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:03.169Z"
+  },
+  {
+    "id": "9cd9ca29-58d0-4d04-9ab1-7a55d70caadd",
+    "braze_campaign_id": "ea1202e5-9f37-4a24-b6b0-7b5ff6addc2c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ea1202e5-9f37-4a24-b6b0-7b5ff6addc2c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.324Z"
+  },
+  {
+    "id": "cc4411b6-25b3-4ce6-8179-25cfbb2c0493",
+    "braze_campaign_id": "0ea32d61-e0c9-4131-8cd5-7fe43eaaca08",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0ea32d61-e0c9-4131-8cd5-7fe43eaaca08.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.325Z"
+  },
+  {
+    "id": "57552459-69b3-4a93-975a-270c293ebe93",
+    "braze_campaign_id": "5034818c-7cc7-45eb-85bb-c2dcc39b973f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/5034818c-7cc7-45eb-85bb-c2dcc39b973f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.327Z"
+  },
+  {
+    "id": "b7e7b84b-2259-457f-8683-e9ccccf9561d",
+    "braze_campaign_id": "77506492-a6bc-4986-8634-e73eba9c1181",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/77506492-a6bc-4986-8634-e73eba9c1181.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.328Z"
+  },
+  {
+    "id": "8c8a0048-15f4-4649-b902-e05c77b3beff",
+    "braze_campaign_id": "9931d1d6-f6e9-41f0-88f1-249421ba3625",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9931d1d6-f6e9-41f0-88f1-249421ba3625.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.329Z"
+  },
+  {
+    "id": "11777dbe-5d5d-4906-94d2-a7a81327de03",
+    "braze_campaign_id": "4e9a7d1c-397c-4514-8ac0-c05d2a1c345a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/4e9a7d1c-397c-4514-8ac0-c05d2a1c345a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.331Z"
+  },
+  {
+    "id": "1b1791c0-f6c8-452b-871f-35d15929e1a8",
+    "braze_campaign_id": "bec2af04-7c50-4126-a447-9dd1aaa26547",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/bec2af04-7c50-4126-a447-9dd1aaa26547.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.332Z"
+  },
+  {
+    "id": "8783be59-87ca-4ef3-8076-4a3b8a35c9ad",
+    "braze_campaign_id": "2ab4e434-f8f2-472d-8483-3737c0d1a484",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/2ab4e434-f8f2-472d-8483-3737c0d1a484.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.333Z"
+  },
+  {
+    "id": "ed5f0e25-ca22-4bda-8529-9eef3c9d782d",
+    "braze_campaign_id": "9ea8ab2c-e244-4ee1-b7d6-a6ba31748e0b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/9ea8ab2c-e244-4ee1-b7d6-a6ba31748e0b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.334Z"
+  },
+  {
+    "id": "b1826f22-5bc7-4008-bdda-16101809f435",
+    "braze_campaign_id": "0226942f-8817-4966-b064-5b622d0a6b2d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0226942f-8817-4966-b064-5b622d0a6b2d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:04.336Z"
+  },
+  {
+    "id": "8b992530-e4fa-414a-8bba-ff21d3b18936",
+    "braze_campaign_id": "b4cd4f12-9f66-44e9-bb8f-fab7777bf0ce",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/b4cd4f12-9f66-44e9-bb8f-fab7777bf0ce.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.487Z"
+  },
+  {
+    "id": "8d999bbc-15bb-465e-8715-d2ac91ca529a",
+    "braze_campaign_id": "1f248ae6-cc5f-45d6-a274-6fc5b7990c94",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1f248ae6-cc5f-45d6-a274-6fc5b7990c94.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.488Z"
+  },
+  {
+    "id": "29573743-e1bf-45d9-85ab-1e2c602a3d72",
+    "braze_campaign_id": "f4d7003b-7849-482b-9257-06ace206ebc2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/f4d7003b-7849-482b-9257-06ace206ebc2.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.489Z"
+  },
+  {
+    "id": "5bfdf152-64dc-4896-84b2-b8d79873a73a",
+    "braze_campaign_id": "bcec9559-ca5b-4602-a911-bea04e21bb71",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/bcec9559-ca5b-4602-a911-bea04e21bb71.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.490Z"
+  },
+  {
+    "id": "6542c109-bbec-4f4f-941c-618f8b809be7",
+    "braze_campaign_id": "d9282a1b-729e-4a74-b7f0-3134d74d72a6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d9282a1b-729e-4a74-b7f0-3134d74d72a6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.491Z"
+  },
+  {
+    "id": "710fc962-b359-4f09-b488-92938db5fd2d",
+    "braze_campaign_id": "421c4a44-8bb6-4d7c-b067-f07f311d8374",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/421c4a44-8bb6-4d7c-b067-f07f311d8374.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.492Z"
+  },
+  {
+    "id": "3cd76f0c-b0e5-4d69-8977-68f3ac10b67d",
+    "braze_campaign_id": "b5cad167-d40a-4a1e-b077-d2c1b9079f1e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/b5cad167-d40a-4a1e-b077-d2c1b9079f1e.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.493Z"
+  },
+  {
+    "id": "b0577052-d0b1-41a7-8cff-5c6c4b4a8201",
+    "braze_campaign_id": "57181278-112d-4f0a-9a37-595f66feff51",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/57181278-112d-4f0a-9a37-595f66feff51.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.494Z"
+  },
+  {
+    "id": "40d6b669-25fa-416c-b1ee-64ca6ea6ec1a",
+    "braze_campaign_id": "197f1dce-72cf-49d3-9e8b-09652babd5d1",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/197f1dce-72cf-49d3-9e8b-09652babd5d1.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.495Z"
+  },
+  {
+    "id": "2c1cc5d5-19d2-4791-bdb1-f30855fbe6fb",
+    "braze_campaign_id": "1bf6f91c-3929-494c-9bf9-2b7a975b4773",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1bf6f91c-3929-494c-9bf9-2b7a975b4773.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:05.496Z"
+  },
+  {
+    "id": "2463f91a-e8eb-4028-bdff-d653ddec0994",
+    "braze_campaign_id": "14ed476c-b621-4bb7-87c6-874523c43c71",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/14ed476c-b621-4bb7-87c6-874523c43c71.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.701Z"
+  },
+  {
+    "id": "77fa2f77-5066-464b-ade9-b9913f069d3c",
+    "braze_campaign_id": "d88db1d4-102e-4e35-b131-c0561941ea62",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d88db1d4-102e-4e35-b131-c0561941ea62.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.703Z"
+  },
+  {
+    "id": "74393815-dd3b-49b9-867e-6d98e5891878",
+    "braze_campaign_id": "3bcbdbd7-eee4-466a-8189-6f2c0c2f9ce7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/3bcbdbd7-eee4-466a-8189-6f2c0c2f9ce7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.704Z"
+  },
+  {
+    "id": "06a24bee-2e46-46cf-bb93-a28ea2558d4a",
+    "braze_campaign_id": "b4cd4f12-9f66-44e9-bb8f-fab7777bf0ce",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b4cd4f12-9f66-44e9-bb8f-fab7777bf0ce.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.705Z"
+  },
+  {
+    "id": "672f4cc8-e266-4947-8450-2982732db1ab",
+    "braze_campaign_id": "ddeade24-b775-4c1f-b41d-8e1f5adbdb7f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ddeade24-b775-4c1f-b41d-8e1f5adbdb7f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.706Z"
+  },
+  {
+    "id": "edb42939-8b0f-44f1-abff-81bc64fbf519",
+    "braze_campaign_id": "4cb3cd46-c9a1-4849-af13-fa66fb600599",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/4cb3cd46-c9a1-4849-af13-fa66fb600599.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.707Z"
+  },
+  {
+    "id": "5444c4ce-7ca6-4e09-94c6-623674e49348",
+    "braze_campaign_id": "bb0633d0-bfde-4b75-a876-1868f0822ab3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/bb0633d0-bfde-4b75-a876-1868f0822ab3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.708Z"
+  },
+  {
+    "id": "1252a1aa-f5e3-456b-85ce-605aad02a00e",
+    "braze_campaign_id": "9fae52aa-3e57-4009-81c7-70fcd582bd21",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9fae52aa-3e57-4009-81c7-70fcd582bd21.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.709Z"
+  },
+  {
+    "id": "79baebc2-ac8f-4791-9686-13ec4be07a2e",
+    "braze_campaign_id": "5ff2414c-0b29-4a46-86cf-700148064cd6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/5ff2414c-0b29-4a46-86cf-700148064cd6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.710Z"
+  },
+  {
+    "id": "daf33877-2033-48db-add4-6e9c0e0faa17",
+    "braze_campaign_id": "535e232b-521c-4fd5-bada-31063fc590da",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/535e232b-521c-4fd5-bada-31063fc590da.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:06.712Z"
+  },
+  {
+    "id": "8a10afde-df57-4e12-aea6-3038e400d119",
+    "braze_campaign_id": "513cb752-0842-40d1-afd0-b4715919d46f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/513cb752-0842-40d1-afd0-b4715919d46f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.928Z"
+  },
+  {
+    "id": "7b5d6eb0-949e-4cb1-992d-a4846ede018e",
+    "braze_campaign_id": "aeb953c8-1c4a-4cb1-acdd-7e24449d870e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/aeb953c8-1c4a-4cb1-acdd-7e24449d870e.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.930Z"
+  },
+  {
+    "id": "b8a886d5-4a94-4352-aebf-bfe18400250d",
+    "braze_campaign_id": "a09efb25-3cad-4469-ae77-a69a176d7bfa",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/a09efb25-3cad-4469-ae77-a69a176d7bfa.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.931Z"
+  },
+  {
+    "id": "4ebcbbe1-57dd-41f3-ad33-8017db32db47",
+    "braze_campaign_id": "ecb99be1-2586-4050-9762-039293aa62e6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ecb99be1-2586-4050-9762-039293aa62e6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.932Z"
+  },
+  {
+    "id": "37f2664d-848b-4145-a194-b9b191e922df",
+    "braze_campaign_id": "b119494a-42c5-49fc-85c5-ef95566b23b2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b119494a-42c5-49fc-85c5-ef95566b23b2.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.933Z"
+  },
+  {
+    "id": "c8295370-f4e8-4970-bb1d-b6c54ea6f325",
+    "braze_campaign_id": "197f1dce-72cf-49d3-9e8b-09652babd5d1",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/197f1dce-72cf-49d3-9e8b-09652babd5d1.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.934Z"
+  },
+  {
+    "id": "769e5e22-77dd-43fc-814c-bc48a6f13ecd",
+    "braze_campaign_id": "f9a82cca-ecd1-4120-a8b4-7970cc38330f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/f9a82cca-ecd1-4120-a8b4-7970cc38330f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.935Z"
+  },
+  {
+    "id": "5938bb20-d741-4743-ac03-c43d19dac849",
+    "braze_campaign_id": "86880bbd-6e8c-4bc5-87ec-aa2fd97d9841",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/86880bbd-6e8c-4bc5-87ec-aa2fd97d9841.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.936Z"
+  },
+  {
+    "id": "11f8ce9a-fa69-468f-b3c2-bb13d4bb0824",
+    "braze_campaign_id": "8376d275-7e91-43c8-9b42-b047afe140ea",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/8376d275-7e91-43c8-9b42-b047afe140ea.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.937Z"
+  },
+  {
+    "id": "d4d50736-e604-47f1-aacc-19a01a23a514",
+    "braze_campaign_id": "01672050-d7f7-4e31-bc11-0b6014a0c451",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/01672050-d7f7-4e31-bc11-0b6014a0c451.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:07.939Z"
+  },
+  {
+    "id": "b28f720d-113e-46a0-a206-8264d2eefb79",
+    "braze_campaign_id": "3d3cdc9b-5cbe-4aec-8963-29b95156a711",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/3d3cdc9b-5cbe-4aec-8963-29b95156a711.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.137Z"
+  },
+  {
+    "id": "353151d2-08cb-4350-a5d6-aebd50a3f86e",
+    "braze_campaign_id": "9ea8ab2c-e244-4ee1-b7d6-a6ba31748e0b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9ea8ab2c-e244-4ee1-b7d6-a6ba31748e0b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.139Z"
+  },
+  {
+    "id": "85564b8d-8dd3-47b6-935b-740a7a6ffd15",
+    "braze_campaign_id": "f3e352e7-e94d-42ca-a572-2c0e0243fec9",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/f3e352e7-e94d-42ca-a572-2c0e0243fec9.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.140Z"
+  },
+  {
+    "id": "bc186f26-3f7e-4cd2-a0a5-c91320549636",
+    "braze_campaign_id": "40622809-f401-48cd-8805-e73954d4dbd4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/40622809-f401-48cd-8805-e73954d4dbd4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.141Z"
+  },
+  {
+    "id": "76930779-3ae5-4783-bb0a-efed5a6cb8d6",
+    "braze_campaign_id": "9ca79571-8547-4d2e-8b10-a5ee7c0aa12e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9ca79571-8547-4d2e-8b10-a5ee7c0aa12e.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.142Z"
+  },
+  {
+    "id": "9756d84a-15e1-4949-80d5-eb7eefb60cf2",
+    "braze_campaign_id": "9bb6a28a-b143-4369-b488-7a80f2f957ae",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/9bb6a28a-b143-4369-b488-7a80f2f957ae.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.143Z"
+  },
+  {
+    "id": "2f6c7a55-afdc-490c-b96b-76dd1613d715",
+    "braze_campaign_id": "93ad5c1d-1fff-4e15-992f-695c96a79102",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/93ad5c1d-1fff-4e15-992f-695c96a79102.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.144Z"
+  },
+  {
+    "id": "72f9867f-dd76-4cff-b87c-e74645fe8fb3",
+    "braze_campaign_id": "4f6e3d34-970b-4c7d-9538-20de7dd2d455",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/4f6e3d34-970b-4c7d-9538-20de7dd2d455.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.145Z"
+  },
+  {
+    "id": "1745364f-4394-47e8-b463-b6ca961821d8",
+    "braze_campaign_id": "aeb953c8-1c4a-4cb1-acdd-7e24449d870e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/aeb953c8-1c4a-4cb1-acdd-7e24449d870e.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.146Z"
+  },
+  {
+    "id": "3f86d45a-3b6a-48c1-aae1-bff5256893d6",
+    "braze_campaign_id": "e536ba67-faf1-458b-b8e1-232308e3cfad",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/e536ba67-faf1-458b-b8e1-232308e3cfad.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:09.147Z"
+  },
+  {
+    "id": "eb07b3d9-8965-409e-9a5c-370e12743fff",
+    "braze_campaign_id": "adb320a3-a3b4-4bfd-bcdf-a6e7c4afc707",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/adb320a3-a3b4-4bfd-bcdf-a6e7c4afc707.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.402Z"
+  },
+  {
+    "id": "31c632ba-656d-4997-813e-13b07bd2e540",
+    "braze_campaign_id": "1cb06ebe-3018-44f6-bccf-07d870e92cfb",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1cb06ebe-3018-44f6-bccf-07d870e92cfb.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.404Z"
+  },
+  {
+    "id": "2f578be8-5093-4f70-83c3-17e170505e4c",
+    "braze_campaign_id": "8b9b31be-a9cf-4d64-bd1b-645115329c29",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/8b9b31be-a9cf-4d64-bd1b-645115329c29.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.405Z"
+  },
+  {
+    "id": "256bdef4-bd91-4f1b-ba6d-a640598d78ba",
+    "braze_campaign_id": "c1cbbe38-79c2-4253-9127-9d9ba8b0c8ff",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c1cbbe38-79c2-4253-9127-9d9ba8b0c8ff.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.406Z"
+  },
+  {
+    "id": "a9d9e4e2-11eb-422c-8eb8-587ec2c0be0c",
+    "braze_campaign_id": "10ec1ed3-ad55-40db-b8c8-7eaabf38585a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/10ec1ed3-ad55-40db-b8c8-7eaabf38585a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.407Z"
+  },
+  {
+    "id": "acefa285-3e86-4208-9d63-449ee1389753",
+    "braze_campaign_id": "75b60601-cda8-4de4-9f38-2de5efc10fc5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/75b60601-cda8-4de4-9f38-2de5efc10fc5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.408Z"
+  },
+  {
+    "id": "b37144cc-815e-44c9-82f8-8afc2e3e274b",
+    "braze_campaign_id": "ef4fa28a-5974-4466-8501-30335aa7ddb3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/ef4fa28a-5974-4466-8501-30335aa7ddb3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.409Z"
+  },
+  {
+    "id": "87eb124a-21b3-4e83-b7a3-78633f7a989b",
+    "braze_campaign_id": "06eafbf9-f971-4625-908c-913401dfb1e4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/06eafbf9-f971-4625-908c-913401dfb1e4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.410Z"
+  },
+  {
+    "id": "368200c9-a7e2-4846-9bfc-79939cd80eea",
+    "braze_campaign_id": "c66ce4a4-b9ce-4236-a50e-e5235a84025c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c66ce4a4-b9ce-4236-a50e-e5235a84025c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.412Z"
+  },
+  {
+    "id": "eac5e140-5712-4063-8a81-cd289e7ec4fc",
+    "braze_campaign_id": "5206ecfc-4533-4f2e-9d48-4a323be2b5b1",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/5206ecfc-4533-4f2e-9d48-4a323be2b5b1.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:10.413Z"
+  },
+  {
+    "id": "945b940c-cda8-4687-90aa-50eb1f05f66f",
+    "braze_campaign_id": "b3602398-38eb-4ce9-93c5-dc25623b2cc7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/b3602398-38eb-4ce9-93c5-dc25623b2cc7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.644Z"
+  },
+  {
+    "id": "0a549772-a7bc-4d16-9c94-da3177c1406c",
+    "braze_campaign_id": "591a8256-bd5d-4204-be3a-64b8c9ad92f4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/591a8256-bd5d-4204-be3a-64b8c9ad92f4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.645Z"
+  },
+  {
+    "id": "4c2b2c6a-a26c-4535-b907-72edc25d6254",
+    "braze_campaign_id": "bd0f2654-84e7-4fcc-adbd-9de55c68d3dc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/bd0f2654-84e7-4fcc-adbd-9de55c68d3dc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.646Z"
+  },
+  {
+    "id": "c4cfb3b3-b46e-4660-82f6-d8ad85bc63e2",
+    "braze_campaign_id": "13b4109b-ce6f-4390-b83e-3e5619f77b47",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/13b4109b-ce6f-4390-b83e-3e5619f77b47.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.648Z"
+  },
+  {
+    "id": "af55082f-b839-4b7c-8d81-ad56a2103f3c",
+    "braze_campaign_id": "0226942f-8817-4966-b064-5b622d0a6b2d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0226942f-8817-4966-b064-5b622d0a6b2d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.649Z"
+  },
+  {
+    "id": "dff43875-a448-4b1f-bcdc-413cbe2f425c",
+    "braze_campaign_id": "421c4a44-8bb6-4d7c-b067-f07f311d8374",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/421c4a44-8bb6-4d7c-b067-f07f311d8374.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.650Z"
+  },
+  {
+    "id": "4f8e84e6-7ad9-43b1-8913-d671be8e5fa6",
+    "braze_campaign_id": "2f80b6b4-a7f6-428d-bb0f-6459b7f5b00c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/2f80b6b4-a7f6-428d-bb0f-6459b7f5b00c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.652Z"
+  },
+  {
+    "id": "b7cff468-9c58-4789-8772-f5be88173ed6",
+    "braze_campaign_id": "c00a10ed-de75-4dc2-98d6-7b6e7d8fe4fa",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c00a10ed-de75-4dc2-98d6-7b6e7d8fe4fa.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.653Z"
+  },
+  {
+    "id": "73e812b3-c039-40b7-9d75-d4db49778e01",
+    "braze_campaign_id": "767435e1-c511-420f-9a98-ba5b522f5945",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/767435e1-c511-420f-9a98-ba5b522f5945.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.654Z"
+  },
+  {
+    "id": "d11560db-713f-41b2-a485-e7f8608aac8c",
+    "braze_campaign_id": "b03f8340-e382-416f-8c96-5b215509f57f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/b03f8340-e382-416f-8c96-5b215509f57f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:11.654Z"
+  },
+  {
+    "id": "7b0ba780-2338-43b1-affe-80b2da41f64a",
+    "braze_campaign_id": "ba34143d-993b-4082-bd5c-33db581d644a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ba34143d-993b-4082-bd5c-33db581d644a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.833Z"
+  },
+  {
+    "id": "4ed45ee8-30af-4e24-98bf-42aba1dc73f4",
+    "braze_campaign_id": "3d3cdc9b-5cbe-4aec-8963-29b95156a711",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/3d3cdc9b-5cbe-4aec-8963-29b95156a711.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.835Z"
+  },
+  {
+    "id": "069c41ed-606b-4cf3-9a98-7ae55cf7b60f",
+    "braze_campaign_id": "51f20bcf-f673-4f89-b28b-597b6663bccb",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/51f20bcf-f673-4f89-b28b-597b6663bccb.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.836Z"
+  },
+  {
+    "id": "cb80b721-27a9-4d8f-9fb2-36fc66bd074b",
+    "braze_campaign_id": "5034818c-7cc7-45eb-85bb-c2dcc39b973f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/5034818c-7cc7-45eb-85bb-c2dcc39b973f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.837Z"
+  },
+  {
+    "id": "d59b27ce-e363-4a8d-9af2-9a487ccc8a2b",
+    "braze_campaign_id": "a31845a0-8264-429e-a980-05727cf9e345",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/a31845a0-8264-429e-a980-05727cf9e345.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.838Z"
+  },
+  {
+    "id": "e8c6c0ba-3d51-4829-8e3a-39e4bbe17013",
+    "braze_campaign_id": "e536ba67-faf1-458b-b8e1-232308e3cfad",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/e536ba67-faf1-458b-b8e1-232308e3cfad.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.839Z"
+  },
+  {
+    "id": "e9710a2d-b56c-4aa3-a16b-b1a1a7d6975c",
+    "braze_campaign_id": "0ec6f3c7-06e1-4923-9107-c3b170c5fae2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0ec6f3c7-06e1-4923-9107-c3b170c5fae2.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.840Z"
+  },
+  {
+    "id": "f4419d58-5e58-43d1-9c95-0128c1713ef3",
+    "braze_campaign_id": "2c5d82db-b474-426b-9d36-65cb9d0e4044",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/2c5d82db-b474-426b-9d36-65cb9d0e4044.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.841Z"
+  },
+  {
+    "id": "f4731bf2-3756-4772-a0d0-cab0d55cc662",
+    "braze_campaign_id": "0b2f817a-34a5-4780-a288-5f3c2b2a4f44",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0b2f817a-34a5-4780-a288-5f3c2b2a4f44.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.842Z"
+  },
+  {
+    "id": "3aa36e8b-4c1a-4984-9283-4f0f104f2e17",
+    "braze_campaign_id": "deb4c5ba-cbc9-442d-b503-68972906bf5b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/deb4c5ba-cbc9-442d-b503-68972906bf5b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:12.843Z"
+  },
+  {
+    "id": "6994bdbd-cabe-4878-b625-b2b73aeaaeb8",
+    "braze_campaign_id": "8fc4ab5e-7217-46cc-a3a0-1f0091f14cec",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/8fc4ab5e-7217-46cc-a3a0-1f0091f14cec.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.118Z"
+  },
+  {
+    "id": "1228bfac-bf93-4a06-b76a-b76d27e52820",
+    "braze_campaign_id": "af35d18b-45dd-4892-9a20-7015d5e8733f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/af35d18b-45dd-4892-9a20-7015d5e8733f.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.120Z"
+  },
+  {
+    "id": "c4e00ebf-1d38-4890-861f-9785482ca448",
+    "braze_campaign_id": "eb2a5285-ddb8-4eb9-a4a8-26b7b3522f1f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/eb2a5285-ddb8-4eb9-a4a8-26b7b3522f1f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.122Z"
+  },
+  {
+    "id": "22c5060b-b68d-44c5-8d87-148aac40dd62",
+    "braze_campaign_id": "dd35660a-c440-467c-aa2e-441cb468b0ec",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/dd35660a-c440-467c-aa2e-441cb468b0ec.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.123Z"
+  },
+  {
+    "id": "a8339d11-66ca-43f6-9c34-4c0e9afd079d",
+    "braze_campaign_id": "2f80b6b4-a7f6-428d-bb0f-6459b7f5b00c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/2f80b6b4-a7f6-428d-bb0f-6459b7f5b00c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.124Z"
+  },
+  {
+    "id": "70b30cfa-3294-40d8-b136-c66d7f13d1cd",
+    "braze_campaign_id": "ba34143d-993b-4082-bd5c-33db581d644a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/ba34143d-993b-4082-bd5c-33db581d644a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.125Z"
+  },
+  {
+    "id": "1686cfa9-4f3f-4f20-b85c-28687e4670f6",
+    "braze_campaign_id": "1d86e3d7-c7bc-458b-8e65-60b6e9e21e1f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/1d86e3d7-c7bc-458b-8e65-60b6e9e21e1f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.126Z"
+  },
+  {
+    "id": "9a230f8b-5626-41cb-91d8-9b77c0246fe6",
+    "braze_campaign_id": "ddeade24-b775-4c1f-b41d-8e1f5adbdb7f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/ddeade24-b775-4c1f-b41d-8e1f5adbdb7f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.127Z"
+  },
+  {
+    "id": "7386705d-2114-41cf-8b3f-12e965629eac",
+    "braze_campaign_id": "af35d18b-45dd-4892-9a20-7015d5e8733f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/af35d18b-45dd-4892-9a20-7015d5e8733f.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.128Z"
+  },
+  {
+    "id": "beaf0297-3dd4-4b8f-bd18-118e15b8991c",
+    "braze_campaign_id": "858c137a-ea62-442f-9735-163d153b3185",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/858c137a-ea62-442f-9735-163d153b3185.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:14.130Z"
+  },
+  {
+    "id": "ca426d66-ac4f-408d-9abb-e86f4bfb78f4",
+    "braze_campaign_id": "192cc5a8-6b15-4cd0-993a-bb9dcb5f40fc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/192cc5a8-6b15-4cd0-993a-bb9dcb5f40fc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.330Z"
+  },
+  {
+    "id": "5aed110d-ed17-4c11-9189-027b13d826bb",
+    "braze_campaign_id": "d0d53ca0-d9d9-4c1e-953d-e429535a9a9e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/d0d53ca0-d9d9-4c1e-953d-e429535a9a9e.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.331Z"
+  },
+  {
+    "id": "533c8ec3-ca1f-45f0-98cf-6067b844a211",
+    "braze_campaign_id": "394fca05-8dd7-429f-8543-28f015740f5b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/394fca05-8dd7-429f-8543-28f015740f5b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.333Z"
+  },
+  {
+    "id": "3e4c74e6-8237-4d6b-8840-52e50ce98502",
+    "braze_campaign_id": "a5aa7375-5402-449f-8987-827585337a84",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/a5aa7375-5402-449f-8987-827585337a84.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.334Z"
+  },
+  {
+    "id": "6e1c0973-2db4-4352-b793-712a76d1a2d0",
+    "braze_campaign_id": "2ab4e434-f8f2-472d-8483-3737c0d1a484",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/2ab4e434-f8f2-472d-8483-3737c0d1a484.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.335Z"
+  },
+  {
+    "id": "5af29820-e3c5-4fde-89cd-3f3d7830e3dc",
+    "braze_campaign_id": "f20fd885-a3a8-49bd-8188-9e3df758c545",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/f20fd885-a3a8-49bd-8188-9e3df758c545.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.336Z"
+  },
+  {
+    "id": "18a719b0-eea3-451e-a108-62388b6888dd",
+    "braze_campaign_id": "4f6e3d34-970b-4c7d-9538-20de7dd2d455",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/4f6e3d34-970b-4c7d-9538-20de7dd2d455.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.337Z"
+  },
+  {
+    "id": "88644ab4-08b5-4d42-9167-c9dfa1712c25",
+    "braze_campaign_id": "d27109ab-4a2f-4c16-8bcb-ae546cfb3d4d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d27109ab-4a2f-4c16-8bcb-ae546cfb3d4d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.338Z"
+  },
+  {
+    "id": "9c4acacd-dc27-4c60-931e-f0ebdc59bc38",
+    "braze_campaign_id": "34790eab-bc18-4c6a-afec-18dea96e55d8",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/34790eab-bc18-4c6a-afec-18dea96e55d8.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.339Z"
+  },
+  {
+    "id": "d3ae34c2-65c7-4948-9ab0-49a349183954",
+    "braze_campaign_id": "e3a7b9b1-0c2c-4178-bd2d-6c9d5dc893f5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/e3a7b9b1-0c2c-4178-bd2d-6c9d5dc893f5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:15.341Z"
+  },
+  {
+    "id": "b3f281c7-4602-4169-9b48-59863ba0546f",
+    "braze_campaign_id": "d27109ab-4a2f-4c16-8bcb-ae546cfb3d4d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/d27109ab-4a2f-4c16-8bcb-ae546cfb3d4d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.526Z"
+  },
+  {
+    "id": "422b98a8-4abd-45b3-a92b-1d44a35e91f6",
+    "braze_campaign_id": "c1cbbe38-79c2-4253-9127-9d9ba8b0c8ff",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/c1cbbe38-79c2-4253-9127-9d9ba8b0c8ff.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.528Z"
+  },
+  {
+    "id": "14408dce-146f-446f-8762-7ea7bedbbb63",
+    "braze_campaign_id": "9b1aec1c-1e98-49a9-8ea7-cb84309b7c7d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9b1aec1c-1e98-49a9-8ea7-cb84309b7c7d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.530Z"
+  },
+  {
+    "id": "abf84cef-7c4a-47e3-8d48-54bfd4b0f142",
+    "braze_campaign_id": "06244870-dca0-404e-bf78-d23de2d89ac5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/06244870-dca0-404e-bf78-d23de2d89ac5.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.531Z"
+  },
+  {
+    "id": "29d8f20c-77ff-4116-9f9e-6bb38f03ee98",
+    "braze_campaign_id": "0f0211c1-35d3-4988-8717-ea9e69cc1e82",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0f0211c1-35d3-4988-8717-ea9e69cc1e82.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.532Z"
+  },
+  {
+    "id": "29751b30-b5ec-4cd7-a2f7-480bc837e66f",
+    "braze_campaign_id": "1a19627d-648e-4a48-a0a7-e6650fb6c159",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1a19627d-648e-4a48-a0a7-e6650fb6c159.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.533Z"
+  },
+  {
+    "id": "8c37b03b-5d7b-47a8-997d-8b1a34b567a3",
+    "braze_campaign_id": "9bb6a28a-b143-4369-b488-7a80f2f957ae",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9bb6a28a-b143-4369-b488-7a80f2f957ae.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.534Z"
+  },
+  {
+    "id": "6c323751-2398-488d-b3ed-cdc73e544c87",
+    "braze_campaign_id": "8aee9f87-d692-4b1c-9603-1b25ba6657f4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/8aee9f87-d692-4b1c-9603-1b25ba6657f4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.535Z"
+  },
+  {
+    "id": "edd79724-fd33-40b4-bb88-1628b51e7040",
+    "braze_campaign_id": "93ad5c1d-1fff-4e15-992f-695c96a79102",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/93ad5c1d-1fff-4e15-992f-695c96a79102.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.537Z"
+  },
+  {
+    "id": "cdb923f2-a608-4068-a0ec-e97bcab213b3",
+    "braze_campaign_id": "bb0633d0-bfde-4b75-a876-1868f0822ab3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/bb0633d0-bfde-4b75-a876-1868f0822ab3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:16.538Z"
+  },
+  {
+    "id": "dfd7e58d-a57d-430c-b653-e6de3ae7bf23",
+    "braze_campaign_id": "c72c84ca-ebc5-49d3-a5f5-c55a0b1ad6f8",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c72c84ca-ebc5-49d3-a5f5-c55a0b1ad6f8.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.719Z"
+  },
+  {
+    "id": "3d2fbe75-7fa7-43ef-ac14-11184a5ebc98",
+    "braze_campaign_id": "ff15b251-65f1-4fa1-aead-025cbf535e61",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ff15b251-65f1-4fa1-aead-025cbf535e61.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.721Z"
+  },
+  {
+    "id": "86024637-d60c-4c26-aca4-a5ec6cc1e188",
+    "braze_campaign_id": "7f84ee15-a13f-49fa-ad3b-01caf432b186",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/7f84ee15-a13f-49fa-ad3b-01caf432b186.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.722Z"
+  },
+  {
+    "id": "b6cd2001-c7ab-4d45-a2b1-6fb205d0daef",
+    "braze_campaign_id": "f4d7003b-7849-482b-9257-06ace206ebc2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/f4d7003b-7849-482b-9257-06ace206ebc2.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.723Z"
+  },
+  {
+    "id": "4a45b83d-c671-4414-ad97-0c3b479eca60",
+    "braze_campaign_id": "c133a8d1-cd21-4fee-866b-d07760af56ad",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c133a8d1-cd21-4fee-866b-d07760af56ad.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.724Z"
+  },
+  {
+    "id": "54764426-e40b-443a-9cd6-f41abaecbb2c",
+    "braze_campaign_id": "80341df0-c8c5-4182-b65c-30724f9ae63e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/80341df0-c8c5-4182-b65c-30724f9ae63e.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.725Z"
+  },
+  {
+    "id": "cedb48cc-fa06-4474-b811-80e63ee9d43c",
+    "braze_campaign_id": "b3602398-38eb-4ce9-93c5-dc25623b2cc7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b3602398-38eb-4ce9-93c5-dc25623b2cc7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.727Z"
+  },
+  {
+    "id": "62b791ad-cdc3-47ca-852e-a5660b1dd54c",
+    "braze_campaign_id": "10cd8df1-8206-4980-b972-5aeb81ed8f1b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/10cd8df1-8206-4980-b972-5aeb81ed8f1b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.728Z"
+  },
+  {
+    "id": "17ba6ac0-80c7-4fc5-b2e2-c3ec30e99235",
+    "braze_campaign_id": "268ec649-9048-4690-8f02-61a2d963085d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/268ec649-9048-4690-8f02-61a2d963085d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.729Z"
+  },
+  {
+    "id": "dbe3bfc3-3356-4cfa-9fa7-826f917ee0da",
+    "braze_campaign_id": "e74c61a7-f9f1-4493-ba05-763048d03d0c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/e74c61a7-f9f1-4493-ba05-763048d03d0c.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:17.730Z"
+  },
+  {
+    "id": "8a08309f-bd0b-4a84-9665-dbb7a269caf3",
+    "braze_campaign_id": "5206ecfc-4533-4f2e-9d48-4a323be2b5b1",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/5206ecfc-4533-4f2e-9d48-4a323be2b5b1.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.935Z"
+  },
+  {
+    "id": "31edd38b-267a-478b-8fb3-6c14f927e2d2",
+    "braze_campaign_id": "491ed76e-081f-4334-81f2-a9c8959bce2d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/491ed76e-081f-4334-81f2-a9c8959bce2d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.936Z"
+  },
+  {
+    "id": "82881e92-45cd-4e75-9906-15b7e3848b4d",
+    "braze_campaign_id": "c00a10ed-de75-4dc2-98d6-7b6e7d8fe4fa",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/c00a10ed-de75-4dc2-98d6-7b6e7d8fe4fa.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.938Z"
+  },
+  {
+    "id": "092157ed-aefd-4470-a5bb-b9dd3d892c37",
+    "braze_campaign_id": "51f20bcf-f673-4f89-b28b-597b6663bccb",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/51f20bcf-f673-4f89-b28b-597b6663bccb.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.939Z"
+  },
+  {
+    "id": "1cd84eac-7861-4964-8829-eb5c42f759d3",
+    "braze_campaign_id": "ef4fa28a-5974-4466-8501-30335aa7ddb3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ef4fa28a-5974-4466-8501-30335aa7ddb3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.940Z"
+  },
+  {
+    "id": "a51799f9-f360-4843-b5b8-fab3eee8109d",
+    "braze_campaign_id": "da7a2ca6-1bec-4465-878e-90872e138ecd",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/da7a2ca6-1bec-4465-878e-90872e138ecd.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.942Z"
+  },
+  {
+    "id": "02d1c5f8-1dad-48e2-b40f-13ce3a0fd5c4",
+    "braze_campaign_id": "8bd9df00-080c-481b-ba9f-1dadaa58871c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/8bd9df00-080c-481b-ba9f-1dadaa58871c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.943Z"
+  },
+  {
+    "id": "afbe0ea2-29ca-4e97-a633-fd05191873a8",
+    "braze_campaign_id": "c556c063-e599-4a9d-a641-e21966444a50",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c556c063-e599-4a9d-a641-e21966444a50.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.944Z"
+  },
+  {
+    "id": "c4b695d3-3037-4337-9af2-9275d12abffe",
+    "braze_campaign_id": "74c9b898-ff55-4ade-ae7f-79b160748c2d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/74c9b898-ff55-4ade-ae7f-79b160748c2d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.946Z"
+  },
+  {
+    "id": "b65c2249-539d-4c27-9bb1-a933a0ddbc5a",
+    "braze_campaign_id": "0030a481-2759-495e-b2f1-90f8454522f3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0030a481-2759-495e-b2f1-90f8454522f3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:18.947Z"
+  },
+  {
+    "id": "fba6bd5c-bed8-4168-8a16-6a4ada15e25f",
+    "braze_campaign_id": "6ddc04c6-0be6-41f7-82c6-edc1c952203a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/6ddc04c6-0be6-41f7-82c6-edc1c952203a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.218Z"
+  },
+  {
+    "id": "c1fa0492-2351-4097-854e-1553d04c4a7c",
+    "braze_campaign_id": "01672050-d7f7-4e31-bc11-0b6014a0c451",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/01672050-d7f7-4e31-bc11-0b6014a0c451.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.220Z"
+  },
+  {
+    "id": "b8425fda-c19e-41ba-acab-d2dd4a92744f",
+    "braze_campaign_id": "0c14d64b-cc51-43d9-96ab-e957884b6df8",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0c14d64b-cc51-43d9-96ab-e957884b6df8.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.221Z"
+  },
+  {
+    "id": "177a95fc-c92d-4d8a-9adb-028305021ab8",
+    "braze_campaign_id": "0e958418-e439-4a10-9757-67172bfd9766",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0e958418-e439-4a10-9757-67172bfd9766.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.223Z"
+  },
+  {
+    "id": "e351cc73-c2ff-437a-bd33-f69cad5604da",
+    "braze_campaign_id": "f20fd885-a3a8-49bd-8188-9e3df758c545",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/f20fd885-a3a8-49bd-8188-9e3df758c545.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.224Z"
+  },
+  {
+    "id": "7fc92f53-3cbc-4f16-b57d-0aad33edac2e",
+    "braze_campaign_id": "297cec0c-d5a3-479a-963c-77942df086f7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/297cec0c-d5a3-479a-963c-77942df086f7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.225Z"
+  },
+  {
+    "id": "10955157-54c9-427a-9f65-9a22569d7b12",
+    "braze_campaign_id": "e4704a06-d5f6-40ca-a448-7718ab0247d7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/e4704a06-d5f6-40ca-a448-7718ab0247d7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.226Z"
+  },
+  {
+    "id": "cc6731b5-5cf1-410c-8090-13aea9380e5a",
+    "braze_campaign_id": "75b60601-cda8-4de4-9f38-2de5efc10fc5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/75b60601-cda8-4de4-9f38-2de5efc10fc5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.228Z"
+  },
+  {
+    "id": "7b266b6b-69ae-497a-b581-bbd8ba79adf4",
+    "braze_campaign_id": "b03f8340-e382-416f-8c96-5b215509f57f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b03f8340-e382-416f-8c96-5b215509f57f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.229Z"
+  },
+  {
+    "id": "ec11f7fd-4616-4d5c-bace-c29b5b8ddf0e",
+    "braze_campaign_id": "5ff2414c-0b29-4a46-86cf-700148064cd6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/5ff2414c-0b29-4a46-86cf-700148064cd6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:20.230Z"
+  },
+  {
+    "id": "cbf7baec-47b2-443e-aedb-2a747bafb109",
+    "braze_campaign_id": "c8cc791e-eab5-457b-a5a1-5fd93102f87c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/c8cc791e-eab5-457b-a5a1-5fd93102f87c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.736Z"
+  },
+  {
+    "id": "1784dd27-10d4-46b3-9f28-1134fc1492b8",
+    "braze_campaign_id": "b5cad167-d40a-4a1e-b077-d2c1b9079f1e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b5cad167-d40a-4a1e-b077-d2c1b9079f1e.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.738Z"
+  },
+  {
+    "id": "cc9b85c6-8e77-4548-bca3-5d5cbca50b69",
+    "braze_campaign_id": "ca7d4b47-4b3a-47aa-a2c6-797c24e21b01",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/ca7d4b47-4b3a-47aa-a2c6-797c24e21b01.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.740Z"
+  },
+  {
+    "id": "a74658cd-b4f7-493b-adb4-0a9a64cc972e",
+    "braze_campaign_id": "0ec6f3c7-06e1-4923-9107-c3b170c5fae2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0ec6f3c7-06e1-4923-9107-c3b170c5fae2.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.742Z"
+  },
+  {
+    "id": "2aea4773-2977-4ece-bd06-0b679eb156e0",
+    "braze_campaign_id": "2c5d82db-b474-426b-9d36-65cb9d0e4044",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/2c5d82db-b474-426b-9d36-65cb9d0e4044.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.743Z"
+  },
+  {
+    "id": "9aa0210b-afad-4d27-8d65-b9dc86ac9d22",
+    "braze_campaign_id": "16e074e6-c8ae-47de-b096-e3e6823e8c92",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/16e074e6-c8ae-47de-b096-e3e6823e8c92.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.745Z"
+  },
+  {
+    "id": "d16743b5-a57b-4dc6-81e1-041873aa5c9d",
+    "braze_campaign_id": "700415df-b562-48f4-bfc0-df9d26b283ad",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/700415df-b562-48f4-bfc0-df9d26b283ad.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.746Z"
+  },
+  {
+    "id": "a16486a3-8199-49e5-9de7-f2083cfdb294",
+    "braze_campaign_id": "34790eab-bc18-4c6a-afec-18dea96e55d8",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/34790eab-bc18-4c6a-afec-18dea96e55d8.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.748Z"
+  },
+  {
+    "id": "6000f688-2713-4dc6-a40a-890c074defa9",
+    "braze_campaign_id": "a31845a0-8264-429e-a980-05727cf9e345",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/a31845a0-8264-429e-a980-05727cf9e345.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.750Z"
+  },
+  {
+    "id": "9d210bcd-eb30-45d6-bdad-726ecf9ed207",
+    "braze_campaign_id": "28477a6b-0921-4b77-ae4e-1ebd21f99487",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/28477a6b-0921-4b77-ae4e-1ebd21f99487.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:23.751Z"
+  },
+  {
+    "id": "73506a62-c7b0-4068-8fbd-809dc5093147",
+    "braze_campaign_id": "9f4381bd-aaf7-46cd-9945-a6aa0b8a6cc6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9f4381bd-aaf7-46cd-9945-a6aa0b8a6cc6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.913Z"
+  },
+  {
+    "id": "ab3674b7-b18b-42f2-9a89-ff606d9074e9",
+    "braze_campaign_id": "5c38c57c-0c5a-4717-a01e-d1c6b9daf78b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/5c38c57c-0c5a-4717-a01e-d1c6b9daf78b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.915Z"
+  },
+  {
+    "id": "1bcef3e5-be6e-4b94-ba8b-b711d04c996a",
+    "braze_campaign_id": "b2025c86-7395-471c-a4aa-3ef62ea3a03f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b2025c86-7395-471c-a4aa-3ef62ea3a03f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.916Z"
+  },
+  {
+    "id": "83f2c67e-3574-4f26-a7a8-723bf02af2a2",
+    "braze_campaign_id": "2999cddd-3971-489f-a266-2389fd0c936b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/2999cddd-3971-489f-a266-2389fd0c936b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.918Z"
+  },
+  {
+    "id": "0fc34c42-b18c-43d0-8e1d-a8c2e8bf4ffc",
+    "braze_campaign_id": "c62a7032-e4ad-422a-a3d5-d6ddc1a17d2b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c62a7032-e4ad-422a-a3d5-d6ddc1a17d2b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.919Z"
+  },
+  {
+    "id": "abf9a5a9-3630-4c29-87e6-6c83d230698c",
+    "braze_campaign_id": "0423cfd7-55f2-460f-8b23-52858b9e96fc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0423cfd7-55f2-460f-8b23-52858b9e96fc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.921Z"
+  },
+  {
+    "id": "d276d981-5f2f-456b-aeef-b3c12e1f84b6",
+    "braze_campaign_id": "6ce9d822-4e59-4c80-9306-415f89c9eee5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/6ce9d822-4e59-4c80-9306-415f89c9eee5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.923Z"
+  },
+  {
+    "id": "d6f1a1de-7794-41e5-a692-d59c09029a58",
+    "braze_campaign_id": "a09efb25-3cad-4469-ae77-a69a176d7bfa",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/a09efb25-3cad-4469-ae77-a69a176d7bfa.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.924Z"
+  },
+  {
+    "id": "fa11991c-e938-4d46-a774-ebfe8ca272c6",
+    "braze_campaign_id": "7f84ee15-a13f-49fa-ad3b-01caf432b186",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/7f84ee15-a13f-49fa-ad3b-01caf432b186.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.926Z"
+  },
+  {
+    "id": "7f2db573-4f78-4d29-be5b-1a21d21c8cae",
+    "braze_campaign_id": "6a97f29a-52b6-4898-b3ec-51853cd728dc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/6a97f29a-52b6-4898-b3ec-51853cd728dc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:24.927Z"
+  },
+  {
+    "id": "e341f26b-d006-467e-916b-3da38b31eba9",
+    "braze_campaign_id": "8aee9f87-d692-4b1c-9603-1b25ba6657f4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/8aee9f87-d692-4b1c-9603-1b25ba6657f4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.109Z"
+  },
+  {
+    "id": "9875ec77-b029-438f-8b0f-d8174767cd90",
+    "braze_campaign_id": "b88788a3-7269-4b91-bfa0-a7846ee0dc2a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b88788a3-7269-4b91-bfa0-a7846ee0dc2a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.110Z"
+  },
+  {
+    "id": "e8d675c4-d96b-4ed7-a57a-c5bfa4b34ff9",
+    "braze_campaign_id": "3ca10b82-04c0-4f56-b694-8bfcb1332934",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/3ca10b82-04c0-4f56-b694-8bfcb1332934.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.112Z"
+  },
+  {
+    "id": "f9df6e50-c0b1-4faa-afbb-55e2b58c59f4",
+    "braze_campaign_id": "9ca79571-8547-4d2e-8b10-a5ee7c0aa12e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/9ca79571-8547-4d2e-8b10-a5ee7c0aa12e.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.113Z"
+  },
+  {
+    "id": "b4fb4046-b764-406e-8118-be565c0f1c61",
+    "braze_campaign_id": "9fd7aa6f-9ff2-4dd3-943d-c317abdc6972",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/9fd7aa6f-9ff2-4dd3-943d-c317abdc6972.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.115Z"
+  },
+  {
+    "id": "aae16111-48d6-4bad-a6be-e5a8d6241ec4",
+    "braze_campaign_id": "0b2f817a-34a5-4780-a288-5f3c2b2a4f44",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0b2f817a-34a5-4780-a288-5f3c2b2a4f44.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.117Z"
+  },
+  {
+    "id": "ba40a117-7bd2-4972-bfff-c95b93bb760e",
+    "braze_campaign_id": "e8ea5556-aee7-431a-99fb-374851dfa7f3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/e8ea5556-aee7-431a-99fb-374851dfa7f3.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.118Z"
+  },
+  {
+    "id": "cdf48024-9eae-464c-8cce-784f827ae9e6",
+    "braze_campaign_id": "b2fe2c1f-4368-4ea4-8428-2f8698979dd4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b2fe2c1f-4368-4ea4-8428-2f8698979dd4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.120Z"
+  },
+  {
+    "id": "7cae3177-8cfe-4436-910a-ca2c4c0b039a",
+    "braze_campaign_id": "d9de6a49-4140-4b56-bf97-9c61f531128f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d9de6a49-4140-4b56-bf97-9c61f531128f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.122Z"
+  },
+  {
+    "id": "8415710f-4da8-4575-a323-ab7392742f68",
+    "braze_campaign_id": "b70efbaf-09af-4ad7-8864-f120d3889ae3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/b70efbaf-09af-4ad7-8864-f120d3889ae3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:26.123Z"
+  },
+  {
+    "id": "d35fc381-fdd2-4c9d-879d-7246431c7b0e",
+    "braze_campaign_id": "2d08146f-f7cc-4f38-991c-aecd60be815f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/2d08146f-f7cc-4f38-991c-aecd60be815f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.286Z"
+  },
+  {
+    "id": "06c784f3-8b42-46b9-b8ff-57e187ba5b2b",
+    "braze_campaign_id": "6ddc04c6-0be6-41f7-82c6-edc1c952203a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/6ddc04c6-0be6-41f7-82c6-edc1c952203a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.288Z"
+  },
+  {
+    "id": "d001b371-13a1-44b6-b376-a5383f33f929",
+    "braze_campaign_id": "ecb99be1-2586-4050-9762-039293aa62e6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/ecb99be1-2586-4050-9762-039293aa62e6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.290Z"
+  },
+  {
+    "id": "5516aaf5-b40f-4834-9b7e-a01b907a4b49",
+    "braze_campaign_id": "06eafbf9-f971-4625-908c-913401dfb1e4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/06eafbf9-f971-4625-908c-913401dfb1e4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.291Z"
+  },
+  {
+    "id": "86b417de-7655-407b-928d-4cfa983a386f",
+    "braze_campaign_id": "1d86e3d7-c7bc-458b-8e65-60b6e9e21e1f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1d86e3d7-c7bc-458b-8e65-60b6e9e21e1f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.292Z"
+  },
+  {
+    "id": "ff505662-b412-477a-8d33-ad976684b2d5",
+    "braze_campaign_id": "6ee27bc3-2029-4d4f-bdd9-9d88fc5a179c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/6ee27bc3-2029-4d4f-bdd9-9d88fc5a179c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.293Z"
+  },
+  {
+    "id": "c604a3bf-d7be-4c8c-b7d3-b9df20feed51",
+    "braze_campaign_id": "9f4381bd-aaf7-46cd-9945-a6aa0b8a6cc6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/9f4381bd-aaf7-46cd-9945-a6aa0b8a6cc6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.294Z"
+  },
+  {
+    "id": "1f535bc8-206b-4578-afff-a76075748303",
+    "braze_campaign_id": "7ae1426e-0be7-40a9-aa77-ee402aec74ad",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/7ae1426e-0be7-40a9-aa77-ee402aec74ad.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.296Z"
+  },
+  {
+    "id": "9255c140-6b34-4adf-9779-0636190e4fbf",
+    "braze_campaign_id": "eb26f0a0-1cd7-4422-a982-92fc86f75350",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/eb26f0a0-1cd7-4422-a982-92fc86f75350.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.297Z"
+  },
+  {
+    "id": "d1849e4d-0496-4c8b-b3c5-45dfb685706a",
+    "braze_campaign_id": "9cab4093-cb6a-4774-8dad-eab811eb89dd",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/9cab4093-cb6a-4774-8dad-eab811eb89dd.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:27.299Z"
+  },
+  {
+    "id": "d34e9767-30f5-4fd0-8e27-73e2bc0f1d79",
+    "braze_campaign_id": "c62a7032-e4ad-422a-a3d5-d6ddc1a17d2b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/c62a7032-e4ad-422a-a3d5-d6ddc1a17d2b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.454Z"
+  },
+  {
+    "id": "288641b5-8b50-42d8-9800-e86d2d69ebb2",
+    "braze_campaign_id": "86880bbd-6e8c-4bc5-87ec-aa2fd97d9841",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/86880bbd-6e8c-4bc5-87ec-aa2fd97d9841.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.456Z"
+  },
+  {
+    "id": "d677fa00-affe-4dcc-a875-e1840adb5af3",
+    "braze_campaign_id": "e3a7b9b1-0c2c-4178-bd2d-6c9d5dc893f5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/e3a7b9b1-0c2c-4178-bd2d-6c9d5dc893f5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.457Z"
+  },
+  {
+    "id": "e7bda916-1a0c-46c0-89d5-f38d9188e8bd",
+    "braze_campaign_id": "8672311d-9d50-488d-83d3-89b547ee179a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/8672311d-9d50-488d-83d3-89b547ee179a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.459Z"
+  },
+  {
+    "id": "d777066b-ff8c-421e-a57a-4c9f4b5f8741",
+    "braze_campaign_id": "8fc4ab5e-7217-46cc-a3a0-1f0091f14cec",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/8fc4ab5e-7217-46cc-a3a0-1f0091f14cec.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.460Z"
+  },
+  {
+    "id": "f81e7116-b9ee-4011-ad89-68a0c1cac70e",
+    "braze_campaign_id": "d88db1d4-102e-4e35-b131-c0561941ea62",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/d88db1d4-102e-4e35-b131-c0561941ea62.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.462Z"
+  },
+  {
+    "id": "64e6baa7-d5e6-45f1-85ed-5d101b26c287",
+    "braze_campaign_id": "6ce9d822-4e59-4c80-9306-415f89c9eee5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/6ce9d822-4e59-4c80-9306-415f89c9eee5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.463Z"
+  },
+  {
+    "id": "d8ae4947-8808-4fab-a93a-5c5045ec1c7d",
+    "braze_campaign_id": "eb26f0a0-1cd7-4422-a982-92fc86f75350",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/eb26f0a0-1cd7-4422-a982-92fc86f75350.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.464Z"
+  },
+  {
+    "id": "4c1a5add-e062-4016-bed9-30ce56c4c7f9",
+    "braze_campaign_id": "19172ff1-d20c-4033-a341-72495a607e31",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/19172ff1-d20c-4033-a341-72495a607e31.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.466Z"
+  },
+  {
+    "id": "a12a1608-80ae-4310-95e9-45217f35884f",
+    "braze_campaign_id": "a89cff3d-0d5a-4529-a404-0b0849ce0443",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/a89cff3d-0d5a-4529-a404-0b0849ce0443.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:28.468Z"
+  },
+  {
+    "id": "90e88150-3384-46b7-b7dc-1831199ac4da",
+    "braze_campaign_id": "255d4fb0-8e13-4b20-8571-794448592d34",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/255d4fb0-8e13-4b20-8571-794448592d34.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.629Z"
+  },
+  {
+    "id": "f394d6d2-56b9-4dc2-a6b6-7ca9e671d1e8",
+    "braze_campaign_id": "538f4f40-b806-41da-afbf-437837b7945f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/538f4f40-b806-41da-afbf-437837b7945f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.631Z"
+  },
+  {
+    "id": "d953d03c-2bc7-4fe7-b3e4-087d84d0d659",
+    "braze_campaign_id": "c556c063-e599-4a9d-a641-e21966444a50",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/c556c063-e599-4a9d-a641-e21966444a50.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.632Z"
+  },
+  {
+    "id": "ef7d100c-41b0-4f7c-ad35-d6b53c98146b",
+    "braze_campaign_id": "28477a6b-0921-4b77-ae4e-1ebd21f99487",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/28477a6b-0921-4b77-ae4e-1ebd21f99487.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.633Z"
+  },
+  {
+    "id": "616442ab-9223-4856-b7c2-45cd2d29854e",
+    "braze_campaign_id": "255d4fb0-8e13-4b20-8571-794448592d34",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/255d4fb0-8e13-4b20-8571-794448592d34.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.635Z"
+  },
+  {
+    "id": "3e87de08-6b6e-44f3-a949-ebfb627392a0",
+    "braze_campaign_id": "23c757c4-013d-4e67-9cf1-68d7e0222682",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/23c757c4-013d-4e67-9cf1-68d7e0222682.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.636Z"
+  },
+  {
+    "id": "930e854b-c63e-47d8-8845-b4999598d058",
+    "braze_campaign_id": "1cb06ebe-3018-44f6-bccf-07d870e92cfb",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/1cb06ebe-3018-44f6-bccf-07d870e92cfb.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.638Z"
+  },
+  {
+    "id": "d5cd5940-d961-4830-87cc-8978ac721139",
+    "braze_campaign_id": "06244870-dca0-404e-bf78-d23de2d89ac5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/06244870-dca0-404e-bf78-d23de2d89ac5.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.639Z"
+  },
+  {
+    "id": "7bcafbb5-8f4a-40f1-a38f-5eb1fc3d9e4d",
+    "braze_campaign_id": "c8cc791e-eab5-457b-a5a1-5fd93102f87c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/c8cc791e-eab5-457b-a5a1-5fd93102f87c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.641Z"
+  },
+  {
+    "id": "72881260-e023-42f8-8873-43e736057080",
+    "braze_campaign_id": "aedc1161-3c5b-4635-a004-4a34e0ea71f8",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/aedc1161-3c5b-4635-a004-4a34e0ea71f8.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:29.642Z"
+  },
+  {
+    "id": "d5da4e89-ec81-48d6-a1a5-a512e52d077e",
+    "braze_campaign_id": "297cec0c-d5a3-479a-963c-77942df086f7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/297cec0c-d5a3-479a-963c-77942df086f7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.841Z"
+  },
+  {
+    "id": "e5e570ea-1595-4604-a4e0-73764597d03f",
+    "braze_campaign_id": "2d08146f-f7cc-4f38-991c-aecd60be815f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/2d08146f-f7cc-4f38-991c-aecd60be815f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.842Z"
+  },
+  {
+    "id": "bf57fccc-f9f9-472c-95f0-b7317b9bbbdd",
+    "braze_campaign_id": "9fd7aa6f-9ff2-4dd3-943d-c317abdc6972",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9fd7aa6f-9ff2-4dd3-943d-c317abdc6972.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.844Z"
+  },
+  {
+    "id": "619489be-1c95-4560-b1ca-f3dee27d9344",
+    "braze_campaign_id": "ca7d4b47-4b3a-47aa-a2c6-797c24e21b01",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ca7d4b47-4b3a-47aa-a2c6-797c24e21b01.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.846Z"
+  },
+  {
+    "id": "aa244ed4-ba4d-4f4d-9bf4-fecc74d7ada5",
+    "braze_campaign_id": "8bd9df00-080c-481b-ba9f-1dadaa58871c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/8bd9df00-080c-481b-ba9f-1dadaa58871c.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.848Z"
+  },
+  {
+    "id": "fb919473-481e-4b26-a933-1be7dcfa383a",
+    "braze_campaign_id": "13b4109b-ce6f-4390-b83e-3e5619f77b47",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/13b4109b-ce6f-4390-b83e-3e5619f77b47.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.849Z"
+  },
+  {
+    "id": "90511f4f-6979-4220-8f02-cc3365f24301",
+    "braze_campaign_id": "73ee2453-283c-4ce5-bb1a-ec60898717c0",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/73ee2453-283c-4ce5-bb1a-ec60898717c0.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.851Z"
+  },
+  {
+    "id": "18baeb16-f5dd-4d5b-b4dc-6c9dc4b50006",
+    "braze_campaign_id": "7bae58b4-962d-45b3-b300-bd5be62795f7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/7bae58b4-962d-45b3-b300-bd5be62795f7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.853Z"
+  },
+  {
+    "id": "30eca119-6d4f-480c-8838-9234fba686cb",
+    "braze_campaign_id": "5f599d06-3d40-4df5-8b14-3b06d708bda9",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/5f599d06-3d40-4df5-8b14-3b06d708bda9.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.855Z"
+  },
+  {
+    "id": "33660fd6-2a4b-4206-99c1-90402a282564",
+    "braze_campaign_id": "10ec1ed3-ad55-40db-b8c8-7eaabf38585a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/10ec1ed3-ad55-40db-b8c8-7eaabf38585a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:30.856Z"
+  },
+  {
+    "id": "e9172eee-0abe-4d1c-bbda-3167f3ca4bcb",
+    "braze_campaign_id": "9ff51cc1-fed0-4466-8a29-203d8180acae",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9ff51cc1-fed0-4466-8a29-203d8180acae.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.158Z"
+  },
+  {
+    "id": "245b817e-1df1-42fe-91f3-1ddba72e6112",
+    "braze_campaign_id": "e74c61a7-f9f1-4493-ba05-763048d03d0c",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/e74c61a7-f9f1-4493-ba05-763048d03d0c.gif?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.159Z"
+  },
+  {
+    "id": "42d6931b-56cd-4634-b06b-b65f84cefd79",
+    "braze_campaign_id": "1f248ae6-cc5f-45d6-a274-6fc5b7990c94",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/1f248ae6-cc5f-45d6-a274-6fc5b7990c94.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.161Z"
+  },
+  {
+    "id": "03f1d904-27d0-4830-acc2-99d2bc1fcec5",
+    "braze_campaign_id": "40622809-f401-48cd-8805-e73954d4dbd4",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/40622809-f401-48cd-8805-e73954d4dbd4.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.162Z"
+  },
+  {
+    "id": "12cb470c-c0ce-4fdd-b8c0-a6d90e2cb845",
+    "braze_campaign_id": "23c757c4-013d-4e67-9cf1-68d7e0222682",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/23c757c4-013d-4e67-9cf1-68d7e0222682.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.164Z"
+  },
+  {
+    "id": "acde4817-58d3-4a4c-bb39-82e4d43cddcc",
+    "braze_campaign_id": "f3e352e7-e94d-42ca-a572-2c0e0243fec9",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/f3e352e7-e94d-42ca-a572-2c0e0243fec9.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.165Z"
+  },
+  {
+    "id": "02607533-ee96-4b4b-9caa-da233361828b",
+    "braze_campaign_id": "6558677f-ee0f-4572-a0b3-1851d97a2913",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/6558677f-ee0f-4572-a0b3-1851d97a2913.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.166Z"
+  },
+  {
+    "id": "2031dbec-019d-4c6f-875c-d3b1e195ce1c",
+    "braze_campaign_id": "1a92a2bf-229f-42de-b395-c0e7e85cc354",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/1a92a2bf-229f-42de-b395-c0e7e85cc354.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.168Z"
+  },
+  {
+    "id": "2f9e7bc2-6ec2-4eeb-9433-5b0b82a5c1b2",
+    "braze_campaign_id": "394fca05-8dd7-429f-8543-28f015740f5b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/394fca05-8dd7-429f-8543-28f015740f5b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.169Z"
+  },
+  {
+    "id": "3c650eeb-4b7d-4b7c-b58c-490de51f37cb",
+    "braze_campaign_id": "5d4e8f30-d0da-4f13-bd23-21f51b9591ba",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/5d4e8f30-d0da-4f13-bd23-21f51b9591ba.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:33.170Z"
+  },
+  {
+    "id": "54247158-ada3-4f8f-bc84-7b58662c8730",
+    "braze_campaign_id": "83ef6436-5074-46b6-8049-9c1399d6b2e6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/83ef6436-5074-46b6-8049-9c1399d6b2e6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.382Z"
+  },
+  {
+    "id": "0771a804-eef8-417d-af6e-415816933e24",
+    "braze_campaign_id": "b119494a-42c5-49fc-85c5-ef95566b23b2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/b119494a-42c5-49fc-85c5-ef95566b23b2.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.385Z"
+  },
+  {
+    "id": "0b0d8f06-8b35-49e4-871d-4ac2f9e9b93e",
+    "braze_campaign_id": "76dd6ef2-02e8-4716-9cdb-64fdb8f78b12",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/76dd6ef2-02e8-4716-9cdb-64fdb8f78b12.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.386Z"
+  },
+  {
+    "id": "07838201-342a-4e7e-b825-c5b2e50a0d6c",
+    "braze_campaign_id": "74c9b898-ff55-4ade-ae7f-79b160748c2d",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/74c9b898-ff55-4ade-ae7f-79b160748c2d.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.388Z"
+  },
+  {
+    "id": "0a4d0656-6446-41a5-b658-918691a5e5a1",
+    "braze_campaign_id": "16e074e6-c8ae-47de-b096-e3e6823e8c92",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/16e074e6-c8ae-47de-b096-e3e6823e8c92.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.389Z"
+  },
+  {
+    "id": "0a82b65b-58fc-438e-8ddf-047b556f2a81",
+    "braze_campaign_id": "7ae1426e-0be7-40a9-aa77-ee402aec74ad",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/7ae1426e-0be7-40a9-aa77-ee402aec74ad.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.390Z"
+  },
+  {
+    "id": "07b73914-5521-43e8-8bf6-f1b0ab19958d",
+    "braze_campaign_id": "aedc1161-3c5b-4635-a004-4a34e0ea71f8",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/aedc1161-3c5b-4635-a004-4a34e0ea71f8.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.392Z"
+  },
+  {
+    "id": "0ab6562a-9a27-49f7-9906-ba8813dd8970",
+    "braze_campaign_id": "ff15b251-65f1-4fa1-aead-025cbf535e61",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/ff15b251-65f1-4fa1-aead-025cbf535e61.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.393Z"
+  },
+  {
+    "id": "0ba61eab-08cb-4c81-adbd-6cfc773316c9",
+    "braze_campaign_id": "10cd8df1-8206-4980-b972-5aeb81ed8f1b",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/10cd8df1-8206-4980-b972-5aeb81ed8f1b.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.395Z"
+  },
+  {
+    "id": "120c5283-0274-4e77-a8c1-2b8425f4dae9",
+    "braze_campaign_id": "dd35660a-c440-467c-aa2e-441cb468b0ec",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/dd35660a-c440-467c-aa2e-441cb468b0ec.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:34.396Z"
+  },
+  {
+    "id": "1d79edde-8c58-4d0d-a1bb-c692fb18f26d",
+    "braze_campaign_id": "19172ff1-d20c-4033-a341-72495a607e31",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/19172ff1-d20c-4033-a341-72495a607e31.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.588Z"
+  },
+  {
+    "id": "275e6cd7-62b0-45d5-8097-3ec755a62171",
+    "braze_campaign_id": "8376d275-7e91-43c8-9b42-b047afe140ea",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/8376d275-7e91-43c8-9b42-b047afe140ea.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.590Z"
+  },
+  {
+    "id": "222aff0f-3760-4384-83cb-d22b03076c22",
+    "braze_campaign_id": "76dd6ef2-02e8-4716-9cdb-64fdb8f78b12",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/76dd6ef2-02e8-4716-9cdb-64fdb8f78b12.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.591Z"
+  },
+  {
+    "id": "2dfc141c-abe9-4aa7-9733-a2e90b421983",
+    "braze_campaign_id": "bd0f2654-84e7-4fcc-adbd-9de55c68d3dc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/bd0f2654-84e7-4fcc-adbd-9de55c68d3dc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.593Z"
+  },
+  {
+    "id": "311eddf7-2e88-45ba-bc01-42f5ec9fd78e",
+    "braze_campaign_id": "b70efbaf-09af-4ad7-8864-f120d3889ae3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/b70efbaf-09af-4ad7-8864-f120d3889ae3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.594Z"
+  },
+  {
+    "id": "34d44590-72f6-4eb7-8d52-46dc88505243",
+    "braze_campaign_id": "adb320a3-a3b4-4bfd-bcdf-a6e7c4afc707",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/adb320a3-a3b4-4bfd-bcdf-a6e7c4afc707.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.596Z"
+  },
+  {
+    "id": "27bb2b69-3d86-4895-8ee5-b5545b55a8ca",
+    "braze_campaign_id": "767435e1-c511-420f-9a98-ba5b522f5945",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/767435e1-c511-420f-9a98-ba5b522f5945.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.597Z"
+  },
+  {
+    "id": "509f69fe-9090-423e-900a-d47b96a0b312",
+    "braze_campaign_id": "a5aa7375-5402-449f-8987-827585337a84",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/a5aa7375-5402-449f-8987-827585337a84.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.599Z"
+  },
+  {
+    "id": "466d7e15-40e2-4314-b626-50eb5d304830",
+    "braze_campaign_id": "d0475a11-2d28-4a52-abcd-23637df4b53a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d0475a11-2d28-4a52-abcd-23637df4b53a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.600Z"
+  },
+  {
+    "id": "3e21ddf5-0ac5-4642-b925-606e7f191a6b",
+    "braze_campaign_id": "538f4f40-b806-41da-afbf-437837b7945f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/538f4f40-b806-41da-afbf-437837b7945f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:35.602Z"
+  },
+  {
+    "id": "4d1fd8c4-8dcb-4f5e-9bd0-3af35ab05972",
+    "braze_campaign_id": "11eef13c-f36a-4181-9ed8-9d7744ba6aa3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/11eef13c-f36a-4181-9ed8-9d7744ba6aa3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.416Z"
+  },
+  {
+    "id": "3e904ab2-70c3-4e84-96ff-55edbcf279a1",
+    "braze_campaign_id": "192cc5a8-6b15-4cd0-993a-bb9dcb5f40fc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/192cc5a8-6b15-4cd0-993a-bb9dcb5f40fc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.417Z"
+  },
+  {
+    "id": "3278f3bb-a0b4-4e9f-875f-f96065a3db5d",
+    "braze_campaign_id": "d0d53ca0-d9d9-4c1e-953d-e429535a9a9e",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/d0d53ca0-d9d9-4c1e-953d-e429535a9a9e.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.419Z"
+  },
+  {
+    "id": "63c61ee5-8cb3-46af-bd55-ba5694826a1f",
+    "braze_campaign_id": "9cab4093-cb6a-4774-8dad-eab811eb89dd",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/9cab4093-cb6a-4774-8dad-eab811eb89dd.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.421Z"
+  },
+  {
+    "id": "606af35a-c949-4c12-9075-401e1bb7658f",
+    "braze_campaign_id": "73ee2453-283c-4ce5-bb1a-ec60898717c0",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/73ee2453-283c-4ce5-bb1a-ec60898717c0.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.422Z"
+  },
+  {
+    "id": "628d2db9-6538-4bc1-b9c9-2da6dabf5cf8",
+    "braze_campaign_id": "d0475a11-2d28-4a52-abcd-23637df4b53a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/d0475a11-2d28-4a52-abcd-23637df4b53a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.424Z"
+  },
+  {
+    "id": "51ca784a-7fad-427e-9363-9c13a8a54f2c",
+    "braze_campaign_id": "11eef13c-f36a-4181-9ed8-9d7744ba6aa3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/11eef13c-f36a-4181-9ed8-9d7744ba6aa3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.426Z"
+  },
+  {
+    "id": "4dd37599-9801-4d74-b7ad-2a0ab870d859",
+    "braze_campaign_id": "5f599d06-3d40-4df5-8b14-3b06d708bda9",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/5f599d06-3d40-4df5-8b14-3b06d708bda9.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.427Z"
+  },
+  {
+    "id": "6f663c33-2926-4bc2-a666-0e04a144263e",
+    "braze_campaign_id": "f9a82cca-ecd1-4120-a8b4-7970cc38330f",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/f9a82cca-ecd1-4120-a8b4-7970cc38330f.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.428Z"
+  },
+  {
+    "id": "62a1f115-c571-4fa7-b3c8-272f1b0823d8",
+    "braze_campaign_id": "7bae58b4-962d-45b3-b300-bd5be62795f7",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/7bae58b4-962d-45b3-b300-bd5be62795f7.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:41.430Z"
+  },
+  {
+    "id": "7743bb32-57fd-409d-ac1d-4928a6e8ceae",
+    "braze_campaign_id": "1bf6f91c-3929-494c-9bf9-2b7a975b4773",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/1bf6f91c-3929-494c-9bf9-2b7a975b4773.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.699Z"
+  },
+  {
+    "id": "612950f3-6f88-4b88-bcf9-d5802d5aec33",
+    "braze_campaign_id": "5d4e8f30-d0da-4f13-bd23-21f51b9591ba",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/5d4e8f30-d0da-4f13-bd23-21f51b9591ba.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.700Z"
+  },
+  {
+    "id": "6fdf43d5-86ea-497d-9813-be2383211c08",
+    "braze_campaign_id": "4249b77b-3050-4d3f-9447-f77224d1a4c5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/4249b77b-3050-4d3f-9447-f77224d1a4c5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.702Z"
+  },
+  {
+    "id": "79a31102-a889-4bb9-8b44-2f9e4a8a9adf",
+    "braze_campaign_id": "0ea32d61-e0c9-4131-8cd5-7fe43eaaca08",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0ea32d61-e0c9-4131-8cd5-7fe43eaaca08.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.704Z"
+  },
+  {
+    "id": "75da53dc-4936-4203-b71d-ed48d4cd1cfd",
+    "braze_campaign_id": "d9282a1b-729e-4a74-b7f0-3134d74d72a6",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/d9282a1b-729e-4a74-b7f0-3134d74d72a6.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.705Z"
+  },
+  {
+    "id": "831147a1-b6b9-4485-b13c-f9a73037e1b0",
+    "braze_campaign_id": "0030a481-2759-495e-b2f1-90f8454522f3",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0030a481-2759-495e-b2f1-90f8454522f3.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.706Z"
+  },
+  {
+    "id": "8624fcc1-5fc9-4c2a-8b1b-3fa52f62f469",
+    "braze_campaign_id": "78d11e6e-c2b0-4936-8d10-959b6f844728",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/78d11e6e-c2b0-4936-8d10-959b6f844728.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.708Z"
+  },
+  {
+    "id": "8ef49db1-a5fd-46e3-b4f2-fd3bad5c94c6",
+    "braze_campaign_id": "1c9459d0-9bf4-402c-a9e7-f724b51dc7bb",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1c9459d0-9bf4-402c-a9e7-f724b51dc7bb.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.709Z"
+  },
+  {
+    "id": "a303ffdf-2d57-4593-827d-3e9a33649be6",
+    "braze_campaign_id": "0423cfd7-55f2-460f-8b23-52858b9e96fc",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/0423cfd7-55f2-460f-8b23-52858b9e96fc.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.711Z"
+  },
+  {
+    "id": "98494329-e759-42b1-b5e6-7e335c7a9191",
+    "braze_campaign_id": "0f0211c1-35d3-4988-8717-ea9e69cc1e82",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/0f0211c1-35d3-4988-8717-ea9e69cc1e82.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:47.712Z"
+  },
+  {
+    "id": "8bb1659e-14f6-4a8d-a36c-39797fa9132c",
+    "braze_campaign_id": "78d11e6e-c2b0-4936-8d10-959b6f844728",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/78d11e6e-c2b0-4936-8d10-959b6f844728.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.483Z"
+  },
+  {
+    "id": "fd484d17-6f28-44a6-bed3-07ed8caebd02",
+    "braze_campaign_id": "2c3ed940-ddd8-4c0a-bc84-7dd65f640245",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/ca70e0a0-bcfe-472a-a932-8d902ab95f12/2c3ed940-ddd8-4c0a-bc84-7dd65f640245.jpg?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.485Z"
+  },
+  {
+    "id": "e79bf65c-68d5-44ba-b1d9-5c702ccf88eb",
+    "braze_campaign_id": "53c7958f-78a7-448e-82f4-f9a30a31a92a",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/53c7958f-78a7-448e-82f4-f9a30a31a92a.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.487Z"
+  },
+  {
+    "id": "f78bcc6f-5271-4670-b4e3-7b134b56574c",
+    "braze_campaign_id": "4249b77b-3050-4d3f-9447-f77224d1a4c5",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/4249b77b-3050-4d3f-9447-f77224d1a4c5.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.489Z"
+  },
+  {
+    "id": "e9280737-0daa-4d0c-a887-3e03c0a33436",
+    "braze_campaign_id": "01e47f1b-76a2-4bad-986b-8eb70bfc8451",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/01e47f1b-76a2-4bad-986b-8eb70bfc8451.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.490Z"
+  },
+  {
+    "id": "5acc1c04-38c1-48f3-9208-b5977d8984d3",
+    "braze_campaign_id": "22d57684-dcc8-4f86-be73-51fcc335b2be",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/22d57684-dcc8-4f86-be73-51fcc335b2be.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.492Z"
+  },
+  {
+    "id": "e4fe8256-2436-4874-86fe-c7a5751197e4",
+    "braze_campaign_id": "1a92a2bf-229f-42de-b395-c0e7e85cc354",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/1a92a2bf-229f-42de-b395-c0e7e85cc354.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.493Z"
+  },
+  {
+    "id": "94f2eba3-cb8d-45ee-8adb-8ed667967c5b",
+    "braze_campaign_id": "ed2a2a56-eef4-4b71-9a2e-8019735231b2",
+    "image_url": "https://bdavazygbtoosegncfgi.supabase.co/storage/v1/render/image/public/campaign-creatives/e7aaaf66-b99c-422b-92fb-186a36c2a7c1/ed2a2a56-eef4-4b71-9a2e-8019735231b2.png?width=600&quality=80&format=webp",
+    "error": "fetch HTTP 400",
+    "at": "2026-04-13T17:16:50.494Z"
+  }
+]

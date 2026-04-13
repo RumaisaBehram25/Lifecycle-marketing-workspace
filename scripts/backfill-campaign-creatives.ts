@@ -8,8 +8,12 @@
  *   Loads `.env` then `.env.local` from the project root (same vars as Vite: VITE_SUPABASE_URL, etc.).
  *   Add once to `.env.local` (keep out of git): SUPABASE_SERVICE_ROLE_KEY=<service_role from Dashboard → API>
  *   Or export SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the shell.
+ *
+ *   Run with tsx + scripts/tsconfig.json so `@/lib/...` resolves (do not use plain `ts-node` — it will not resolve `@/`).
  *   npm run backfill:campaign-creatives -- --dry-run
  *   npm run backfill:campaign-creatives
+ *   npx tsx --tsconfig scripts/tsconfig.json scripts/backfill-campaign-creatives.ts -- --dry-run
+ *
  *   (Alias: `npm run migrate:campaign-creatives` → same script via migrate-campaign-creatives.ts)
  *
  * Options:
@@ -359,7 +363,9 @@ async function main() {
 
         const {
           data: { publicUrl },
-        } = supabase.storage.from(BUCKET).getPublicUrl(objectPath);
+        } = supabase.storage.from(BUCKET).getPublicUrl(objectPath, {
+          transform: { width: 600, quality: 80, format: 'origin' as const },
+        });
 
         const { error: upDb } = await supabase.from('braze_campaigns').update({ image_url: publicUrl }).eq('id', row.id);
         if (upDb) {

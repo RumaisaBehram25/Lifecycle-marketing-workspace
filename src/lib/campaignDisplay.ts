@@ -533,6 +533,29 @@ export function emailLooksLikeHtml(s: string): boolean {
   return /<(?:[a-z][\w-]*|\/[a-z][\w-]*|!doctype)/i.test(t);
 }
 
+/** Braze `/campaigns/details` sometimes nests email copy under `messages.{id}.email` (body / html_body). */
+function pushEmailBodiesFromMessageVariant(m: Record<string, unknown>, push: (v: unknown) => void) {
+  push(m.html_body);
+  push(m.html_content);
+  push(m.html);
+  push(m.amp_body);
+  if (typeof m.body === 'string' && m.body.trim()) {
+    const b = m.body.trim();
+    if (emailLooksLikeHtml(b)) push(m.body);
+  }
+  const nested = m.email;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const e = nested as Record<string, unknown>;
+    push(e.html_body);
+    push(e.html_content);
+    push(e.html);
+    if (typeof e.body === 'string' && e.body.trim()) {
+      const b = e.body.trim();
+      if (emailLooksLikeHtml(b)) push(e.body);
+    }
+  }
+}
+
 function collectEmailHtmlSourceStrings(raw: Record<string, unknown>): string[] {
   const out: string[] = [];
   const push = (v: unknown) => {
@@ -549,17 +572,17 @@ function collectEmailHtmlSourceStrings(raw: Record<string, unknown>): string[] {
       if (!msg || typeof msg !== 'object') continue;
       const m = msg as Record<string, unknown>;
       if (brazeMessageIsNonEmail(String(m.channel ?? ''))) continue;
-      push(m.html_body);
-      push(m.html_content);
-      push(m.html);
-      push(m.amp_body);
-      if (typeof m.body === 'string' && m.body.trim()) {
-        const b = m.body.trim();
-        if (emailLooksLikeHtml(b)) push(m.body);
-      }
+      pushEmailBodiesFromMessageVariant(m, push);
     }
   }
   return out;
+}
+
+/** True when `raw_details` has no keys (or null) — Braze details not loaded yet. */
+export function isRawDetailsEmpty(raw: unknown): boolean {
+  if (raw == null) return true;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return true;
+  return Object.keys(raw as Record<string, unknown>).length === 0;
 }
 
 /**
@@ -572,6 +595,30 @@ export function pickBestEmailHtmlString(raw: Record<string, unknown> | null | un
   const htmlOnly = all.filter(emailLooksLikeHtml);
   if (htmlOnly.length === 0) return undefined;
   return htmlOnly.sort((a, b) => b.length - a.length)[0];
+}
+
+/**
+ * When strict {@link emailLooksLikeHtml} finds nothing, prefer the longest fragment that still looks like
+ * ESP markup (table/div/body) so the modal can show a full HTML preview instead of a header logo image.
+ */
+function pickLongestRelaxedEmailMarkupFragment(raw: Record<string, unknown> | null | undefined): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const all = collectEmailHtmlSourceStrings(raw);
+  const relaxed = all.filter((s) => {
+    const t = s.trim();
+    if (t.length < 60) return false;
+    return /<(?:table|tbody|tr|td|div|center|html|body|style|img|!doctype)/i.test(t);
+  });
+  if (relaxed.length === 0) return undefined;
+  return relaxed.sort((a, b) => b.length - a.length)[0];
+}
+
+/** True when we can render `srcDoc` in the campaign modal iframe (strict or relaxed markup). */
+function isUsableEmailModalHtml(s: string | undefined): boolean {
+  if (!s?.trim()) return false;
+  const t = s.trim();
+  if (emailLooksLikeHtml(t)) return true;
+  return t.length >= 60 && /<(?:table|tbody|tr|td|div|center|html|body|style|img|!doctype)/i.test(t);
 }
 
 /** Aligns with sync-braze `brazeMessageIsNonEmail` — empty channel is treated as eligible for email HTML/image. */
@@ -1004,6 +1051,8 @@ export function isQualifyingModalHeroUrl(url: string): boolean {
   try {
     const u = new URL(raw.startsWith('//') ? `https:${raw}` : raw);
     const host = u.hostname.toLowerCase();
+    // Migrated campaign previews on S3 (sync uploads full-size assets; no dimension hints in URL).
+    if (host.includes('.s3.') && host.endsWith('.amazonaws.com')) return true;
     if (/braze-images\.com$/i.test(host) && /\/images\//i.test(u.pathname)) return true;
   } catch {
     /* ignore */
@@ -1045,14 +1094,17 @@ export function resolveEmailModalPreview(
   raw: Record<string, unknown> | null | undefined,
 ): EmailModalPreviewResolution {
   const html = extractEmailHtmlPreview(raw ?? undefined);
-  const htmlOk = Boolean(html && emailLooksLikeHtml(html));
-
-  if (htmlOk) {
-    return { previewType: 'html', html: html! };
+  if (html && isUsableEmailModalHtml(html)) {
+    return { previewType: 'html', html };
   }
 
   const extracted = extractPreviewImageUrl(raw ?? undefined);
-  if (extracted && isQualifyingModalHeroUrl(extracted)) {
+  if (
+    extracted &&
+    isQualifyingModalHeroUrl(extracted) &&
+    !isLikelyNonHeroImageUrl(extracted) &&
+    !isLikelyLogoHeaderOrBranding(extracted)
+  ) {
     const displayUrl = getModalOptimizedImageUrl(extracted);
     return {
       previewType: 'hero',
@@ -1081,26 +1133,41 @@ export function resolveEmailModalPreview(
     };
   }
 
-  return { previewType: 'html', html: htmlOk ? html : undefined };
+  return { previewType: 'html', html: undefined };
 }
 
 /**
- * Email HTML for modal preview — prefers real HTML; never uses plain-text `body` as iframe content.
+ * Email HTML for modal preview: `email_html_preview`, top-level `html_body` / `html`, and
+ * `messages.*` including nested `messages.*.email` (`html_body`, `body`, etc.). Plain-text-only
+ * `body` is ignored unless it looks like markup. Returns `undefined` when no HTML is found — use
+ * {@link resolveEmailModalPreview} to fall back to image URLs.
  */
 export function extractEmailHtmlPreview(raw: Record<string, unknown> | null | undefined): string | undefined {
-  return pickBestEmailHtmlString(raw);
+  return pickBestEmailHtmlString(raw) ?? pickLongestRelaxedEmailMarkupFragment(raw);
 }
 
 /**
- * HTML email iframe preview zoom — keep in sync with {@link IFRAME_PREVIEW_ZOOM_STYLE}.
- * Used by the client to size the iframe to the *visible* height after zoom.
+ * Default HTML zoom inside the iframe document. The modal may pass {@link WrapHtmlForIframePreviewOptions.htmlZoom}
+ * (e.g. `1` when the UI already applies outer scale).
  */
 export const IFRAME_HTML_PREVIEW_ZOOM = 0.88;
 
-const IFRAME_PREVIEW_ZOOM_STYLE = `html{zoom:${IFRAME_HTML_PREVIEW_ZOOM};overflow:visible}`;
+function iframePreviewZoomStyle(htmlZoom: number): string {
+  return `html{zoom:${htmlZoom};overflow:visible}`;
+}
+
+export type WrapHtmlForIframePreviewOptions = {
+  /**
+   * Zoom applied inside the iframe document. Use `1` when the outer UI already applies
+   * CSS `zoom` / `transform: scale()` so the email is not shrunk twice.
+   */
+  htmlZoom?: number;
+};
 
 /** Wrap fragment or full document HTML for a sandboxed iframe `srcDoc`. */
-export function wrapHtmlForIframePreview(html: string): string {
+export function wrapHtmlForIframePreview(html: string, options?: WrapHtmlForIframePreviewOptions): string {
+  const htmlZoom = options?.htmlZoom ?? IFRAME_HTML_PREVIEW_ZOOM;
+  const IFRAME_PREVIEW_ZOOM_STYLE = iframePreviewZoomStyle(htmlZoom);
   const t = stripBrazeLiquidFromEmailHtmlForPreview(html).trim();
   if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) {
     const zoomInject = `<style type="text/css" data-email-preview-zoom>${IFRAME_PREVIEW_ZOOM_STYLE}</style>`;

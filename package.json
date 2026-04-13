@@ -16,7 +16,8 @@
     "migrate:users": "node scripts/migrate-auth-and-user-data.mjs",
     "backfill:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/backfill-campaign-creatives.ts",
     "migrate:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-creatives.ts",
-    "sync:missing-raw-details": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/sync-missing-raw-details.ts"
+    "sync:missing-raw-details": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/sync-missing-raw-details.ts",
+    "migrate:campaign-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-images-to-s3.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -79,6 +80,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1029.0",
     "@eslint/js": "^9.32.0",
     "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^22.16.5",
@@ -87,6 +89,7 @@
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.2.1",
+    "dotenv": "^17.4.2",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
