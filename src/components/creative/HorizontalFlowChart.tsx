@@ -184,7 +184,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               height={360}
               loading="eager"
               decoding="async"
-              fetchPriority="high"
+              fetchpriority="high"
               className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
             />
           ) : message?.html_content ? (
@@ -265,7 +265,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
                 height={360}
                 loading="eager"
                 decoding="async"
-                fetchPriority="high"
+                fetchpriority="high"
                 className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
               />
             ) : (
@@ -294,7 +294,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
-              fetchPriority="high"
+              fetchpriority="high"
               className="w-20 h-20 object-cover rounded-xl mx-auto mb-5"
             />
           ) : (
@@ -1202,7 +1202,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
               height={450}
               loading="eager"
               decoding="async"
-              fetchPriority="high"
+              fetchpriority="high"
               className="h-full min-h-[500px] w-full object-contain object-top"
             />
           ) : message?.html_content ? (
@@ -1275,7 +1275,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
                 height={450}
                 loading="eager"
                 decoding="async"
-                fetchPriority="high"
+                fetchpriority="high"
                 className="h-full min-h-[500px] w-full object-contain object-top"
               />
             ) : (
@@ -1299,7 +1299,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
-              fetchPriority="high"
+              fetchpriority="high"
               className="w-24 h-24 object-cover rounded-xl mx-auto mb-6"
             />
           ) : (

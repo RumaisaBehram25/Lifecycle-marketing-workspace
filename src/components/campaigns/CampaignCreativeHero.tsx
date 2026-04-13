@@ -131,7 +131,8 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
   const aboveFoldEager =
     typeof listPageIndex === 'number' && listPageIndex < 5;
   const loadingAttr = eagerImage || aboveFoldEager ? 'eager' : 'lazy';
-  const fetchPriorityAttr: 'high' | 'low' =
+  /** DOM / React JSX use lowercase `fetchpriority` (React does not accept `fetchPriority` on `<img>` in all versions). */
+  const fetchpriorityAttr: 'high' | 'low' =
     eagerImage || (typeof listPageIndex === 'number' && listPageIndex < 3) ? 'high' : 'low';
 
   /** Footer caption: hidden for `gridThumbnail` when an image is shown; otherwise card/modal rules. */
@@ -186,7 +187,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
           height={360}
           loading={loadingAttr}
           decoding="async"
-          fetchPriority={fetchPriorityAttr}
+          fetchpriority={fetchpriorityAttr}
           className={cn(
             'absolute inset-0 z-[2] h-full w-full transition-opacity duration-500 ease-out',
             // Modal: always cover, aligned to top once fully loaded
