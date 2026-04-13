@@ -17,7 +17,9 @@
     "backfill:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/backfill-campaign-creatives.ts",
     "migrate:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-creatives.ts",
     "sync:missing-raw-details": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/sync-missing-raw-details.ts",
-    "migrate:campaign-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-images-to-s3.ts"
+    "migrate:campaign-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-images-to-s3.ts",
+    "migrate:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-lifecycle-canvas-images-to-s3.ts",
+    "patch:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/patch-lifecycle-canvas-images-to-s3.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -95,6 +97,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "lovable-tagger": "^1.1.13",
+    "node-html-parser": "^7.1.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",

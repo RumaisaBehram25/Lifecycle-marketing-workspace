@@ -80,7 +80,12 @@ import { logger } from '@/lib/logger';
 import {
   buildCampaignSearchIndex,
   extractPreviewImageUrl,
+  extractPermissiveCardPreviewImageUrl,
+  extractHeroImageFromHtml,
   formatCampaignRate,
+  isLikelyLogo,
+  normalizeImageUrlString,
+  pickEmailHtmlForGridHeroExtraction,
   getCampaignPreviewLine,
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
@@ -181,6 +186,16 @@ type BrazeCampaignRow = {
   created_at?: string | null;
   synced_at?: string | null;
 };
+
+/**
+ * Same key for list cards, modal lookup, and admin dedupe: use Braze id when non-empty, else row UUID.
+ * Treats `""` as missing — `"" ?? uuid` wrongly kept "" and broke row matching.
+ */
+function brazeCampaignListId(row: Pick<BrazeCampaignRow, 'id' | 'braze_campaign_id'>): string {
+  const bc = row.braze_campaign_id;
+  if (bc != null && String(bc).trim() !== '') return String(bc).trim();
+  return String(row.id);
+}
 
 const now = new Date();
 
@@ -569,6 +584,8 @@ export default function Campaigns() {
   const [syncing, setSyncing] = useState(false);
   /** preview_image_url from Braze creative fetches — supplements DB thumbnails for campaigns missing images in raw_details. */
   const [creativeThumbnailCache, setCreativeThumbnailCache] = useState<Map<string, string>>(() => new Map());
+  const creativeThumbnailCacheLatestRef = useRef(creativeThumbnailCache);
+  creativeThumbnailCacheLatestRef.current = creativeThumbnailCache;
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -682,7 +699,7 @@ export default function Campaigns() {
       if (isAdmin) {
         const seen = new Map<string, Record<string, unknown>>();
         for (const row of allRows) {
-          const key = (row.braze_campaign_id as string) ?? (row.id as string);
+          const key = brazeCampaignListId(row as BrazeCampaignRow);
           const existing = seen.get(key);
           if (!existing) {
             seen.set(key, row);
@@ -717,12 +734,28 @@ export default function Campaigns() {
       const push_title = typeof rawDetails.push_title === 'string' ? rawDetails.push_title : undefined;
       const push_body = typeof rawDetails.push_body === 'string' ? rawDetails.push_body : undefined;
       const description = typeof rawDetails.description === 'string' ? rawDetails.description : undefined;
-      const fromColumn = typeof row.image_url === 'string' ? row.image_url.trim() : '';
-      /** Do not fall back to raw `preview_image_url` — it bypasses Linktree/non-hero filtering in {@link extractPreviewImageUrl}. */
-      const preview_image_url = fromColumn || extractPreviewImageUrl(rawDetails);
+      const fromCol = typeof row.image_url === 'string' ? row.image_url.trim() : '';
+      const fromColumn =
+        fromCol && !isLikelyLogo(fromCol) ? normalizeImageUrlString(fromCol) || '' : '';
+
+      const emailHtml = pickEmailHtmlForGridHeroExtraction(rawDetails);
+      const heroFromHtml = emailHtml ? extractHeroImageFromHtml(emailHtml) : null;
+
+      const rawPreview =
+        typeof rawDetails.preview_image_url === 'string' ? rawDetails.preview_image_url.trim() : '';
+      const guardedPreview =
+        rawPreview && !isLikelyLogo(rawPreview) ? normalizeImageUrlString(rawPreview) || '' : '';
+
+      /** HTML hero first; skip Braze `preview_image_url` when it is logo-like; then permissive / strict fallbacks. */
+      const preview_image_url =
+        fromColumn ||
+        (heroFromHtml ?? '') ||
+        guardedPreview ||
+        extractPermissiveCardPreviewImageUrl(rawDetails) ||
+        extractPreviewImageUrl(rawDetails);
 
       const base: PlaceholderCampaign = {
-        id: String(row.braze_campaign_id ?? row.id),
+        id: brazeCampaignListId(row),
         name: row.name,
         channel,
         subject: row.subject ?? undefined,
@@ -868,12 +901,6 @@ export default function Campaigns() {
     [filtered, sortBy],
   );
 
-  /** Link preload + Image() warming — same URLs as {@link campaignImageDisplayUrl} on cards/modal. */
-  useEffect(() => {
-    if (sortedCampaigns.length === 0) return;
-    preloadCampaignImages(sortedCampaigns);
-  }, [sortedCampaigns]);
-
   const totalPages = Math.max(1, Math.ceil(sortedCampaigns.length / PAGE_SIZE));
 
   useEffect(() => {
@@ -901,7 +928,7 @@ export default function Campaigns() {
     for (const row of dbCampaigns as BrazeCampaignRow[]) {
       if (!String(row.creative_preview ?? '').trim()) missingCreative++;
       const raw = (row.raw_details ?? {}) as Record<string, unknown>;
-      if (!extractPreviewImageUrl(raw)) missingImage++;
+      if (!extractPreviewImageUrl(raw) && !extractPermissiveCardPreviewImageUrl(raw)) missingImage++;
       const pt = typeof raw.push_title === 'string' ? raw.push_title : '';
       const pb = typeof raw.push_body === 'string' ? raw.push_body : '';
       const ch = normalizeCampaignChannel(row.channel);
@@ -919,9 +946,11 @@ export default function Campaigns() {
 
   const selectedRawRow = useMemo(() => {
     if (!selectedCampaign || !dbCampaigns) return null;
-    return (dbCampaigns as BrazeCampaignRow[]).find(
-      r => String(r.braze_campaign_id ?? r.id) === selectedCampaign.id,
-    );
+    const rows = dbCampaigns as BrazeCampaignRow[];
+    const byListId = rows.find(r => brazeCampaignListId(r) === selectedCampaign.id);
+    if (byListId) return byListId;
+    /** Fallback when legacy rows used `??` with empty `braze_campaign_id` and mismatched ids. */
+    return rows.find(r => String(r.id) === selectedCampaign.id) ?? null;
   }, [selectedCampaign, dbCampaigns]);
 
   /** Live `/campaigns/details` when preview image or email HTML is missing in DB. */
@@ -986,9 +1015,12 @@ export default function Campaigns() {
     }
     if (typeof selectedRawRow?.image_url === 'string' && selectedRawRow.image_url.trim()) {
       base.preview_image_url = selectedRawRow.image_url.trim();
+    } else if (selectedCampaign?.preview_image_url?.trim()) {
+      /** List ViewModel already resolved `image_url` / preview; use when row lookup failed or row lacked column. */
+      base.preview_image_url = selectedCampaign.preview_image_url.trim();
     }
     return resolveEmailModalPreview(Object.keys(base).length ? base : null);
-  }, [selectedRawRow, brazeCreativeOverride]);
+  }, [selectedRawRow, brazeCreativeOverride, selectedCampaign?.preview_image_url]);
 
   /** When true, the modal can render email creative without waiting on `braze-campaign-creative`. */
   const emailModalPreviewReady = useMemo(() => {
@@ -1023,6 +1055,7 @@ export default function Campaigns() {
   function mergeRawWithCachedCreative(
     campaignId: string,
     row: BrazeCampaignRow | null | undefined,
+    fallbackPreviewUrl?: string | null,
   ): Record<string, unknown> | null {
     const raw = row?.raw_details;
     const base: Record<string, unknown> =
@@ -1034,6 +1067,8 @@ export default function Campaigns() {
     if (cached?.email_html_preview) base.email_html_preview = cached.email_html_preview;
     if (typeof row?.image_url === 'string' && row.image_url.trim()) {
       base.preview_image_url = row.image_url.trim();
+    } else if (typeof fallbackPreviewUrl === 'string' && fallbackPreviewUrl.trim()) {
+      base.preview_image_url = fallbackPreviewUrl.trim();
     }
     return Object.keys(base).length ? base : null;
   }
@@ -1102,7 +1137,7 @@ export default function Campaigns() {
       logger.warn('[Campaigns] braze-campaign-creative', e);
     } finally {
       creativePrefetchInFlightRef.current.delete(id);
-      stopCreativeLoading();
+      stopCreativeLoading(true);
     }
   }, [
     brazePlatform?.id,
@@ -1127,8 +1162,17 @@ export default function Campaigns() {
     if (typeof dbRow?.image_url === 'string' && dbRow.image_url.trim()) {
       base.preview_image_url = dbRow.image_url.trim();
     }
-    const r = resolveEmailModalPreview(Object.keys(base).length ? base : null);
-    if (r.previewType === 'hero' || r.previewType === 'imageUrl' || (r.previewType === 'html' && Boolean(r.html))) return;
+    const mergedForThumb = Object.keys(base).length ? base : null;
+    const colThumb = typeof dbRow?.image_url === 'string' ? dbRow.image_url.trim() : '';
+    const cardThumb =
+      colThumb ||
+      (mergedForThumb
+        ? extractPreviewImageUrl(mergedForThumb) || extractPermissiveCardPreviewImageUrl(mergedForThumb)
+        : '');
+    if (cardThumb) return;
+
+    const r = resolveEmailModalPreview(mergedForThumb);
+    if (r.previewType === 'hero' || r.previewType === 'imageUrl') return;
     creativePrefetchInFlightRef.current.add(campaignId);
     void runBrazeCampaignCreativeFetch(campaignId).finally(() => {
       creativePrefetchInFlightRef.current.delete(campaignId);
@@ -1136,16 +1180,60 @@ export default function Campaigns() {
   }, [brazePlatform?.id, dbCampaigns, runBrazeCampaignCreativeFetch, showLiveCampaigns, workspaceClientId]);
 
   useEffect(() => {
+    if (!showLiveCampaigns) return;
+    preloadCampaignImages(paginatedCampaigns);
+  }, [paginatedCampaigns, showLiveCampaigns]);
+
+  /** Backfill `braze-campaign-creative` thumbnails for the current page when JSON still has no usable image. */
+  useEffect(() => {
+    if (!showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
+    const cache = creativeThumbnailCacheLatestRef.current;
+    const missing = paginatedCampaigns.filter(c => {
+      const u = (c.preview_image_url || '').trim();
+      if (u) return false;
+      if (cache.has(c.id)) return false;
+      return true;
+    });
+    if (missing.length === 0) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      missing.forEach((c, i) => {
+        window.setTimeout(() => {
+          if (!cancelled) prefetchCampaignCreative(c.id);
+        }, i * 100);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [brazePlatform?.id, paginatedCampaigns, prefetchCampaignCreative, showLiveCampaigns, workspaceClientId]);
+
+  useEffect(() => {
     const clientId = workspaceClientId;
     const platformId = brazePlatform?.id;
     if (!selectedCampaign || !showLiveCampaigns || !clientId || !platformId) return;
 
     const id = selectedCampaign.id;
-    const merged = mergeRawWithCachedCreative(id, selectedRawRow);
-    if (isCreativeResolvedFromMerged(merged)) return;
+    const merged = mergeRawWithCachedCreative(id, selectedRawRow, selectedCampaign.preview_image_url);
+
+    /**
+     * DB `image_url` / session cache can already resolve a hero or iframe — show that immediately.
+     * Do **not** block the modal with `creativeLoading`; optionally enrich `raw_details` in the background.
+     */
+    if (isCreativeResolvedFromMerged(merged)) {
+      const needsHtmlEnrichment =
+        selectedCampaign.channel === 'email' && isRawDetailsEmpty(selectedRawRow?.raw_details);
+      if (needsHtmlEnrichment && !creativePrefetchInFlightRef.current.has(id)) {
+        creativePrefetchInFlightRef.current.add(id);
+        void runBrazeCampaignCreativeFetch(id).finally(() => {
+          creativePrefetchInFlightRef.current.delete(id);
+        });
+      }
+      return;
+    }
 
     if (creativePrefetchInFlightRef.current.has(id)) {
-      startCreativeLoading();
       return;
     }
 
@@ -1160,7 +1248,7 @@ export default function Campaigns() {
           stopCreativeLoading(true);
           return;
         }
-        stopCreativeLoading();
+        stopCreativeLoading(true);
       } catch (e) {
         creativePrefetchInFlightRef.current.delete(id);
         if (cancelled) {
@@ -1168,7 +1256,7 @@ export default function Campaigns() {
           return;
         }
         logger.warn('[Campaigns] braze-campaign-creative', e);
-        stopCreativeLoading();
+        stopCreativeLoading(true);
       }
     })();
     return () => {
@@ -1540,14 +1628,15 @@ export default function Campaigns() {
                     )}
                   >
                     {viewMode === 'list' && (
-                      <div
-                        className={cn(
-                          'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
-                          channelColors[campaign.channel],
-                        )}
-                      >
-                        {channelIcons[campaign.channel]}
-                      </div>
+                      <CampaignCreativeHero
+                        channel={campaign.channel}
+                        previewText={previewLine}
+                        previewImageUrl={thumbnailUrl}
+                        campaignName={campaign.name}
+                        variant="card"
+                        listPageIndex={index}
+                        className="h-[76px] min-h-[76px] w-[120px] shrink-0 !aspect-auto rounded-lg border border-border/50"
+                      />
                     )}
                     <div className="min-w-0 flex-1 space-y-1">
                       <Tooltip>

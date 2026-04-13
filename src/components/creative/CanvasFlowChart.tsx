@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronRight as ChevronRightIcon,
 } from 'lucide-react';
+import { plainTextPreviewFromBrazeMessageBody } from '@/lib/brazeMessagePreviewText';
 import { getChannelColor } from '@/lib/campaign-taxonomy';
 
 // Types matching the sync-braze output
@@ -164,7 +165,10 @@ function StepNode({
       const msg = step.messages[0];
       if (msg.subject) return msg.subject;
       if (msg.title) return msg.title;
-      if (msg.body) return msg.body.substring(0, 40) + (msg.body.length > 40 ? '...' : '');
+      if (msg.body) {
+        const preview = plainTextPreviewFromBrazeMessageBody(msg.body);
+        return preview.substring(0, 40) + (preview.length > 40 ? '...' : '');
+      }
     }
     
     return null;

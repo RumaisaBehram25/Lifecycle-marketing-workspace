@@ -1,0 +1,1 @@
+{"Version":"2012-10-17","Statement":[{"Sid":"PublicReadCampaignCreatives","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::brcg-campaigns-assets/campaign-creatives/*"},{"Sid":"PublicReadLifecycleCreatives","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::brcg-campaigns-assets/lifecycle-creatives/*"}]}

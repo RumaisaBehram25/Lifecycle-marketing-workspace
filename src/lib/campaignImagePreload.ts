@@ -1,3 +1,4 @@
+import { getModalOptimizedImageUrl } from '@/lib/campaignDisplay';
 import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { preloadedUrls } from '@/lib/campaignImagePreloadRegistry';
 
@@ -90,6 +91,121 @@ export function preloadCampaignImages(
               preloadedUrls.add(url);
               const img = new Image();
               img.decoding = 'async';
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+              img.src = url;
+            }),
+        ),
+      );
+    }
+  })();
+}
+
+const MODAL_PRELOAD_LINK_ATTR = 'data-campaign-modal-preload';
+
+/** Remove `<link rel="preload">` tags injected for the campaign detail modal only. */
+export function clearModalCreativePreloadLinks(): void {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll(`link[rel="preload"][${MODAL_PRELOAD_LINK_ATTR}]`).forEach(el => el.remove());
+}
+
+/**
+ * When a canvas/modal path needs many creative URLs: `<link rel="preload">` for the first
+ * URL + `new Image()` for each distinct normalized URL (same transforms as modal `<img>`
+ * via {@link getModalOptimizedImageUrl}).
+ */
+export function prefetchCampaignModalCreativeUrls(
+  rawUrls: ReadonlyArray<string | null | undefined>,
+): void {
+  if (typeof window === 'undefined') return;
+  clearModalCreativePreloadLinks();
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawUrls) {
+    const r = typeof raw === 'string' ? raw.trim() : '';
+    if (!r) continue;
+    const d = getModalOptimizedImageUrl(r);
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    normalized.push(d);
+  }
+  if (normalized.length === 0) return;
+
+  const link = document.createElement('link');
+  link.rel = 'preload';
+  link.as = 'image';
+  link.href = normalized[0];
+  link.setAttribute(MODAL_PRELOAD_LINK_ATTR, '1');
+  document.head.appendChild(link);
+
+  for (const href of normalized) {
+    const img = new Image();
+    img.decoding = 'sync';
+    img.src = href;
+  }
+}
+
+/**
+ * Warms the HTTP cache for lifecycle journey cards using the **same** URL normalization as
+ * `<img src={campaignImageDisplayUrl(...)} />` (unlike {@link prefetchCampaignModalCreativeUrls},
+ * which uses {@link getModalOptimizedImageUrl} for modal heroes).
+ *
+ * Loads in small batches so the first cards in path order are not starved when many touchpoints
+ * share one S3 host (browser connection limits).
+ */
+export function prefetchLifecycleJourneyImageUrls(
+  rawUrls: ReadonlyArray<string | null | undefined>,
+  options?: { linkPreloadCount?: number; concurrency?: number },
+): void {
+  if (typeof window === 'undefined') return;
+
+  const linkPreloadCount = options?.linkPreloadCount ?? 6;
+  const concurrency = options?.concurrency ?? 8;
+
+  const display: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawUrls) {
+    const r = typeof raw === 'string' ? raw.trim() : '';
+    if (!r) continue;
+    const d = campaignImageDisplayUrl(r, 'thumbnail') ?? r;
+    if (seen.has(d)) continue;
+    seen.add(d);
+    display.push(d);
+  }
+  if (display.length === 0) return;
+
+  clearModalCreativePreloadLinks();
+
+  for (let i = 0; i < Math.min(linkPreloadCount, display.length); i++) {
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'image';
+    link.href = display[i];
+    link.setAttribute(MODAL_PRELOAD_LINK_ATTR, '1');
+    document.head.appendChild(link);
+  }
+
+  void (async () => {
+    for (let i = 0; i < display.length; i += concurrency) {
+      const batch = display.slice(i, i + concurrency);
+      await Promise.all(
+        batch.map(
+          (url, j) =>
+            new Promise<void>(resolve => {
+              if (preloadedUrls.has(url)) {
+                resolve();
+                return;
+              }
+              preloadedUrls.add(url);
+              const img = new Image();
+              img.decoding = 'async';
+              const idx = i + j;
+              if ('fetchPriority' in img && idx < linkPreloadCount) {
+                (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'high';
+              } else if ('fetchPriority' in img) {
+                (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
+              }
               img.onload = () => resolve();
               img.onerror = () => resolve();
               img.src = url;

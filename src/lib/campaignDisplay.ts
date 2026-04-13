@@ -276,12 +276,29 @@ export function sanitizeCampaignDisplayText(input: string | null | undefined): s
   return sanitizeCampaignDisplayWithMeta(input).text;
 }
 
-function normalizeImageUrlString(u: string): string | undefined {
+export function normalizeImageUrlString(u: string): string | undefined {
   const t = u.trim();
   if (!t) return undefined;
   if (t.startsWith('//')) return `https:${t}`;
   if (t.startsWith('http://') || t.startsWith('https://')) return t;
   return undefined;
+}
+
+/**
+ * Grid guard: URL path/query suggests a logo / wordmark / icon / brand mark (not a campaign hero).
+ */
+export function isLikelyLogo(url: string): boolean {
+  const raw = url.trim().toLowerCase();
+  if (!raw) return false;
+  let path = raw;
+  try {
+    const abs = raw.startsWith('//') ? `https:${raw}` : raw;
+    const u = new URL(abs);
+    path = `${u.pathname}${u.search}`.toLowerCase();
+  } catch {
+    path = raw.toLowerCase();
+  }
+  return /(logo|wordmark|icon|brand)/.test(path);
 }
 
 /**
@@ -613,6 +630,25 @@ function pickLongestRelaxedEmailMarkupFragment(raw: Record<string, unknown> | nu
   return relaxed.sort((a, b) => b.length - a.length)[0];
 }
 
+/**
+ * Longest usable HTML blob for **grid** hero extraction: strict → relaxed → short `email_html_preview` with an `<img>`.
+ */
+export function pickEmailHtmlForGridHeroExtraction(
+  raw: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const fromStrict = pickBestEmailHtmlString(raw);
+  if (fromStrict) return fromStrict;
+  const relaxed = pickLongestRelaxedEmailMarkupFragment(raw);
+  if (relaxed) return relaxed;
+  const ep = raw.email_html_preview;
+  if (typeof ep === 'string') {
+    const t = ep.trim();
+    if (t.length >= 20 && /<img\b/i.test(t)) return t;
+  }
+  return undefined;
+}
+
 /** True when we can render `srcDoc` in the campaign modal iframe (strict or relaxed markup). */
 function isUsableEmailModalHtml(s: string | undefined): boolean {
   if (!s?.trim()) return false;
@@ -657,6 +693,18 @@ function imageUrlCandidatesFromMessage(m: Record<string, unknown>): string[] {
     if (typeof c === 'string') {
       const n = normalizeImageUrlString(c);
       if (n) out.push(n);
+    }
+  }
+  return out;
+}
+
+/** Braze `/campaigns/details` often nests email assets under `messages.{id}.email`. */
+function imageUrlCandidatesFromMessageDeep(m: Record<string, unknown>): string[] {
+  const out = imageUrlCandidatesFromMessage(m);
+  const nested = m.email;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    for (const u of imageUrlCandidatesFromMessage(nested as Record<string, unknown>)) {
+      out.push(u);
     }
   }
   return out;
@@ -742,6 +790,117 @@ function collectUrlsFromImgTag(tag: string): {
     }
   }
   return out;
+}
+
+const HERO_SECTION_CTX =
+  /\b(?:class|id)\s*=\s*["'][^"']*?(hero|banner|feature|header-image|main-image)/i;
+
+/** Tight `src` URL heuristic (logo-ish path segments); separate from {@link isLikelyLogo}. */
+function imgSrcLooksLikeLogoPath(url: string): boolean {
+  return /(logo|wordmark|header|icon|avatar)/i.test(url.trim());
+}
+
+function parsePxFromImgStyle(style: string | undefined, prop: 'width' | 'height'): number {
+  if (!style) return 0;
+  const re = prop === 'width' ? /width\s*:\s*(\d+)\s*px/i : /height\s*:\s*(\d+)\s*px/i;
+  const m = style.match(re);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+function tagPixelDimensions(tag: string): { w: number; h: number } {
+  const wM = tag.match(/\bwidth\s*=\s*["']?(\d+)/i);
+  const hM = tag.match(/\bheight\s*=\s*["']?(\d+)/i);
+  let w = wM ? parseInt(wM[1], 10) : 0;
+  let h = hM ? parseInt(hM[1], 10) : 0;
+  const styleM = tag.match(/\bstyle\s*=\s*["']([^"']*)["']/i);
+  const style = styleM?.[1];
+  if (style) {
+    if (w <= 0) w = parsePxFromImgStyle(style, 'width');
+    if (h <= 0) h = parsePxFromImgStyle(style, 'height');
+  }
+  return { w, h };
+}
+
+function isTinyImgTagDims(w: number, h: number): boolean {
+  if (w <= 0 && h <= 0) return false;
+  if (w > 0 && h > 0) return Math.max(w, h) <= 80;
+  if (w > 0) return w <= 80;
+  if (h > 0) return h <= 80;
+  return false;
+}
+
+function hasHeroRegionContextBefore(html: string, tagIndex: number): boolean {
+  if (tagIndex < 0) return false;
+  const prefix = html.slice(Math.max(0, tagIndex - 900), tagIndex);
+  return HERO_SECTION_CTX.test(prefix);
+}
+
+/**
+ * Best **grid** hero URL from email HTML — skips wordmarks, tiny (≤80px) images, and logo-like `src` paths;
+ * prefers large dimensions and `class`/`id` context matching hero/banner/feature regions.
+ */
+export function extractHeroImageFromHtml(html: string): string | null {
+  if (!html || typeof html !== 'string') return null;
+
+  const tags = html.match(/<img\b[^>]*>/gi);
+  if (!tags?.length) return null;
+
+  let best: { url: string; score: number } | undefined;
+  let scanIdx = 0;
+
+  for (const tag of tags) {
+    const tagIndex = html.indexOf(tag, scanIdx);
+    scanIdx = tagIndex >= 0 ? tagIndex + 1 : scanIdx + 1;
+    const { w: tw, h: th } = tagPixelDimensions(tag);
+    const heroCtx = hasHeroRegionContextBefore(html, tagIndex);
+
+    for (const part of collectUrlsFromImgTag(tag)) {
+      const rawUrl = part.url;
+      if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) continue;
+      if (isEmailPreviewFallbackHardReject(rawUrl)) continue;
+      if (isLikelyLogo(rawUrl) || imgSrcLooksLikeLogoPath(rawUrl)) continue;
+
+      const w = Math.max(tw, part.widthHint || 0);
+      const h = Math.max(th, part.heightHint || 0);
+      if (isTinyImgTagDims(w, h)) continue;
+
+      let score = Math.max(w, h, 1);
+      if (w > 0 && h > 0) score = w * h;
+      if (heroCtx) score += 250_000;
+      const metaBlob = `${part.alt ?? ''} ${part.className ?? ''}`;
+      if (/hero|banner|feature|main-image|header-image/i.test(metaBlob)) score += 120_000;
+
+      if (!best || score > best.score) best = { url: rawUrl, score };
+    }
+  }
+
+  return best?.url ?? null;
+}
+
+/**
+ * Braze canvas step message: same **card** intent as the campaigns grid — prefer a real hero from
+ * email (or HTML-like) body, and only use `image_url` when its path is not logo-like.
+ */
+export function resolveLifecycleMessageCardImageUrl(
+  message: { html_content?: string; image_url?: string; body?: string } | null | undefined,
+): string | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const raw: Record<string, unknown> = {};
+  const hc = typeof message.html_content === 'string' ? message.html_content.trim() : '';
+  const bd = typeof message.body === 'string' ? message.body.trim() : '';
+  if (hc) raw.html_content = hc;
+  if (
+    bd &&
+    (emailLooksLikeHtml(bd) ||
+      (bd.length >= 48 && /<(?:table|tbody|tr|td|div|center|html|body|img)\b/i.test(bd)))
+  ) {
+    raw.html_body = bd;
+  }
+  const htmlBlob = pickEmailHtmlForGridHeroExtraction(raw);
+  const hero = htmlBlob ? extractHeroImageFromHtml(htmlBlob) : null;
+  const rawImg = typeof message.image_url === 'string' ? message.image_url.trim() : '';
+  const guarded = rawImg && !isLikelyLogo(rawImg) ? normalizeImageUrlString(rawImg) : undefined;
+  return (hero ?? guarded) || undefined;
 }
 
 function collectBackgroundImageUrls(html: string): string[] {
@@ -992,6 +1151,106 @@ export function extractPreviewImageUrl(raw: Record<string, unknown> | null | und
 }
 
 /**
+ * **Grid / list card thumbnails only** — more permissive than {@link extractPreviewImageUrl} (which skips
+ * many Braze/partner URLs and small first-&lt;img&gt; cases so the email modal is not a header logo).
+ * Rejects only obvious tracking/spacers via {@link isEmailPreviewFallbackHardReject}.
+ */
+export function extractPermissiveCardPreviewImageUrl(
+  raw: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+
+  const isCardSuitableUrl = (n: string, meta?: Partial<ImageTagMeta>): boolean => {
+    if (!n || isEmailPreviewFallbackHardReject(n)) return false;
+    if (isLikelyNonHeroImageUrl(n)) return false;
+    if (isLikelyLogoHeaderOrBranding(n, meta)) return false;
+    return true;
+  };
+
+  for (const key of ['preview_image_url', 'image_url', 'thumbnail_url'] as const) {
+    const v = raw[key];
+    if (typeof v !== 'string') continue;
+    const n = normalizeImageUrlString(v.trim());
+    if (n && isCardSuitableUrl(n)) return n;
+  }
+
+  const messages = raw.messages as Record<string, unknown> | undefined;
+  if (messages && typeof messages === 'object') {
+    for (const msg of Object.values(messages)) {
+      if (!msg || typeof msg !== 'object') continue;
+      for (const candidate of imageUrlCandidatesFromMessageDeep(msg as Record<string, unknown>)) {
+        const n = normalizeImageUrlString(candidate);
+        if (n && isCardSuitableUrl(n)) return n;
+      }
+    }
+  }
+
+  let htmlBlob =
+    pickBestEmailHtmlString(raw) ?? pickLongestRelaxedEmailMarkupFragment(raw) ?? undefined;
+  if (!htmlBlob && typeof raw.email_html_preview === 'string') {
+    const ep = raw.email_html_preview.trim();
+    // Short sync snippets can still contain the hero `<img>` (strict/relaxed picks require longer blobs).
+    if (ep.length >= 20 && /<img\b/i.test(ep)) htmlBlob = ep;
+  }
+  if (!htmlBlob) return undefined;
+
+  // Card surface: never use header-logo fallback (that is what surfaces Linktree wordmarks on the grid).
+  const fromHero = pickBestImageUrlFromHtml(htmlBlob, { emailHeaderLogoFallback: false });
+  if (fromHero?.url && isCardSuitableUrl(fromHero.url)) return fromHero.url;
+
+  const allImgTags = htmlBlob.match(/<img\b[^>]*>/gi) ?? [];
+  const hasMultipleImgTags = allImgTags.length >= 2;
+  let imgTagIndex = 0;
+  let bestCard: { url: string; score: number } | undefined;
+  for (const tag of allImgTags) {
+    const wM = tag.match(/\bwidth\s*=\s*["']?(\d+)/i);
+    const hM = tag.match(/\bheight\s*=\s*["']?(\d+)/i);
+    const w = wM ? parseInt(wM[1], 10) : 0;
+    const h = hM ? parseInt(hM[1], 10) : 0;
+    const altM = tag.match(/\balt\s*=\s*["']([^"']*)["']/i);
+    const classM = tag.match(/\bclass\s*=\s*["']([^"']*)["']/i);
+    const alt = altM?.[1]?.trim();
+    const className = classM?.[1]?.trim();
+    for (const p of collectUrlsFromImgTag(tag)) {
+      const n = normalizeImageUrlString(p.url);
+      if (!n || !(n.startsWith('http://') || n.startsWith('https://'))) continue;
+      if (isEmailPreviewFallbackHardReject(n)) continue;
+      const meta: Partial<ImageTagMeta> = {
+        widthHint: w,
+        heightHint: h,
+        alt,
+        className,
+        index: imgTagIndex,
+      };
+      if (isLikelyNonHeroImageUrl(n)) continue;
+      if (isLikelyLogoHeaderOrBranding(n, meta)) continue;
+      if (imgTagIndex === 0 && isLinktreeHostname(n)) continue;
+      if (hasMultipleImgTags && imgTagIndex === 0 && isStripoEmailCdnHostname(n)) continue;
+      const score = contentImageMeritScore(n, meta);
+      if (!bestCard || score > bestCard.score) bestCard = { url: n, score };
+    }
+    imgTagIndex++;
+  }
+  if (bestCard) return bestCard.url;
+
+  let bgIdx = 0;
+  for (const u of collectBackgroundImageUrls(htmlBlob)) {
+    const n = normalizeImageUrlString(u);
+    if (!n || isEmailPreviewFallbackHardReject(n)) continue;
+    const meta: Partial<ImageTagMeta> = { widthHint: 400, heightHint: 300, index: allImgTags.length + bgIdx };
+    bgIdx++;
+    if (isLikelyNonHeroImageUrl(n)) continue;
+    if (isLikelyLogoHeaderOrBranding(n, meta)) continue;
+    if (isLinktreeHostname(n)) continue;
+    const score = contentImageMeritScore(n, meta);
+    if (!bestCard || score > bestCard.score) bestCard = { url: n, score };
+  }
+  if (bestCard) return bestCard.url;
+
+  return undefined;
+}
+
+/**
  * Prefer the campaign view-model URL; if missing, re-parse `raw_details` (e.g. after sync shape changes).
  */
 export function resolveCampaignPreviewImageUrl(
@@ -1001,7 +1260,10 @@ export function resolveCampaignPreviewImageUrl(
   const fromUpload = typeof rawRow?.image_url === 'string' ? rawRow.image_url.trim() : '';
   if (fromUpload) return fromUpload;
   if (rawRow?.raw_details != null && typeof rawRow.raw_details === 'object') {
-    const fromParsed = extractPreviewImageUrl(rawRow.raw_details as Record<string, unknown>);
+    const rd = rawRow.raw_details as Record<string, unknown>;
+    const permissive = extractPermissiveCardPreviewImageUrl(rd);
+    if (permissive) return permissive;
+    const fromParsed = extractPreviewImageUrl(rd);
     if (fromParsed) return fromParsed;
   }
   const trimmed = typeof campaign?.preview_image_url === 'string' ? campaign.preview_image_url.trim() : '';

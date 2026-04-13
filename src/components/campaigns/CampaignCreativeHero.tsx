@@ -127,14 +127,14 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
   /** Card (non-grid): dimming gradient + icon + caption over image. */
   const showCardStyleImageOverlay = showImg && !isModal && !gridThumbnail;
 
-  const firstPageEager =
-    typeof listPageIndex === 'number' && listPageIndex < 24;
-  const topBandHigh =
+  /** Align with `headLinkPreloadUrls` (first five on page): eager decode + high priority. */
+  const aboveFoldEager =
     typeof listPageIndex === 'number' && listPageIndex < 5;
-  const loadingAttr = eagerImage || firstPageEager ? 'eager' : 'lazy';
-  const fetchPriorityAttr = eagerImage || topBandHigh ? ('high' as const) : ('low' as const);
+  const loadingAttr = eagerImage || aboveFoldEager ? 'eager' : 'lazy';
+  const fetchPriorityAttr: 'high' | 'low' =
+    eagerImage || (typeof listPageIndex === 'number' && listPageIndex < 3) ? 'high' : 'low';
 
-  /** Grid: always show channel icon; never stack on an image (grid has no image). */
+  /** Footer caption: hidden for `gridThumbnail` when an image is shown; otherwise card/modal rules. */
   const showFooterOverlay =
     (!isModal || modalShowPlaceholder) &&
     !modalImageLoading &&
@@ -160,7 +160,21 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
         aria-hidden
       />
       {showImg && !imgLoaded && !imgFailed && (
-        <Skeleton className="pointer-events-none absolute inset-0 z-[1] rounded-none opacity-40" aria-hidden />
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 z-[1] overflow-hidden',
+            isModal ? 'rounded-xl' : 'rounded-t-lg',
+          )}
+          aria-hidden
+        >
+          <div
+            className={cn(
+              'absolute inset-0 scale-110 bg-gradient-to-br from-muted via-muted/70 to-muted blur-2xl',
+              'motion-safe:animate-pulse',
+            )}
+          />
+          <Skeleton className="absolute inset-0 rounded-none opacity-50 motion-safe:animate-pulse" />
+        </div>
       )}
 
       {showImg && url && imgSrc && (

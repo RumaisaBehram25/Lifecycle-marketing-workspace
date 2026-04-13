@@ -1,0 +1,22 @@
+{
+  "mode": "live",
+  "canvasesScanned": 2041,
+  "jsonExtractedUniqueUrls": 219,
+  "htmlExtractedUniqueUrls": 2788,
+  "combinedUniqueUrls": 3007,
+  "canvasesWithMigratableUrls": 383,
+  "uniqueMigratableUrlsFound": 1094,
+  "migrateBrazeCdn": true,
+  "imagesDownloadedOk": 1094,
+  "imagesUploadedToS3": 1094,
+  "fetchFailures": 0,
+  "s3Failures": 0,
+  "dbRowsUpdated": 383,
+  "dbRowsSkippedNoUrls": 1658,
+  "dbRowsSkippedNoMapping": 0,
+  "dbRowsSkippedUnchanged": 0,
+  "dbUpdateFailures": 0,
+  "at": "2026-04-13T20:19:37.092Z",
+  "remainingMigratableUrlOccurrencesAfter": 0,
+  "remainingUniqueMigratableUrlsAfter": 0
+}

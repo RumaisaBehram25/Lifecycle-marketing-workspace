@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { plainTextPreviewFromBrazeMessageBody } from '@/lib/brazeMessagePreviewText';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { prefetchLifecycleJourneyImageUrls, preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
+import { collectOrderedTouchpointImageUrls } from '@/lib/lifecycleCanvasImageUrls';
+import { resolveLifecycleMessageCardImageUrl } from '@/lib/campaignDisplay';
 import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -154,6 +158,7 @@ function pickBestMessage(step: CanvasStep) {
 function CreativePreview({ step }: { step: CanvasStep }) {
   const channel = normalizeChannel(step.channel);
   const message = pickBestMessage(step);
+  const resolvedCardImage = message ? resolveLifecycleMessageCardImageUrl(message) : undefined;
   const colors = getChannelColors(channel);
   
   if (channel === 'email') {
@@ -171,17 +176,28 @@ function CreativePreview({ step }: { step: CanvasStep }) {
           )}
         </div>
         <div className="relative flex-1 overflow-hidden bg-background">
-          {message?.html_content ? (
+          {resolvedCardImage ? (
+            <img
+              src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
+              alt=""
+              width={640}
+              height={360}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
+            />
+          ) : message?.html_content ? (
             <iframe
               title={message?.subject || step.name}
-              className="absolute inset-0 border-0 origin-top-left scale-[0.35] w-[286%] h-[286%]"
+              className="absolute inset-0 z-0 border-0 origin-top-left scale-[0.35] w-[286%] h-[286%]"
               sandbox=""
-              loading="lazy"
+              loading="eager"
               srcDoc={sanitizeHtml(message.html_content)}
             />
           ) : message?.body ? (
             <div className="p-2 text-sm text-foreground leading-relaxed">
-              <p>{message.body}</p>
+              <p>{plainTextPreviewFromBrazeMessageBody(message.body)}</p>
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground">
@@ -212,7 +228,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               <p className="font-semibold text-xs mt-0.5">{message?.title || step.name}</p>
               {message?.body && (
                 <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                  {message.body}
+                  {plainTextPreviewFromBrazeMessageBody(message.body)}
                 </p>
               )}
             </div>
@@ -241,13 +257,26 @@ function CreativePreview({ step }: { step: CanvasStep }) {
             <span className="text-sm font-medium">In-App Message</span>
           </div>
           <div className="relative flex-1 overflow-hidden bg-background">
-            <iframe
-              title={message?.title || step.name}
-              className="absolute inset-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
-              sandbox=""
-              loading="lazy"
-              srcDoc={sanitizeHtml(bodyContent)}
-            />
+            {resolvedCardImage ? (
+              <img
+                src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
+                alt=""
+                width={640}
+                height={360}
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
+              />
+            ) : (
+              <iframe
+                title={message?.title || step.name}
+                className="absolute inset-0 z-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
+                sandbox=""
+                loading="eager"
+                srcDoc={sanitizeHtml(bodyContent)}
+              />
+            )}
           </div>
         </div>
       );
@@ -261,10 +290,11 @@ function CreativePreview({ step }: { step: CanvasStep }) {
           <p className="text-xs font-semibold text-primary truncate text-center">{step.name}</p>
         </div>
         <div className="w-full bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center shadow-lg">
-          {message?.image_url ? (
+          {resolvedCardImage ? (
             <img
-              src={campaignImageDisplayUrl(message.image_url, 'thumbnail') ?? message.image_url}
+              src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
+              fetchPriority="high"
               className="w-20 h-20 object-cover rounded-xl mx-auto mb-5"
             />
           ) : (
@@ -274,7 +304,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
           )}
           <h4 className="font-bold text-lg line-clamp-2">{message?.title || step.name}</h4>
           <p className="text-sm text-muted-foreground mt-3 line-clamp-4">
-            {message?.body || 'In-app message content will appear here'}
+            {plainTextPreviewFromBrazeMessageBody(message?.body) || 'In-app message content will appear here'}
           </p>
           {message?.buttons?.[0] ? (
             <Button size="sm" className="mt-5">{message.buttons[0].text}</Button>
@@ -312,7 +342,9 @@ function CreativePreview({ step }: { step: CanvasStep }) {
             <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
             <p className="text-sm font-medium">SMS</p>
           </div>
-          <p className="text-base leading-relaxed">{message?.body || step.name}</p>
+          <p className="text-base leading-relaxed">
+            {plainTextPreviewFromBrazeMessageBody(message?.body) || step.name}
+          </p>
         </div>
         <p className="text-sm text-muted-foreground mt-5 font-medium">SMS Message</p>
       </div>
@@ -504,12 +536,18 @@ function StepCard({
   if (isDelayOnlyStep(step) || isBranchOnlyStep(step) || isNonMessagingStep(step)) {
     return null;
   }
+
+  const warmImageUrl = (() => {
+    const m = pickBestMessage(step);
+    return m ? resolveLifecycleMessageCardImageUrl(m) : undefined;
+  })();
   
   return (
     <div className="flex flex-col w-[280px] flex-shrink-0">
       <Card 
         className={`cursor-pointer hover:shadow-xl transition-all border-2 ${colors.border} overflow-hidden hover:scale-[1.02]`}
         onClick={onClick}
+        onPointerEnter={() => preloadHoveredCampaignImage(warmImageUrl)}
       >
         <CardContent className="p-0">
           <CreativePreview step={step} />
@@ -696,6 +734,15 @@ function VariantRow({
     }
     return result;
   }, [path]);
+
+  /** Path-ordered prefetch so the first visible cards hit cache before deeper scroll (S3 / CDN). */
+  useEffect(() => {
+    if (!isOpen) return;
+    const ordered = stepsWithMetadata.map((x) => x.step);
+    const urls = collectOrderedTouchpointImageUrls(ordered);
+    if (urls.length === 0) return;
+    prefetchLifecycleJourneyImageUrls(urls);
+  }, [isOpen, stepsWithMetadata, variant.first_step_id]);
   
   const isControl = variant.name.toLowerCase().includes('control');
   
@@ -778,7 +825,7 @@ function VariantRow({
 export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartProps) {
   const hasVariants = canvas.variants && canvas.variants.length > 0;
   const hasSteps = canvas.steps && Object.keys(canvas.steps).length > 0;
-  
+
   // Split modal state
   const [selectedSplit, setSelectedSplit] = useState<CanvasStep | null>(null);
   
@@ -1054,7 +1101,9 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
                                             <div className="text-xs space-y-1.5">
                                               <p className="font-semibold line-clamp-2">{msg?.title || step.name}</p>
                                               {msg?.body && (
-                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">{msg.body}</p>
+                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">
+                                                  {plainTextPreviewFromBrazeMessageBody(msg.body)}
+                                                </p>
                                               )}
                                             </div>
                                           );
@@ -1065,7 +1114,9 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
                                             <div className="text-xs space-y-1.5">
                                               <p className="font-semibold line-clamp-2">{msg?.title || step.name}</p>
                                               {msg?.body && !msg.body.startsWith('<') && (
-                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">{msg.body}</p>
+                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">
+                                                  {plainTextPreviewFromBrazeMessageBody(msg.body)}
+                                                </p>
                                               )}
                                             </div>
                                           );
@@ -1126,7 +1177,8 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
 function LargeCreativePreview({ step }: { step: CanvasStep }) {
   const channel = normalizeChannel(step.channel);
   const message = pickBestMessage(step);
-  
+  const resolvedCardImage = message ? resolveLifecycleMessageCardImageUrl(message) : undefined;
+
   if (channel === 'email') {
     return (
       <div className="flex flex-col h-full">
@@ -1141,20 +1193,32 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <p className="text-sm text-muted-foreground mt-1">{message.preheader}</p>
           )}
         </div>
-        <div className="flex-1 bg-white min-h-[500px]">
-          {message?.html_content ? (
+        <div className="relative flex-1 min-h-[500px] bg-white">
+          {resolvedCardImage ? (
+            <img
+              src={campaignImageDisplayUrl(resolvedCardImage, 'detail') ?? resolvedCardImage}
+              alt=""
+              width={800}
+              height={450}
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="h-full min-h-[500px] w-full object-contain object-top"
+            />
+          ) : message?.html_content ? (
             <iframe
               title={message?.subject || step.name}
-              className="w-full h-[500px] border-0"
+              className="h-[500px] w-full border-0"
               sandbox=""
+              loading="eager"
               srcDoc={sanitizeHtml(message.html_content)}
             />
           ) : message?.body ? (
             <div className="p-4 text-foreground leading-relaxed">
-              <p>{message.body}</p>
+              <p>{plainTextPreviewFromBrazeMessageBody(message.body)}</p>
             </div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground p-8">
+            <div className="flex h-full min-h-[500px] flex-col items-center justify-center p-8 text-center text-muted-foreground">
               <Mail className="h-16 w-16 mb-4 opacity-30" />
               <p className="text-lg font-medium">{step.name}</p>
               <p className="text-sm mt-2">No email content available</p>
@@ -1179,7 +1243,9 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
               <p className="text-xs text-muted-foreground">Linktree • now</p>
               <p className="font-semibold text-base mt-1 line-clamp-2">{message?.title || step.name}</p>
               {message?.body && (
-                <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3">{message.body}</p>
+                <p className="text-sm text-muted-foreground mt-1.5 line-clamp-3">
+                  {plainTextPreviewFromBrazeMessageBody(message.body)}
+                </p>
               )}
             </div>
           </div>
@@ -1200,13 +1266,27 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <Smartphone className="h-4 w-4 text-primary" />
             <span className="font-medium">In-App Message</span>
           </div>
-          <div className="flex-1 bg-white min-h-[500px]">
-            <iframe
-              title={message?.title || step.name}
-              className="w-full h-[500px] border-0"
-              sandbox=""
-              srcDoc={sanitizeHtml(bodyContent)}
-            />
+          <div className="relative flex-1 min-h-[500px] bg-white">
+            {resolvedCardImage ? (
+              <img
+                src={campaignImageDisplayUrl(resolvedCardImage, 'detail') ?? resolvedCardImage}
+                alt=""
+                width={800}
+                height={450}
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                className="h-full min-h-[500px] w-full object-contain object-top"
+              />
+            ) : (
+              <iframe
+                title={message?.title || step.name}
+                className="h-[500px] w-full border-0"
+                sandbox=""
+                loading="eager"
+                srcDoc={sanitizeHtml(bodyContent)}
+              />
+            )}
           </div>
         </div>
       );
@@ -1215,10 +1295,11 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
     return (
       <div className="flex flex-col items-center justify-center p-8 min-h-[400px]">
         <div className="w-full max-w-sm bg-gradient-to-br from-card to-primary/5 border-2 border-primary/30 rounded-2xl p-8 text-center shadow-lg">
-          {message?.image_url ? (
+          {resolvedCardImage ? (
             <img
-              src={campaignImageDisplayUrl(message.image_url, 'thumbnail') ?? message.image_url}
+              src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
+              fetchPriority="high"
               className="w-24 h-24 object-cover rounded-xl mx-auto mb-6"
             />
           ) : (
@@ -1228,7 +1309,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
           )}
           <h4 className="font-bold text-xl">{message?.title || step.name}</h4>
           <p className="text-muted-foreground mt-3">
-            {message?.body || 'In-app message content'}
+            {plainTextPreviewFromBrazeMessageBody(message?.body) || 'In-app message content'}
           </p>
           {message?.buttons?.[0] && (
             <Button className="mt-6">{message.buttons[0].text}</Button>
@@ -1259,7 +1340,9 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <MessageSquare className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
             <p className="font-medium">SMS</p>
           </div>
-          <p className="text-lg leading-relaxed">{message?.body || step.name}</p>
+          <p className="text-lg leading-relaxed">
+            {plainTextPreviewFromBrazeMessageBody(message?.body) || step.name}
+          </p>
         </div>
         <p className="text-sm text-muted-foreground mt-6 font-medium">SMS Message</p>
       </div>

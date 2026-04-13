@@ -1,0 +1,10 @@
+{
+  "patched_rows_count": 0,
+  "newly_migrated_urls_count": 0,
+  "skipped_s3_head_existing": 121,
+  "still_remaining_legacy_after_run": 32,
+  "canvas_ids_considered": 32,
+  "dryRun": false,
+  "migrateBrazeCdn": true,
+  "at": "2026-04-13T22:11:48.055Z"
+}

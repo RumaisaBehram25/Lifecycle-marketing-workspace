@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import { plainTextPreviewFromBrazeMessageBody } from '@/lib/brazeMessagePreviewText';
 import { sanitizeHtml } from '@/lib/sanitizeHtml';
 import { BRAZE_CANVASES_LIST_SELECT } from '@/lib/brazeCanvasesListSelect';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
@@ -70,6 +71,8 @@ import {
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
+import { preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
+import { pickJourneyGridHeroPreviewUrl } from '@/lib/lifecycleCanvasImageUrls';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatBrazeSyncInvokeError } from '@/lib/brazeSyncInvoke';
@@ -90,6 +93,7 @@ import { BRCGIcon } from '@/components/BRCGLogo';
 import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
 import {
   normalizeCampaignChannel,
+  resolveLifecycleMessageCardImageUrl,
   stripBrazeLiquidForDisplay,
   type CampaignChannelUi,
 } from '@/lib/campaignDisplay';
@@ -301,20 +305,23 @@ function LifecycleMetricTile({
   );
 }
 
-/** Warm the browser image cache for all step creative images in a canvas's raw_steps. */
+/** Warm the browser image cache for step creatives (hero from HTML when available, else non-logo image_url). */
 function preloadJourneyStepImages(rawSteps: unknown): void {
   if (!rawSteps || typeof rawSteps !== 'object') return;
+  const warmed = new Set<string>();
   for (const step of Object.values(rawSteps as Record<string, unknown>)) {
     if (!step || typeof step !== 'object') continue;
     const s = step as Record<string, unknown>;
     const messages = Array.isArray(s.messages) ? s.messages : [];
     for (const msg of messages) {
       if (!msg || typeof msg !== 'object') continue;
-      const imageUrl = typeof (msg as Record<string, unknown>).image_url === 'string'
-        ? ((msg as Record<string, unknown>).image_url as string).trim()
-        : '';
-      if (!imageUrl) continue;
-      const src = campaignImageDisplayUrl(imageUrl, 'thumbnail') ?? imageUrl;
+      const resolved = resolveLifecycleMessageCardImageUrl(
+        msg as { html_content?: string; image_url?: string; body?: string },
+      );
+      if (!resolved) continue;
+      const src = campaignImageDisplayUrl(resolved, 'thumbnail') ?? resolved;
+      if (warmed.has(src)) continue;
+      warmed.add(src);
       const img = new Image();
       img.decoding = 'async';
       img.src = src;
@@ -1177,11 +1184,12 @@ export default function Lifecycle() {
                     </p>
                   </div>
                 ) : (
-                  paginatedJourneys.map((journey) => (
+                  paginatedJourneys.map((journey, journeyIdx) => (
                     <JourneyCard
                       key={journey.dbId}
                       journey={journey}
                       viewMode={viewMode}
+                      listPageIndex={viewMode === 'grid' ? journeyIdx : undefined}
                       onClick={() => setSelectedJourney(journey)}
                       onPointerEnter={() => {
                         const journeyDbId = String(journey.dbId ?? journey.id ?? '');
@@ -1387,7 +1395,7 @@ export default function Lifecycle() {
                       </div>
                     ) : message?.body ? (
                       <div className="p-4 border rounded-lg bg-card">
-                        <p className="text-sm">{message.body}</p>
+                        <p className="text-sm">{plainTextPreviewFromBrazeMessageBody(message.body)}</p>
                       </div>
                     ) : (
                       <div className="text-center py-8 bg-muted/20 rounded-lg border border-dashed">
@@ -1414,7 +1422,9 @@ export default function Lifecycle() {
                             </p>
                             {(message?.body || selectedTouchpoint.body) && (
                               <p className="text-sm text-muted-foreground line-clamp-3 mt-1">
-                                {message?.body || selectedTouchpoint.body}
+                                {plainTextPreviewFromBrazeMessageBody(
+                                  message?.body || selectedTouchpoint.body,
+                                )}
                               </p>
                             )}
                           </div>
@@ -1449,7 +1459,11 @@ export default function Lifecycle() {
                             <h4 className="font-bold text-lg">
                               {message?.title || selectedTouchpoint.title || selectedTouchpoint.name}
                             </h4>
-                            {bodyContent && <p className="text-sm text-muted-foreground mt-2">{bodyContent}</p>}
+                            {bodyContent && (
+                              <p className="text-sm text-muted-foreground mt-2">
+                                {plainTextPreviewFromBrazeMessageBody(bodyContent)}
+                              </p>
+                            )}
                             <Button className="mt-4" size="sm">
                               {message?.buttons?.[0]?.text || 'Take Action'}
                             </Button>
@@ -1464,7 +1478,11 @@ export default function Lifecycle() {
                 {channel === 'sms' && (
                   <div className="max-w-sm mx-auto">
                     <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4">
-                      <p className="text-sm">{message?.body || selectedTouchpoint.body || 'SMS message content'}</p>
+                      <p className="text-sm">
+                        {plainTextPreviewFromBrazeMessageBody(
+                          message?.body || selectedTouchpoint.body,
+                        ) || 'SMS message content'}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -1563,7 +1581,20 @@ function journeyCardChannelPillList(channels: string[] | undefined): Array<{
 }
 
 // Journey Card Component — Campaigns-style hero + touchpoints + per-channel pills + View journey
-function JourneyCard({ journey, viewMode, onClick, onPointerEnter }: { journey: any; viewMode: 'grid' | 'list'; onClick: () => void; onPointerEnter?: () => void }) {
+function JourneyCard({
+  journey,
+  viewMode,
+  listPageIndex,
+  onClick,
+  onPointerEnter,
+}: {
+  journey: any;
+  viewMode: 'grid' | 'list';
+  /** Grid only: first rows get eager image hints (same pattern as Campaigns). */
+  listPageIndex?: number;
+  onClick: () => void;
+  onPointerEnter?: () => void;
+}) {
   const titleText = String(journey.displayName || journey.name || 'Journey');
   const titleForVisual = String(journey.name ?? journey.displayName ?? '');
   const { Icon: TitleIcon, gradient: titleGradient, shadow: titleShadow, heroSurface } =
@@ -1573,6 +1604,14 @@ function JourneyCard({ journey, viewMode, onClick, onPointerEnter }: { journey: 
   const primaryCh = journeyCardPrimaryUiChannel(channels);
   const dateLabel = journeyCardDateLabel(journey);
   const stepsRecord = normalizeRawSteps(journey.steps) as Record<string, LifecycleCanvasStep>;
+  const journeyGridPreviewUrl = useMemo(
+    () =>
+      pickJourneyGridHeroPreviewUrl(
+        stepsRecord,
+        (journey.variants ?? []) as ReadonlyArray<{ first_step_id: string | null }>,
+      ),
+    [stepsRecord, journey.variants],
+  );
   const stepBadge = formatLifecycleStepBadge(
     stepsRecord,
     (journey as { db_total_steps?: number }).db_total_steps,
@@ -1651,7 +1690,10 @@ function JourneyCard({ journey, viewMode, onClick, onPointerEnter }: { journey: 
         className={cn(
           'group flex cursor-pointer flex-col overflow-hidden border-border/70 transition-all duration-200 hover:border-teal-500/35 hover:shadow-lg motion-safe:hover:-translate-y-0.5 dark:hover:border-teal-400/25',
         )}
-        onPointerEnter={onPointerEnter}
+        onPointerEnter={() => {
+          onPointerEnter?.();
+          if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
+        }}
         onClick={open}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -1706,7 +1748,10 @@ function JourneyCard({ journey, viewMode, onClick, onPointerEnter }: { journey: 
       className={cn(
         'group flex h-full min-h-0 cursor-pointer flex-col overflow-hidden border-border/70 transition-all duration-200 hover:border-teal-500/35 hover:shadow-lg motion-safe:hover:-translate-y-0.5 dark:hover:border-teal-400/25',
       )}
-      onPointerEnter={onPointerEnter}
+      onPointerEnter={() => {
+        onPointerEnter?.();
+        if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
+      }}
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -1718,8 +1763,10 @@ function JourneyCard({ journey, viewMode, onClick, onPointerEnter }: { journey: 
       <CampaignCreativeHero
         channel={primaryCh}
         previewText={previewLine}
+        previewImageUrl={journeyGridPreviewUrl}
         campaignName={titleText}
         variant="card"
+        listPageIndex={listPageIndex}
         journeyPlaceholder={{
           surfaceGradient: heroSurface,
           largeIcon: <TitleIcon className="h-8 w-8 text-white drop-shadow" strokeWidth={2} aria-hidden />,
