@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ImageIcon, ImageOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -93,6 +93,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
   const [imgLoaded, setImgLoaded] = useState(false);
   /** 0 = optimized display URL; 1 = plain Supabase object URL (no transform); 2 = raw `display` from Braze/DB. */
   const [imgFallbackTier, setImgFallbackTier] = useState(0);
+  const imgRef = useRef<HTMLImageElement>(null);
   const [iframeFailed, setIframeFailed] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
 
@@ -128,7 +129,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
   const useHtmlBranchUnderHero =
     Boolean(useImageBranch && hasHtml && !iframeFailed && !htmlOnly);
   const showIframe = useHtmlBranchPrimary || useHtmlBranchUnderHero;
-  const showImgSkeleton = Boolean(useImageBranch && display && !imgLoaded && !useHtmlBranchUnderHero);
+  const showImgSkeleton = Boolean(useImageBranch && display && !imgLoaded);
   /** Full HTML email preview (not the stacked “HTML under hero image” path). */
   const useFullEmailHtmlPreview = Boolean(showIframe && hasHtml && !useHtmlBranchUnderHero);
 
@@ -139,9 +140,12 @@ export const EmailModalCreative = memo(function EmailModalCreative({
     setIframeLoaded(true);
   }, []);
 
-  useEffect(() => {
+  // Run before paint so that images already in the browser cache (from preloading) are shown
+  // immediately without a skeleton flash. img.complete is true synchronously for cached images.
+  useLayoutEffect(() => {
+    const alreadyLoaded = Boolean(imgRef.current?.complete && (imgRef.current?.naturalWidth ?? 0) > 0);
     setImgFailed(false);
-    setImgLoaded(false);
+    setImgLoaded(alreadyLoaded);
     setImgFallbackTier(0);
     setIframeFailed(false);
     setIframeLoaded(false);
@@ -229,27 +233,26 @@ export const EmailModalCreative = memo(function EmailModalCreative({
 
         {showIframe && iframeDoc && useFullEmailHtmlPreview && (
           <div className="relative z-[4] w-full">
-            {!iframeLoaded && (
-              <Skeleton
-                className="pointer-events-none mx-auto mb-2 block min-h-[min(280px,40dvh)] w-full max-w-[600px] rounded-md"
-                aria-hidden
-              />
-            )}
             <div
               className="relative mx-auto bg-white"
               style={{ maxWidth: EMAIL_PREVIEW_MAX_WIDTH_PX }}
             >
+              {!iframeLoaded && (
+                <Skeleton
+                  className="pointer-events-none absolute inset-0 z-[2] rounded-none opacity-50"
+                  style={{ minHeight: 'min(280px, 40dvh)' }}
+                  aria-hidden
+                />
+              )}
               <iframe
                 title="Email HTML preview"
                 sandbox="allow-same-origin"
                 scrolling="no"
                 srcDoc={iframeDoc}
-                className={cn(
-                  'relative z-[1] block w-full min-w-0 border-0 bg-white transition-opacity duration-300',
-                  iframeLoaded ? 'opacity-100' : 'min-h-[min(280px,40dvh)] opacity-0',
-                )}
+                className="relative z-[1] block w-full min-w-0 border-0 bg-white"
                 style={{
                   maxWidth: EMAIL_PREVIEW_MAX_WIDTH_PX,
+                  minHeight: iframeLoaded ? undefined : 'min(280px, 40dvh)',
                   overflow: 'hidden',
                   pointerEvents: 'none',
                 }}
@@ -261,45 +264,65 @@ export const EmailModalCreative = memo(function EmailModalCreative({
         )}
 
         {showIframe && iframeDoc && useHtmlBranchUnderHero && (
-          <div className="relative z-[1] w-full">
-            {!iframeLoaded && (
-              <Skeleton className="pointer-events-none absolute inset-0 z-0 min-h-[240px] rounded-none" aria-hidden />
+          <div className="relative z-[1] flex w-full flex-col overflow-hidden rounded-t-xl">
+            {useImageBranch && display && imgSrc && (
+              <div className="relative flex w-full shrink-0 justify-center border-b border-border/60 bg-muted/30 px-2 py-2">
+                {showImgSkeleton && (
+                  <Skeleton
+                    className="pointer-events-none absolute inset-x-2 inset-y-2 z-[1] max-h-[min(240px,36dvh)] min-h-[96px] w-[calc(100%-1rem)] max-w-[600px] rounded-md opacity-40"
+                    aria-hidden
+                  />
+                )}
+                <img
+                  ref={imgRef}
+                  key={`${imgFallbackTier}-${imgSrc ?? ''}`}
+                  src={imgSrc}
+                  alt=""
+                  width={920}
+                  height={400}
+                  loading="eager"
+                  decoding="async"
+                  fetchpriority="high"
+                  className={cn(
+                    'relative z-[2] mx-auto block h-auto w-full max-w-full object-contain object-top transition-opacity duration-300 ease-out',
+                    'max-h-[min(240px,36dvh)]',
+                    imgLoaded ? 'opacity-100' : 'opacity-0',
+                  )}
+                  onLoad={() => setImgLoaded(true)}
+                  onError={onHeroImgError}
+                />
+              </div>
             )}
-            <iframe
-              title="Email HTML preview"
-              sandbox="allow-same-origin"
-              scrolling="no"
-              srcDoc={iframeDoc}
-              className={cn(
-                'relative z-[2] block w-full min-w-0 border-0 bg-white transition-opacity duration-300',
-                iframeLoaded ? 'opacity-100' : 'min-h-[240px] opacity-0',
-              )}
-              style={{ width: '100%', overflow: 'hidden', pointerEvents: 'none' }}
-              onLoad={onIframeLoad}
-              onError={() => setIframeFailed(true)}
-            />
+            <div
+              className="relative mx-auto w-full bg-white"
+              style={{ maxWidth: EMAIL_PREVIEW_MAX_WIDTH_PX }}
+            >
+              <iframe
+                title="Email HTML preview"
+                sandbox="allow-same-origin"
+                scrolling="no"
+                srcDoc={iframeDoc}
+                className="relative z-[1] block w-full min-w-0 border-0 bg-white"
+                style={{
+                  maxWidth: EMAIL_PREVIEW_MAX_WIDTH_PX,
+                  minHeight: iframeLoaded ? undefined : 'min(200px, 28dvh)',
+                  overflow: 'hidden',
+                  pointerEvents: 'none',
+                }}
+                onLoad={onIframeLoad}
+                onError={() => setIframeFailed(true)}
+              />
+            </div>
           </div>
         )}
 
-        {useImageBranch && display && imgSrc && (
-          <div
-            className={cn(
-              'relative z-[3] w-full',
-              useHtmlBranchUnderHero &&
-                'pointer-events-none absolute inset-x-0 top-0 flex justify-center bg-gradient-to-b from-transparent to-muted/20',
-              !useHtmlBranchUnderHero && 'block',
-            )}
-          >
+        {useImageBranch && display && imgSrc && !useHtmlBranchUnderHero && (
+          <div className="relative z-[3] block w-full">
             {showImgSkeleton && (
-              <Skeleton
-                className={cn(
-                  'rounded-none',
-                  useHtmlBranchUnderHero ? 'absolute inset-0 min-h-[200px]' : 'block min-h-[200px] w-full',
-                )}
-                aria-hidden
-              />
+              <Skeleton className="block min-h-[200px] w-full rounded-none" aria-hidden />
             )}
             <img
+              ref={imgRef}
               key={`${imgFallbackTier}-${imgSrc ?? ''}`}
               src={imgSrc}
               alt=""
@@ -310,7 +333,7 @@ export const EmailModalCreative = memo(function EmailModalCreative({
               fetchpriority="high"
               className={cn(
                 'relative z-[2] block h-auto w-full max-w-full object-contain object-top transition-opacity duration-300 ease-out',
-                useHtmlBranchUnderHero && 'max-w-full',
+                'max-h-[360px]',
                 imgLoaded ? 'opacity-100' : 'opacity-0',
               )}
               onLoad={() => setImgLoaded(true)}

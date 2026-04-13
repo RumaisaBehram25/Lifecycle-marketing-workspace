@@ -64,10 +64,7 @@ import {
   startOfYear,
 } from 'date-fns';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
-import {
-  isCampaignBucketPreloadEnabled,
-} from '@/lib/campaignCreativeImageUrl';
-import { preloadCampaignImages } from '@/lib/campaignImagePreload';
+import { preloadCampaignImages, preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -88,6 +85,7 @@ import {
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
   resolveEmailModalPreview,
+  getModalOptimizedImageUrl,
   isRawDetailsEmpty,
   sanitizeCampaignDisplayText,
   sanitizeCampaignDisplayWithMeta,
@@ -569,6 +567,8 @@ export default function Campaigns() {
   const [sortBy, setSortBy] = useState<CampaignSortKey>('data_desc');
   const [page, setPage] = useState(1);
   const [syncing, setSyncing] = useState(false);
+  /** preview_image_url from Braze creative fetches — supplements DB thumbnails for campaigns missing images in raw_details. */
+  const [creativeThumbnailCache, setCreativeThumbnailCache] = useState<Map<string, string>>(() => new Map());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -704,7 +704,10 @@ export default function Campaigns() {
 
   const campaigns: CampaignViewModel[] = useMemo(() => {
     if (showLiveCampaigns) {
-      if (isLoading) return [];
+      // Only clear the list before the first successful fetch. During background refetch
+      // `isLoading` can be true while `dbCampaigns` still holds the previous page — returning []
+      // here made `totalPages` drop to 1 and the pagination effect forced the user back to page 1.
+      if (isLoading && dbCampaigns === undefined) return [];
 
       const dbRows = Array.isArray(dbCampaigns) ? dbCampaigns : [];
       if (dbRows.length > 0) {
@@ -878,8 +881,11 @@ export default function Campaigns() {
   }, [searchQuery, channelFilter, dateFilter, sortBy]);
 
   useEffect(() => {
+    // Avoid clamping while the list is empty (e.g. brief refetch / connection flicker): that would
+    // set `totalPages` to 1 and force page 1 even after data returns.
+    if (sortedCampaigns.length === 0) return;
     setPage(p => Math.min(p, totalPages));
-  }, [totalPages]);
+  }, [totalPages, sortedCampaigns.length]);
 
   const paginatedCampaigns = useMemo(() => {
     const safePage = Math.min(page, totalPages);
@@ -924,12 +930,12 @@ export default function Campaigns() {
     email_html_preview?: string;
   } | null>(null);
 
-  /** Creative fetch — minimum ~280ms visible so fast responses still show feedback. */
+  /** Creative fetch; `minMs` is 0 so the modal does not add artificial delay after the edge function returns. */
   const {
     loading: creativeLoading,
     startLoading: startCreativeLoading,
     stopLoading: stopCreativeLoading,
-  } = useMinDurationLoading(280);
+  } = useMinDurationLoading(0);
 
   const creativePrefetchCacheRef = useRef(
     new Map<string, { preview_image_url?: string; email_html_preview?: string }>(),
@@ -945,6 +951,11 @@ export default function Campaigns() {
     const loaded = loadBrazeCreativeSessionCache(workspaceClientId, brazePlatform.id);
     creativePrefetchCacheRef.current = loaded;
     warmSessionCacheImagesIdle(loaded);
+    const thumbs = new Map<string, string>();
+    for (const [id, payload] of loaded.entries()) {
+      if (payload.preview_image_url) thumbs.set(id, payload.preview_image_url);
+    }
+    if (thumbs.size > 0) setCreativeThumbnailCache(thumbs);
   }, [workspaceClientId, brazePlatform?.id]);
 
   useEffect(() => {
@@ -979,6 +990,17 @@ export default function Campaigns() {
     return resolveEmailModalPreview(Object.keys(base).length ? base : null);
   }, [selectedRawRow, brazeCreativeOverride]);
 
+  /** When true, the modal can render email creative without waiting on `braze-campaign-creative`. */
+  const emailModalPreviewReady = useMemo(() => {
+    const t = emailModalPreview.previewType;
+    if (t === 'html' && String(emailModalPreview.html ?? '').trim()) return true;
+    if (t === 'hero' || t === 'imageUrl') {
+      const u = (emailModalPreview.displayUrl ?? emailModalPreview.url)?.trim();
+      return Boolean(u);
+    }
+    return false;
+  }, [emailModalPreview]);
+
   const modalHeroImageUrl = emailModalPreview.displayUrl ?? emailModalPreview.url;
 
   const selectedRawDetailsEmpty = useMemo(
@@ -986,10 +1008,9 @@ export default function Campaigns() {
     [selectedRawRow],
   );
 
-  /** Optional duplicate fetch to warm cache before modal <img> (same preload gate as bucket/session warm). */
+  /** Warm the HTTP cache the moment a campaign is selected so the modal image is ready. */
   useEffect(() => {
-    if (!isCampaignBucketPreloadEnabled) return;
-    if (!selectedCampaign || selectedCampaign.channel !== 'email') return;
+    if (!selectedCampaign) return;
     const t = emailModalPreview.previewType;
     if (t !== 'hero' && t !== 'imageUrl') return;
     const url = (emailModalPreview.displayUrl ?? emailModalPreview.url)?.trim();
@@ -1052,6 +1073,13 @@ export default function Campaigns() {
         email_html_preview: data?.email_html_preview ?? undefined,
       };
       commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, campaignId, payload);
+      if (payload.preview_image_url) {
+        setCreativeThumbnailCache(prev => {
+          const next = new Map(prev);
+          next.set(campaignId, payload.preview_image_url!);
+          return next;
+        });
+      }
       if (selectedCampaignIdRef.current === campaignId) {
         setBrazeCreativeOverride(payload);
       }
@@ -1085,6 +1113,28 @@ export default function Campaigns() {
     workspaceClientId,
   ]);
 
+  /** Silently pre-warms the Braze creative cache on card hover so the modal opens with no lag. */
+  const prefetchCampaignCreative = useCallback((campaignId: string) => {
+    if (!showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
+    if (creativePrefetchInFlightRef.current.has(campaignId)) return;
+    if (creativePrefetchCacheRef.current.has(campaignId)) return;
+    const dbRow = (dbCampaigns as BrazeCampaignRow[] | undefined)?.find(
+      r => String(r.braze_campaign_id ?? r.id) === campaignId,
+    );
+    const raw = dbRow?.raw_details;
+    const base: Record<string, unknown> =
+      raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+    if (typeof dbRow?.image_url === 'string' && dbRow.image_url.trim()) {
+      base.preview_image_url = dbRow.image_url.trim();
+    }
+    const r = resolveEmailModalPreview(Object.keys(base).length ? base : null);
+    if (r.previewType === 'hero' || r.previewType === 'imageUrl' || (r.previewType === 'html' && Boolean(r.html))) return;
+    creativePrefetchInFlightRef.current.add(campaignId);
+    void runBrazeCampaignCreativeFetch(campaignId).finally(() => {
+      creativePrefetchInFlightRef.current.delete(campaignId);
+    });
+  }, [brazePlatform?.id, dbCampaigns, runBrazeCampaignCreativeFetch, showLiveCampaigns, workspaceClientId]);
+
   useEffect(() => {
     const clientId = workspaceClientId;
     const platformId = brazePlatform?.id;
@@ -1092,9 +1142,7 @@ export default function Campaigns() {
 
     const id = selectedCampaign.id;
     const merged = mergeRawWithCachedCreative(id, selectedRawRow);
-    const needsBrazeDetails =
-      selectedCampaign.channel === 'email' && isRawDetailsEmpty(selectedRawRow?.raw_details);
-    if (!needsBrazeDetails && isCreativeResolvedFromMerged(merged)) return;
+    if (isCreativeResolvedFromMerged(merged)) return;
 
     if (creativePrefetchInFlightRef.current.has(id)) {
       startCreativeLoading();
@@ -1452,6 +1500,7 @@ export default function Campaigns() {
                 const titleText = campaign.name;
                 const previewLine =
                   campaign.creative_preview ?? getCampaignPreviewLine(toPreviewFields(campaign));
+                const thumbnailUrl = campaign.preview_image_url || creativeThumbnailCache.get(campaign.id);
                 return (
                 <Card
                   key={campaign.id}
@@ -1462,6 +1511,10 @@ export default function Campaigns() {
                     'group flex cursor-pointer flex-col overflow-hidden transition-all duration-200 hover:border-primary/50 hover:shadow-md motion-safe:hover:-translate-y-0.5',
                     viewMode === 'grid' && 'h-full min-h-0',
                   )}
+                  onPointerEnter={() => {
+                    preloadHoveredCampaignImage(thumbnailUrl);
+                    prefetchCampaignCreative(campaign.id);
+                  }}
                   onClick={() => setSelectedCampaign(campaign)}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -1474,11 +1527,10 @@ export default function Campaigns() {
                     <CampaignCreativeHero
                       channel={campaign.channel}
                       previewText={previewLine}
-                      previewImageUrl={campaign.preview_image_url}
+                      previewImageUrl={thumbnailUrl}
                       campaignName={campaign.name}
                       variant="card"
                       listPageIndex={index}
-                      gridThumbnail
                     />
                   )}
                   <CardContent
@@ -1656,7 +1708,7 @@ export default function Campaigns() {
                       displayImageUrl={emailModalPreview.displayUrl}
                       htmlContent={emailModalPreview.html}
                       previewMode={emailModalPreview.previewType}
-                      loading={creativeLoading}
+                      loading={creativeLoading && !emailModalPreviewReady}
                     />
                   </div>
                 ) : (

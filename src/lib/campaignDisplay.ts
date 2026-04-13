@@ -1156,6 +1156,14 @@ function iframePreviewZoomStyle(htmlZoom: number): string {
   return `html{zoom:${htmlZoom};overflow:visible}`;
 }
 
+/**
+ * Many ESP templates set a large fixed width on the first hero `<img>`; without this, the iframe
+ * viewport can expand vertically and dominate the modal. Inline logos next to copy also behave
+ * better with explicit width bounds.
+ */
+const IFRAME_EMAIL_CONTENT_WIDTH_RESET =
+  'img,svg,video{max-width:100%!important;height:auto!important;vertical-align:middle}table{max-width:100%!important}';
+
 export type WrapHtmlForIframePreviewOptions = {
   /**
    * Zoom applied inside the iframe document. Use `1` when the outer UI already applies
@@ -1168,9 +1176,10 @@ export type WrapHtmlForIframePreviewOptions = {
 export function wrapHtmlForIframePreview(html: string, options?: WrapHtmlForIframePreviewOptions): string {
   const htmlZoom = options?.htmlZoom ?? IFRAME_HTML_PREVIEW_ZOOM;
   const IFRAME_PREVIEW_ZOOM_STYLE = iframePreviewZoomStyle(htmlZoom);
+  const previewInjectStyles = `${IFRAME_PREVIEW_ZOOM_STYLE}${IFRAME_EMAIL_CONTENT_WIDTH_RESET}`;
   const t = stripBrazeLiquidFromEmailHtmlForPreview(html).trim();
   if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) {
-    const zoomInject = `<style type="text/css" data-email-preview-zoom>${IFRAME_PREVIEW_ZOOM_STYLE}</style>`;
+    const zoomInject = `<style type="text/css" data-email-preview-zoom>${previewInjectStyles}</style>`;
     const headMatch = t.match(/<head[^>]*>/i);
     if (headMatch && headMatch.index !== undefined) {
       const i = headMatch.index + headMatch[0].length;
@@ -1178,5 +1187,5 @@ export function wrapHtmlForIframePreview(html: string, options?: WrapHtmlForIfra
     }
     return `${zoomInject}${t}`;
   }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}${IFRAME_PREVIEW_ZOOM_STYLE}body{padding:10px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12.5px;line-height:1.42;overflow:visible;overflow-x:hidden;box-sizing:border-box}</style></head><body>${t}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;background:#fff}${previewInjectStyles}body{padding:10px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12.5px;line-height:1.42;overflow:visible;overflow-x:hidden;box-sizing:border-box}</style></head><body>${t}</body></html>`;
 }

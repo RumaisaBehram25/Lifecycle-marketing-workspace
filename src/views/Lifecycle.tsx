@@ -69,6 +69,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatBrazeSyncInvokeError } from '@/lib/brazeSyncInvoke';
@@ -89,6 +90,7 @@ import { BRCGIcon } from '@/components/BRCGLogo';
 import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
 import {
   normalizeCampaignChannel,
+  stripBrazeLiquidForDisplay,
   type CampaignChannelUi,
 } from '@/lib/campaignDisplay';
 
@@ -297,6 +299,27 @@ function LifecycleMetricTile({
       </div>
     </div>
   );
+}
+
+/** Warm the browser image cache for all step creative images in a canvas's raw_steps. */
+function preloadJourneyStepImages(rawSteps: unknown): void {
+  if (!rawSteps || typeof rawSteps !== 'object') return;
+  for (const step of Object.values(rawSteps as Record<string, unknown>)) {
+    if (!step || typeof step !== 'object') continue;
+    const s = step as Record<string, unknown>;
+    const messages = Array.isArray(s.messages) ? s.messages : [];
+    for (const msg of messages) {
+      if (!msg || typeof msg !== 'object') continue;
+      const imageUrl = typeof (msg as Record<string, unknown>).image_url === 'string'
+        ? ((msg as Record<string, unknown>).image_url as string).trim()
+        : '';
+      if (!imageUrl) continue;
+      const src = campaignImageDisplayUrl(imageUrl, 'thumbnail') ?? imageUrl;
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = src;
+    }
+  }
 }
 
 export default function Lifecycle() {
@@ -591,6 +614,35 @@ export default function Lifecycle() {
       }),
     );
   }, [normalizedCanvases, canViewLifecycleFromBraze]);
+
+  // Prefetch raw_steps/raw_variants for the first page of journeys after the list loads,
+  // so the flow chart AND step images are ready before the user clicks.
+  useEffect(() => {
+    const clientId = brazeReadClientId ?? workspaceClientId;
+    if (!clientId || journeys.length === 0) return;
+    const top = journeys.slice(0, 12);
+    top.forEach((j, i) => {
+      const journeyDbId = String(j.dbId ?? j.id ?? '');
+      if (!journeyDbId) return;
+      setTimeout(() => {
+        void queryClient.prefetchQuery({
+          queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
+          queryFn: async () => {
+            const { data, error } = await supabase
+              .from('braze_canvases')
+              .select('raw_steps,raw_variants')
+              .eq('client_id', clientId)
+              .eq('id', journeyDbId)
+              .maybeSingle();
+            if (error) throw error;
+            preloadJourneyStepImages(data?.raw_steps);
+            return data as Record<string, unknown> | null;
+          },
+          staleTime: 60_000,
+        });
+      }, i * 100);
+    });
+  }, [journeys, brazeReadClientId, workspaceClientId, queryClient]);
 
   const isItemVisible = useCallback((brazeOrVisibilityId: string) => {
     const explicitSetting = visibilityMap.get(brazeOrVisibilityId);
@@ -1131,6 +1183,26 @@ export default function Lifecycle() {
                       journey={journey}
                       viewMode={viewMode}
                       onClick={() => setSelectedJourney(journey)}
+                      onPointerEnter={() => {
+                        const journeyDbId = String(journey.dbId ?? journey.id ?? '');
+                        const clientId = brazeReadClientId ?? workspaceClientId;
+                        if (!clientId || !journeyDbId) return;
+                        void queryClient.prefetchQuery({
+                          queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
+                          queryFn: async () => {
+                            const { data, error } = await supabase
+                              .from('braze_canvases')
+                              .select('raw_steps,raw_variants')
+                              .eq('client_id', clientId)
+                              .eq('id', journeyDbId)
+                              .maybeSingle();
+                            if (error) throw error;
+                            preloadJourneyStepImages(data?.raw_steps);
+                            return data as Record<string, unknown> | null;
+                          },
+                          staleTime: 30_000,
+                        });
+                      }}
                     />
                   ))
                 )}
@@ -1298,9 +1370,9 @@ export default function Lifecycle() {
                     {(message?.subject || selectedTouchpoint.subject) && (
                       <div className="p-3 bg-muted/30 rounded-lg">
                         <p className="text-xs text-muted-foreground mb-1">Subject Line</p>
-                        <p className="font-medium">{message?.subject || selectedTouchpoint.subject}</p>
+                        <p className="font-medium">{stripBrazeLiquidForDisplay(message?.subject || selectedTouchpoint.subject || '')}</p>
                         {(message?.preheader || selectedTouchpoint.preheader) && (
-                          <p className="text-sm text-muted-foreground mt-1">{message?.preheader || selectedTouchpoint.preheader}</p>
+                          <p className="text-sm text-muted-foreground mt-1">{stripBrazeLiquidForDisplay(message?.preheader || selectedTouchpoint.preheader || '')}</p>
                         )}
                       </div>
                     )}
@@ -1491,7 +1563,7 @@ function journeyCardChannelPillList(channels: string[] | undefined): Array<{
 }
 
 // Journey Card Component — Campaigns-style hero + touchpoints + per-channel pills + View journey
-function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: 'grid' | 'list'; onClick: () => void }) {
+function JourneyCard({ journey, viewMode, onClick, onPointerEnter }: { journey: any; viewMode: 'grid' | 'list'; onClick: () => void; onPointerEnter?: () => void }) {
   const titleText = String(journey.displayName || journey.name || 'Journey');
   const titleForVisual = String(journey.name ?? journey.displayName ?? '');
   const { Icon: TitleIcon, gradient: titleGradient, shadow: titleShadow, heroSurface } =
@@ -1579,6 +1651,7 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
         className={cn(
           'group flex cursor-pointer flex-col overflow-hidden border-border/70 transition-all duration-200 hover:border-teal-500/35 hover:shadow-lg motion-safe:hover:-translate-y-0.5 dark:hover:border-teal-400/25',
         )}
+        onPointerEnter={onPointerEnter}
         onClick={open}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -1633,6 +1706,7 @@ function JourneyCard({ journey, viewMode, onClick }: { journey: any; viewMode: '
       className={cn(
         'group flex h-full min-h-0 cursor-pointer flex-col overflow-hidden border-border/70 transition-all duration-200 hover:border-teal-500/35 hover:shadow-lg motion-safe:hover:-translate-y-0.5 dark:hover:border-teal-400/25',
       )}
+      onPointerEnter={onPointerEnter}
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -1711,23 +1785,18 @@ function JourneyDetail({
   const { data: detailRow } = useQuery({
     queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
     queryFn: async () => {
-      console.log('[JourneyDetail] Fetching canvas detail:', { clientId: clientId!, journeyDbId });
       const { data, error } = await supabase
         .from('braze_canvases')
-        .select('*')
+        .select('raw_steps,raw_variants')
         .eq('client_id', clientId!)
         .eq('id', journeyDbId)
         .maybeSingle();
       if (error) throw error;
-      console.log('[JourneyDetail] Detail row result:', {
-        found: !!data,
-        hasRawSteps: data ? (data.raw_steps != null) : false,
-        rawStepsKeys: data?.raw_steps ? Object.keys(data.raw_steps as Record<string, unknown>).length : 0,
-        hasVariants: data ? (data.raw_variants != null) : false,
-      });
+      preloadJourneyStepImages(data?.raw_steps);
       return data as Record<string, unknown> | null;
     },
     enabled: !!clientId && !!journeyDbId,
+    staleTime: 60_000,
   });
 
   const merged = useMemo(() => {
@@ -1789,12 +1858,6 @@ function JourneyDetail({
   const { Icon, gradient, shadow } = getJourneyVisuals(String(merged.name ?? ''));
 
   const stepsRecord = normalizeRawSteps(merged.steps as Record<string, LifecycleCanvasStep> | undefined);
-  console.log('[JourneyDetail] Rendering:', {
-    mergedStepKeys: merged.steps ? Object.keys(merged.steps as Record<string, unknown>).length : 0,
-    normalizedStepKeys: Object.keys(stepsRecord).length,
-    variants: (merged.variants as unknown[])?.length ?? 0,
-    variantNames: ((merged.variants ?? []) as Array<{ name: string; first_step_id?: string }>).map(v => ({ name: v.name, first_step_id: v.first_step_id?.slice(0, 8) })),
-  });
   const stepSummaryBadge = formatLifecycleStepBadge(
     stepsRecord,
     (merged as { db_total_steps?: number }).db_total_steps,

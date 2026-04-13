@@ -1,61 +1,64 @@
 import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
 import { preloadedUrls } from '@/lib/campaignImagePreloadRegistry';
 
-const PRELOAD_LINK_ATTR = 'data-campaign-image-preload';
-
-/** Remove previous list-injected preload hints so refreshes / filter changes do not accumulate. */
-function clearInjectedPreloadLinks(): void {
-  if (typeof document === 'undefined') return;
-  document.querySelectorAll(`link[rel="preload"][${PRELOAD_LINK_ATTR}]`).forEach(el => el.remove());
-}
-
-/**
- * Injects `<link rel="preload" as="image">` for the first `limit` unique display URLs (order preserved).
- * Uses {@link campaignImageDisplayUrl} so `href` matches `<img src>` exactly.
- */
-export function injectPreloadLinks(
-  displayUrls: ReadonlyArray<string | undefined | null>,
-  limit = 10,
-): void {
-  if (typeof document === 'undefined') return;
-  clearInjectedPreloadLinks();
-  const seen = new Set<string>();
-  const top: string[] = [];
-  for (const raw of displayUrls) {
-    const u = typeof raw === 'string' ? raw.trim() : '';
-    if (!u) continue;
-    if (seen.has(u)) continue;
-    seen.add(u);
-    top.push(u);
-    if (top.length >= limit) break;
-  }
-  for (const href of top) {
-    if (preloadedUrls.has(href)) continue;
-    preloadedUrls.add(href);
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'image';
-    link.href = href;
-    link.setAttribute(PRELOAD_LINK_ATTR, '1');
-    document.head.appendChild(link);
-  }
-}
-
 export type CampaignRowForImagePreload = {
   preview_image_url?: string | null;
 };
 
 /**
- * Warms the HTTP cache for all campaign hero images: `<link rel=preload>` for the first rows, then
- * batched `new Image()` for every unique display URL. Deduplicates via {@link preloadedUrls}.
+ * Tracks URLs for which a `<link rel="preload">` element has been injected by
+ * {@link preloadHoveredCampaignImage}. Intentionally separate from {@link preloadedUrls}
+ * (the batch-warm registry) — `preloadedUrls` marks URLs the moment `new Image()` starts,
+ * not when the download completes. Using it as the dedup gate here would block the high-
+ * priority preload link for images still in-flight from the background batch warm.
+ */
+const hoverPreloadLinkUrls = new Set<string>();
+
+/**
+ * Immediately starts a high-priority fetch for a single campaign image.
+ * Call this on card hover/pointerenter so the image is ready before the user clicks.
+ *
+ * Uses `<link rel="preload">` (highest browser priority). Safe to call many times —
+ * deduplicates via its own registry so the link is injected at most once per URL.
+ */
+export function preloadHoveredCampaignImage(previewImageUrl: string | null | undefined): void {
+  if (typeof window === 'undefined') return;
+  const raw = previewImageUrl?.trim();
+  if (!raw) return;
+  const url = campaignImageDisplayUrl(raw, 'default');
+  if (!url) return;
+  // Only skip if we already injected a <link> for this URL — NOT based on preloadedUrls,
+  // which is marked before downloads complete and would silently block this preload.
+  if (hoverPreloadLinkUrls.has(url)) return;
+  hoverPreloadLinkUrls.add(url);
+  preloadedUrls.add(url);
+
+  // <link rel="preload"> gives the browser the highest fetch priority signal.
+  // Since this fires on hover (not at page-load time), the "preloaded but not used
+  // within a few seconds" browser warning does not apply.
+  const link = document.createElement('link');
+  link.rel = 'preload';
+  link.as = 'image';
+  link.href = url;
+  document.head.appendChild(link);
+}
+
+/**
+ * Warms the HTTP cache for all campaign hero images using batched `new Image()` fetches.
+ * Deduplicates via {@link preloadedUrls}.
+ *
+ * Note: `<link rel="preload">` is intentionally NOT used here. Campaign images are only
+ * consumed when the user opens a detail modal (on click), not immediately on page load.
+ * Using `rel="preload"` for click-triggered resources causes browser warnings ("preloaded
+ * but not used within a few seconds"). `new Image()` warms the HTTP cache just as
+ * effectively without producing those warnings.
  */
 export function preloadCampaignImages(
   campaigns: ReadonlyArray<CampaignRowForImagePreload>,
-  options?: { linkPreloadLimit?: number; imageConcurrency?: number },
+  options?: { imageConcurrency?: number },
 ): void {
   if (typeof window === 'undefined') return;
 
-  const linkLimit = options?.linkPreloadLimit ?? 10;
   const concurrency = options?.imageConcurrency ?? 8;
 
   const displayOrdered: string[] = [];
@@ -72,8 +75,6 @@ export function preloadCampaignImages(
   }
 
   if (displayOrdered.length === 0) return;
-
-  injectPreloadLinks(displayOrdered, linkLimit);
 
   void (async () => {
     for (let i = 0; i < displayOrdered.length; i += concurrency) {

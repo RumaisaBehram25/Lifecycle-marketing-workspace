@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from 'react';
+import { memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Mail, Bell, Smartphone, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
@@ -85,6 +85,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
 }: CampaignCreativeHeroProps) {
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
   const isModal = variant === 'modal';
   const url =
     gridThumbnail
@@ -99,6 +100,17 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
       isModal ? 'detail' : 'default',
     );
   const showImg = Boolean(url && !imgFailed);
+
+  // If the image was preloaded and is already in the browser cache, img.complete is true
+  // synchronously — skip the skeleton entirely by detecting this before the first paint.
+  useLayoutEffect(() => {
+    setImgFailed(false);
+    setImgLoaded(false);
+    const el = imgRef.current;
+    if (el && el.complete && el.naturalWidth > 0) {
+      setImgLoaded(true);
+    }
+  }, [imgSrc]);
 
   const gradient = journeyPlaceholder?.surfaceGradient ?? creativeGradients[channel];
   const iconSm = channelIconsSm[channel];
@@ -131,7 +143,8 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
   return (
     <div
       className={cn(
-        'relative w-full overflow-hidden bg-muted',
+        'relative w-full overflow-hidden',
+        !isModal && showImg ? 'bg-white dark:bg-white/95' : 'bg-muted',
         isModal ? 'aspect-video min-h-[220px] rounded-xl' : gridThumbnail ? 'h-[132px] min-h-[132px] rounded-t-lg' : 'aspect-video rounded-t-lg',
         className,
       )}
@@ -152,6 +165,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
 
       {showImg && url && imgSrc && (
         <img
+          ref={imgRef}
           src={imgSrc}
           alt=""
           width={640}
@@ -160,8 +174,12 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
           decoding="async"
           fetchPriority={fetchPriorityAttr}
           className={cn(
-            'absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-500 ease-out',
-            modalImageClean ? 'object-top' : 'object-center',
+            'absolute inset-0 z-[2] h-full w-full transition-opacity duration-500 ease-out',
+            // Modal: always cover, aligned to top once fully loaded
+            isModal && 'object-cover',
+            isModal && !modalImageClean ? 'object-center' : 'object-top',
+            // Card: always contain so the full image is visible without zooming/cropping
+            !isModal && 'object-contain object-top',
             isModal && modalImageClean && 'rounded-xl',
             imgLoaded ? 'opacity-100' : 'opacity-0',
           )}
