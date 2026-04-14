@@ -170,9 +170,13 @@ function CreativePreview({ step }: { step: CanvasStep }) {
         </div>
          <div className="bg-muted/30 px-2 py-2 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground truncate">From: BRCG</p>
-          <p className="text-sm font-medium truncate">{message?.subject || 'No subject'}</p>
+          <p className="text-sm font-medium truncate">
+            {plainTextPreviewFromBrazeMessageBody(message?.subject || '') || 'No subject'}
+          </p>
           {message?.preheader && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">{message.preheader}</p>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {plainTextPreviewFromBrazeMessageBody(message.preheader)}
+            </p>
           )}
         </div>
         <div className="relative flex-1 overflow-hidden bg-background">
@@ -1088,9 +1092,13 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
                                         if (channel === 'email' && msg?.subject) {
                                           return (
                                             <div className="text-xs space-y-1.5">
-                                              <p className="font-semibold line-clamp-2">{msg.subject}</p>
+                                              <p className="font-semibold line-clamp-2">
+                                                {plainTextPreviewFromBrazeMessageBody(msg.subject)}
+                                              </p>
                                               {msg.preheader && (
-                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">{msg.preheader}</p>
+                                                <p className="text-muted-foreground line-clamp-2 text-[11px]">
+                                                  {plainTextPreviewFromBrazeMessageBody(msg.preheader)}
+                                                </p>
                                               )}
                                             </div>
                                           );
@@ -1188,9 +1196,13 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
         </div>
         <div className="bg-muted/30 px-4 py-3 border-b flex-shrink-0">
           <p className="text-xs text-muted-foreground">From: Linktree</p>
-          <p className="font-medium">{message?.subject || 'No subject'}</p>
+          <p className="font-medium">
+            {plainTextPreviewFromBrazeMessageBody(message?.subject || '') || 'No subject'}
+          </p>
           {message?.preheader && (
-            <p className="text-sm text-muted-foreground mt-1">{message.preheader}</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {plainTextPreviewFromBrazeMessageBody(message.preheader)}
+            </p>
           )}
         </div>
         <div className="relative flex-1 min-h-[500px] bg-white">

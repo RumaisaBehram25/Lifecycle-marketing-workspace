@@ -1530,8 +1530,11 @@ function journeyCardPreviewLine(journey: {
   description?: string;
   name?: string;
 }): string {
-  const d = typeof journey.description === 'string' ? journey.description.trim() : '';
-  if (d && d !== 'Automated lifecycle journey') return d;
+  const raw = typeof journey.description === 'string' ? journey.description.trim() : '';
+  if (raw && raw !== 'Automated lifecycle journey') {
+    const cleaned = plainTextPreviewFromBrazeMessageBody(raw);
+    if (cleaned) return cleaned;
+  }
   return generateJourneyDescription(String(journey.name ?? ''));
 }
 

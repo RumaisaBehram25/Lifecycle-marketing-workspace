@@ -163,7 +163,10 @@ function StepNode({
     
     if (step.messages && step.messages.length > 0) {
       const msg = step.messages[0];
-      if (msg.subject) return msg.subject;
+      if (msg.subject) {
+        const s = plainTextPreviewFromBrazeMessageBody(msg.subject);
+        if (s) return s;
+      }
       if (msg.title) return msg.title;
       if (msg.body) {
         const preview = plainTextPreviewFromBrazeMessageBody(msg.body);

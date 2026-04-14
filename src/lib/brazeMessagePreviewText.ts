@@ -20,6 +20,23 @@ function stripLiquidControlTags(s: string): string {
 }
 
 /**
+ * Braze sometimes syncs broken localization wrappers like
+ * `{% if {{{{${language}}} contains 'pt'%}…` — extra `{` breaks naive `{%…%}` passes; strip in a second sweep.
+ */
+function stripBrokenLanguageIfBlocks(s: string): string {
+  let out = s;
+  let prev = '';
+  for (let i = 0; i < 16 && out !== prev; i++) {
+    prev = out;
+    out = out.replace(
+      /\{%\s*if\s*(?:\{\{)+\s*\$\{[^}]+\}[^%]*%\}/gi,
+      ' ',
+    );
+  }
+  return out;
+}
+
+/**
  * Remove `{{ ... }}` after `${...}` is gone — otherwise `{{custom_attribute.${x}}}`
  * breaks non-greedy matchers and leaves `}` / `@` junk.
  */
@@ -90,6 +107,8 @@ export function plainTextPreviewFromBrazeMessageBody(raw: string | undefined | n
 
   if (!/\{%|\{\{|\$\{/.test(s)) return collapseWs(s);
 
+  s = stripLiquidControlTags(s);
+  s = stripBrokenLanguageIfBlocks(s);
   s = stripLiquidControlTags(s);
   // Critical: `${...}` before `{{...}}` so `}}` inside `${x}}` does not truncate the liquid tag.
   s = stripDollarBraceFields(s);
