@@ -4,7 +4,9 @@
 import { strict as assert } from 'node:assert';
 import {
   extractHeroImageFromHtml,
+  extractStripocdnImgSrcFromHtml,
   isLikelyLogo,
+  resolveCampaignCardThumbnailUrl,
   resolveLifecycleMessageCardImageUrl,
 } from './campaignDisplay';
 
@@ -77,6 +79,81 @@ test('resolveLifecycleMessageCardImageUrl skips logo image_url when no hero in H
     image_url: 'https://cdn.example.com/assets/logo-v2.png',
   });
   assert.equal(u, undefined);
+});
+
+test('resolveCampaignCardThumbnailUrl reads channels.email.image_url', () => {
+  const u = resolveCampaignCardThumbnailUrl({
+    rawDetails: {
+      channels: {
+        email: {
+          image_url: 'https://cdn.example.com/campaign/hero-from-channel.jpg',
+        },
+      },
+    },
+  });
+  assert.equal(u, 'https://cdn.example.com/campaign/hero-from-channel.jpg');
+});
+
+test('resolveCampaignCardThumbnailUrl reads creatives[0].url', () => {
+  const u = resolveCampaignCardThumbnailUrl({
+    rawDetails: {
+      creatives: [{ url: 'https://cdn.example.com/creative-asset.png' }],
+    },
+  });
+  assert.equal(u, 'https://cdn.example.com/creative-asset.png');
+});
+
+test('Stripo CDN hero <img> src extracted from HTML (regex path)', () => {
+  const html = `<table><tr><td><img src="https://uijpgh.stripocdn.email/content/guids/xxx/images/hero.png" width="600" height="400" /></td></tr></table>`;
+  assert.equal(
+    extractHeroImageFromHtml(html),
+    'https://uijpgh.stripocdn.email/content/guids/xxx/images/hero.png',
+  );
+});
+
+test('resolveCampaignCardThumbnailUrl prefers brcg-campaigns-assets column over HTML hero', () => {
+  const html = `<img width="600" height="400" src="https://stripo.example/other.jpg" />`;
+  const u = resolveCampaignCardThumbnailUrl({
+    imageUrlColumn:
+      'https://x.supabase.co/storage/v1/object/public/brcg-campaigns-assets/foo/bar.png',
+    rawDetails: { email_html_preview: html },
+  });
+  assert.equal(u, 'https://x.supabase.co/storage/v1/object/public/brcg-campaigns-assets/foo/bar.png');
+});
+
+test('resolveCampaignCardThumbnailUrl prefers image_url column over Stripo in email_html_preview', () => {
+  const html = `<img width="600" height="400" src="https://uijpgh.stripocdn.email/content/guids/xxx/images/hero.png" />`;
+  const u = resolveCampaignCardThumbnailUrl({
+    imageUrlColumn: 'https://braze-old-cdn.com/some-preview.jpg',
+    rawDetails: { email_html_preview: html },
+  });
+  assert.equal(u, 'https://braze-old-cdn.com/some-preview.jpg');
+});
+
+test('extractStripocdnImgSrcFromHtml matches src with stripocdn', () => {
+  const html = `<img src="https://uijpgh.stripocdn.email/content/guids/x/images/01_hero_desktop.png" />`;
+  assert.equal(
+    extractStripocdnImgSrcFromHtml(html),
+    'https://uijpgh.stripocdn.email/content/guids/x/images/01_hero_desktop.png',
+  );
+});
+
+test('resolveCampaignCardThumbnailUrl uses Stripo regex on email_html_preview when image_url empty', () => {
+  const html = `<img src="https://uijpgh.stripocdn.email/content/guids/x/images/01_hero_desktop.png" />`;
+  const u = resolveCampaignCardThumbnailUrl({
+    imageUrlColumn: null,
+    rawDetails: { email_html_preview: html },
+  });
+  assert.equal(u, 'https://uijpgh.stripocdn.email/content/guids/x/images/01_hero_desktop.png');
+});
+
+test('resolveCampaignCardThumbnailUrl uses Stripo regex on messages.*.body when earlier steps empty', () => {
+  const body = `<img src="https://uijpgh.stripocdn.email/content/guids/x/images/01_hero_mobile_1.png" />`;
+  const u = resolveCampaignCardThumbnailUrl({
+    imageUrlColumn: null,
+    rawDetails: { messages: { m1: { body } } },
+  });
+  assert.equal(u, 'https://uijpgh.stripocdn.email/content/guids/x/images/01_hero_mobile_1.png');
 });
 
 console.log(`\nDone: ${passed} passed, ${failed} failed`);

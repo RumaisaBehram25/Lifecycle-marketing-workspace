@@ -48,6 +48,7 @@ export interface CampaignCreativeHeroProps {
   channel: CampaignChannelUi;
   /** Always non-empty resolved preview line */
   previewText: string;
+  /** Direct http(s) image URL for the card/modal hero (e.g. uploaded bucket asset, Stripo CDN); always `<img>`, never iframe. */
   previewImageUrl?: string | null;
   /** Used for accessibility label when there is no image */
   campaignName: string;
@@ -71,18 +72,19 @@ export interface CampaignCreativeHeroProps {
 /**
  * 16:9 hero — fixed aspect ratio, image fade-in, gradient + channel icon when no image.
  */
-export const CampaignCreativeHero = memo(function CampaignCreativeHero({
-  channel,
-  previewText,
-  previewImageUrl,
-  campaignName,
-  variant = 'card',
-  className,
-  journeyPlaceholder,
-  eagerImage = false,
-  listPageIndex,
-  gridThumbnail = false,
-}: CampaignCreativeHeroProps) {
+export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: CampaignCreativeHeroProps) {
+  const {
+    channel,
+    previewText,
+    previewImageUrl,
+    campaignName,
+    variant = 'card',
+    className,
+    journeyPlaceholder,
+    eagerImage = false,
+    listPageIndex,
+    gridThumbnail = false,
+  } = props;
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -182,24 +184,21 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero({
         <img
           ref={imgRef}
           src={imgSrc}
-          alt=""
+          alt={campaignName}
           width={640}
           height={360}
           loading={loadingAttr}
           decoding="async"
           fetchpriority={fetchpriorityAttr}
           className={cn(
-            'absolute inset-0 z-[2] h-full w-full transition-opacity duration-500 ease-out',
-            // Modal: always cover, aligned to top once fully loaded
-            isModal && 'object-cover',
+            'absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-500 ease-out',
             isModal && !modalImageClean ? 'object-center' : 'object-top',
-            // Card: always contain so the full image is visible without zooming/cropping
-            !isModal && 'object-contain object-top',
             isModal && modalImageClean && 'rounded-xl',
             imgLoaded ? 'opacity-100' : 'opacity-0',
           )}
           onLoad={() => setImgLoaded(true)}
-          onError={() => {
+          onError={e => {
+            e.currentTarget.style.display = 'none';
             setImgFailed(true);
             setImgLoaded(false);
           }}

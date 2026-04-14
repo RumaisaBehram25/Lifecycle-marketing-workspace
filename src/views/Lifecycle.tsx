@@ -253,8 +253,8 @@ function sortJourneysByTimeRunning<
   });
 }
 
-/** Journey cards per page (between 25–30 for readable grids). */
-const JOURNEY_PAGE_SIZE = 27;
+/** Journey cards per page — matches Campaigns grid (21 per page). */
+const JOURNEY_PAGE_SIZE = 21;
 
 /** localStorage key for Lifecycle “Canvases” hide list (per workspace client id). */
 const LIFECYCLE_HIDDEN_CANVAS_IDS_KEY = 'lifecycle:hidden_canvas_db_ids';
@@ -627,7 +627,7 @@ export default function Lifecycle() {
   useEffect(() => {
     const clientId = brazeReadClientId ?? workspaceClientId;
     if (!clientId || journeys.length === 0) return;
-    const top = journeys.slice(0, 12);
+    const top = journeys.slice(0, JOURNEY_PAGE_SIZE);
     top.forEach((j, i) => {
       const journeyDbId = String(j.dbId ?? j.id ?? '');
       if (!journeyDbId) return;
@@ -783,6 +783,15 @@ export default function Lifecycle() {
   ]);
 
   const journeyTotalPages = Math.max(1, Math.ceil(filteredJourneys.length / JOURNEY_PAGE_SIZE));
+
+  const journeyRangeStart =
+    filteredJourneys.length === 0
+      ? 0
+      : (Math.min(journeyPage, journeyTotalPages) - 1) * JOURNEY_PAGE_SIZE + 1;
+  const journeyRangeEnd = Math.min(
+    filteredJourneys.length,
+    Math.min(journeyPage, journeyTotalPages) * JOURNEY_PAGE_SIZE,
+  );
 
   useEffect(() => {
     setJourneyPage(1);
@@ -1216,7 +1225,14 @@ export default function Lifecycle() {
                 )}
               </div>
               {filteredJourneys.length > 0 && journeyTotalPages > 1 && (
-                <div className="flex items-center justify-center gap-3 border-t border-border/60 pt-5">
+                <div className="flex flex-col items-center justify-between gap-3 border-t border-border/60 pt-5 sm:flex-row">
+                  <p className="text-sm text-muted-foreground">
+                    Showing{' '}
+                    <span className="font-medium text-foreground">
+                      {journeyRangeStart}–{journeyRangeEnd}
+                    </span>{' '}
+                    of {filteredJourneys.length}
+                  </p>
                   <div className="flex items-center gap-2 rounded-full border border-border/70 bg-muted/30 px-2 py-1.5 shadow-inner dark:bg-muted/15">
                     <Button
                       type="button"
@@ -2142,3 +2158,4 @@ function ChannelIcon({ channel, size = 'sm' }: { channel: string; size?: 'sm' | 
     default: return <Mail className={`${iconSize} text-muted-foreground`} />;
   }
 }
+

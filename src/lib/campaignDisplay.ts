@@ -573,6 +573,27 @@ function pushEmailBodiesFromMessageVariant(m: Record<string, unknown>, push: (v:
   }
 }
 
+/**
+ * Braze `/campaigns/details` often puts email HTML under `channels.email` (object map), not only `messages.*`.
+ */
+function appendChannelsEmailHtmlFragments(raw: Record<string, unknown>, push: (v: unknown) => void): void {
+  const ch = raw.channels;
+  if (!ch || typeof ch !== 'object' || Array.isArray(ch)) return;
+  for (const [chKey, chVal] of Object.entries(ch as Record<string, unknown>)) {
+    const keyLower = chKey.toLowerCase();
+    if (!keyLower.includes('email')) continue;
+    if (!chVal || typeof chVal !== 'object' || Array.isArray(chVal)) continue;
+    const cv = chVal as Record<string, unknown>;
+    push(cv.html_body);
+    push(cv.html_content);
+    push(cv.html);
+    if (typeof cv.body === 'string' && cv.body.trim()) {
+      const b = cv.body.trim();
+      if (emailLooksLikeHtml(b)) push(cv.body);
+    }
+  }
+}
+
 function collectEmailHtmlSourceStrings(raw: Record<string, unknown>): string[] {
   const out: string[] = [];
   const push = (v: unknown) => {
@@ -592,6 +613,7 @@ function collectEmailHtmlSourceStrings(raw: Record<string, unknown>): string[] {
       pushEmailBodiesFromMessageVariant(m, push);
     }
   }
+  appendChannelsEmailHtmlFragments(raw, push);
   return out;
 }
 
@@ -647,6 +669,153 @@ export function pickEmailHtmlForGridHeroExtraction(
     if (t.length >= 20 && /<img\b/i.test(t)) return t;
   }
   return undefined;
+}
+
+/**
+ * Longest HTML fragment that looks like ESP content — better hero extraction when strict pick is short
+ * but `channels.email` or another fragment carries the full markup.
+ */
+export function pickLongestEmailHtmlFragmentForListingHero(
+  raw: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const all = collectEmailHtmlSourceStrings(raw);
+  const viable = all.filter(
+    (s) =>
+      s.length >= 24 &&
+      (/<img\b/i.test(s) || /<table/i.test(s) || /<div/i.test(s) || /<!doctype/i.test(s)),
+  );
+  if (viable.length === 0) return pickEmailHtmlForGridHeroExtraction(raw);
+  return [...viable].sort((a, b) => b.length - a.length)[0];
+}
+
+function collectChannelsImageUrlCandidates(raw: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const ch = raw.channels;
+  if (!ch || typeof ch !== 'object' || Array.isArray(ch)) return out;
+  for (const chVal of Object.values(ch as Record<string, unknown>)) {
+    if (!chVal || typeof chVal !== 'object' || Array.isArray(chVal)) continue;
+    const cv = chVal as Record<string, unknown>;
+    for (const k of [
+      'big_image',
+      'banner_image',
+      'hero_image',
+      'large_image',
+      'image_url',
+      'thumbnail_url',
+      'url',
+    ] as const) {
+      const v = cv[k];
+      if (typeof v === 'string' && v.trim()) {
+        const n = normalizeImageUrlString(v.trim());
+        if (n) out.push(n);
+      }
+    }
+  }
+  return out;
+}
+
+function collectCreativeFieldUrlCandidates(raw: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const cr = raw.creative;
+  if (cr && typeof cr === 'object' && !Array.isArray(cr)) {
+    const o = cr as Record<string, unknown>;
+    for (const k of ['thumbnail', 'thumbnail_url', 'image_url', 'url', 'preview_image_url', 'banner']) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim()) {
+        const n = normalizeImageUrlString(v.trim());
+        if (n) out.push(n);
+      }
+    }
+  }
+  const arr = raw.creatives;
+  if (Array.isArray(arr)) {
+    for (const item of arr) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const o = item as Record<string, unknown>;
+      for (const k of ['url', 'image_url', 'thumbnail', 'thumbnail_url', 'src']) {
+        const v = o[k];
+        if (typeof v === 'string' && v.trim()) {
+          const n = normalizeImageUrlString(v.trim());
+          if (n) out.push(n);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * First Stripo CDN &lt;img src="…"&gt; in raw HTML (string regex — reliable for synced email bodies).
+ * Pattern: `/<img[^>]+src=["']([^"']+stripocdn[^"']+)["']/i`
+ */
+export function extractStripocdnImgSrcFromHtml(html: string | null | undefined): string | null {
+  if (!html || typeof html !== 'string') return null;
+  const match = html.match(/<img[^>]+src=["']([^"']+stripocdn[^"']+)["']/i);
+  const raw = match?.[1]?.trim();
+  if (!raw) return null;
+  return normalizeImageUrlString(raw) ?? null;
+}
+
+/**
+ * Single source of truth for **campaign listing** card thumbnails (grid/list).
+ *
+ * Priority: (1) DB `image_url` column (S3 screenshot / upload), (2) `raw_details.preview_image_url`,
+ * (3) Stripo `src` in `email_html_preview`, (4) Stripo `src` in `messages.*.body`, (5) full HTML hero
+ * extraction, (6) other Braze fallbacks.
+ */
+export function resolveCampaignCardThumbnailUrl(input: {
+  rawDetails: Record<string, unknown> | null | undefined;
+  imageUrlColumn?: string | null;
+}): string | undefined {
+  const raw = input.rawDetails;
+  const fromCol = typeof input.imageUrlColumn === 'string' ? input.imageUrlColumn.trim() : '';
+  const fromColumn =
+    fromCol && !isLikelyLogo(fromCol) ? normalizeImageUrlString(fromCol) || '' : '';
+
+  // 1) `braze_campaigns.image_url` — must win when present (deduped row with S3 screenshot)
+  if (fromColumn) return fromColumn;
+
+  if (!raw || typeof raw !== 'object') return undefined;
+
+  const rawPreview =
+    typeof raw.preview_image_url === 'string' ? raw.preview_image_url.trim() : '';
+  const fromPreview =
+    rawPreview && !isLikelyLogo(rawPreview) ? normalizeImageUrlString(rawPreview) || '' : '';
+  // 2) `raw_details.preview_image_url`
+  if (fromPreview) return fromPreview;
+
+  const emailPrev =
+    typeof raw.email_html_preview === 'string' ? raw.email_html_preview : '';
+  // 3) Stripo in `email_html_preview`
+  const stripoFromEmailPrev = extractStripocdnImgSrcFromHtml(emailPrev);
+  if (stripoFromEmailPrev) return stripoFromEmailPrev;
+
+  // 4) Stripo in `messages.{id}.body`
+  const messages = raw.messages as Record<string, unknown> | undefined;
+  if (messages && typeof messages === 'object' && !Array.isArray(messages)) {
+    for (const msg of Object.values(messages)) {
+      if (!msg || typeof msg !== 'object' || Array.isArray(msg)) continue;
+      const body = (msg as Record<string, unknown>).body;
+      if (typeof body === 'string' && body) {
+        const s = extractStripocdnImgSrcFromHtml(body);
+        if (s) return s;
+      }
+    }
+  }
+
+  const htmlLongest = pickLongestEmailHtmlFragmentForListingHero(raw);
+  const htmlGrid = pickEmailHtmlForGridHeroExtraction(raw);
+  const heroFromHtml =
+    (htmlLongest ? extractHeroImageFromHtml(htmlLongest) : null) ??
+    (htmlGrid ? extractHeroImageFromHtml(htmlGrid) : null);
+  if (heroFromHtml) return heroFromHtml;
+
+  return (
+    extractPermissiveCardPreviewImageUrl(raw) ||
+    extractPreviewImageUrl(raw) ||
+    undefined
+  );
 }
 
 /** True when we can render `srcDoc` in the campaign modal iframe (strict or relaxed markup). */
@@ -795,9 +964,17 @@ function collectUrlsFromImgTag(tag: string): {
 const HERO_SECTION_CTX =
   /\b(?:class|id)\s*=\s*["'][^"']*?(hero|banner|feature|header-image|main-image)/i;
 
+/** Stripo CDN hero assets often live under `/images/` — do not treat as header wordmark paths. */
+function isStripoCdnHeroImagePath(url: string): boolean {
+  const t = url.trim();
+  return /stripocdn\.email/i.test(t) && /\/images\//i.test(t);
+}
+
 /** Tight `src` URL heuristic (logo-ish path segments); separate from {@link isLikelyLogo}. */
 function imgSrcLooksLikeLogoPath(url: string): boolean {
-  return /(logo|wordmark|header|icon|avatar)/i.test(url.trim());
+  const t = url.trim();
+  if (isStripoCdnHeroImagePath(t)) return false;
+  return /(logo|wordmark|header|icon|avatar)/i.test(t);
 }
 
 function parsePxFromImgStyle(style: string | undefined, prop: 'width' | 'height'): number {
@@ -821,27 +998,66 @@ function tagPixelDimensions(tag: string): { w: number; h: number } {
   return { w, h };
 }
 
-function isTinyImgTagDims(w: number, h: number): boolean {
+/**
+ * Tracking pixels / spacers: both dimensions explicit and both ≤50, or 1×1; unknown (0×0) is allowed
+ * so hero images without width/height still qualify.
+ */
+function isLikelyTrackingOrSpacerPixelDims(w: number, h: number): boolean {
   if (w <= 0 && h <= 0) return false;
-  if (w > 0 && h > 0) return Math.max(w, h) <= 80;
-  if (w > 0) return w <= 80;
-  if (h > 0) return h <= 80;
+  if (w > 0 && h > 0) {
+    if (w <= 1 && h <= 1) return true;
+    return w <= 50 && h <= 50;
+  }
+  if (w > 0) return w <= 3;
+  if (h > 0) return h <= 3;
   return false;
 }
 
-function hasHeroRegionContextBefore(html: string, tagIndex: number): boolean {
-  if (tagIndex < 0) return false;
-  const prefix = html.slice(Math.max(0, tagIndex - 900), tagIndex);
-  return HERO_SECTION_CTX.test(prefix);
+/**
+ * Lazy-loaded email HTML often puts the real hero on `data-src` while the tag still has 1×1 spacer
+ * dimensions — do not treat those dimensions as applying to the lazy URL.
+ */
+function skipTinyDimensionCheckForLazyHeroUrl(url: string): boolean {
+  const t = url.toLowerCase();
+  if (/stripocdn\.email/.test(t) && /\/images\//.test(t)) return true;
+  if (/(?:^|[/_-])(?:hero|banner|01_hero|feature)(?:[._/-]|$)/i.test(t)) return true;
+  return false;
 }
 
 /**
- * Best **grid** hero URL from email HTML — skips wordmarks, tiny (≤80px) images, and logo-like `src` paths;
- * prefers large dimensions and `class`/`id` context matching hero/banner/feature regions.
+ * Stripo-only fast path: read `<img>` tags from the raw HTML string (no DOMParser). Only returns when
+ * at least one Stripo `/images/` URL exists — avoids mis-picking the first generic `<img>` before the
+ * scored pass runs (e.g. small icon before a large banner).
  */
-export function extractHeroImageFromHtml(html: string): string | null {
-  if (!html || typeof html !== 'string') return null;
+function extractHeroImageFromRawImgTags(html: string): string | null {
+  const tags = html.match(/<img\b[^>]*>/gi);
+  if (!tags?.length) return null;
 
+  type Cand = { url: string; order: number };
+  const stripoCands: Cand[] = [];
+  let order = 0;
+  for (const tag of tags) {
+    for (const part of collectUrlsFromImgTag(tag)) {
+      const rawUrl = part.url;
+      if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) continue;
+      if (isEmailPreviewFallbackHardReject(rawUrl)) continue;
+      if (isLikelyLogo(rawUrl) || imgSrcLooksLikeLogoPath(rawUrl)) continue;
+      if (!/stripocdn\.email/i.test(rawUrl) || !/\/images\//i.test(rawUrl)) continue;
+      const pathNoQuery = rawUrl.split('?')[0].toLowerCase();
+      if (!/\.(png|jpe?g|webp|gif)$/i.test(pathNoQuery)) continue;
+      const n = normalizeImageUrlString(rawUrl);
+      if (n) stripoCands.push({ url: n, order: order++ });
+    }
+  }
+  if (stripoCands.length === 0) return null;
+
+  const heroNamed = stripoCands.find(c => /hero|01_hero|banner|feature/i.test(c.url));
+  if (heroNamed) return heroNamed.url;
+
+  return stripoCands[0].url;
+}
+
+function extractHeroImageFromHtmlRegex(html: string): string | null {
   const tags = html.match(/<img\b[^>]*>/gi);
   if (!tags?.length) return null;
 
@@ -862,7 +1078,12 @@ export function extractHeroImageFromHtml(html: string): string | null {
 
       const w = Math.max(tw, part.widthHint || 0);
       const h = Math.max(th, part.heightHint || 0);
-      if (isTinyImgTagDims(w, h)) continue;
+      if (
+        !skipTinyDimensionCheckForLazyHeroUrl(rawUrl) &&
+        isLikelyTrackingOrSpacerPixelDims(w, h)
+      ) {
+        continue;
+      }
 
       let score = Math.max(w, h, 1);
       if (w > 0 && h > 0) score = w * h;
@@ -875,6 +1096,23 @@ export function extractHeroImageFromHtml(html: string): string | null {
   }
 
   return best?.url ?? null;
+}
+
+function hasHeroRegionContextBefore(html: string, tagIndex: number): boolean {
+  if (tagIndex < 0) return false;
+  const prefix = html.slice(Math.max(0, tagIndex - 900), tagIndex);
+  return HERO_SECTION_CTX.test(prefix);
+}
+
+/**
+ * Best **grid** hero URL from email HTML — pure string parsing (no DOMParser); skips wordmarks,
+ * tracking/spacer pixels (except when URL clearly looks like a lazy-loaded hero), and logo-like paths.
+ */
+export function extractHeroImageFromHtml(html: string): string | null {
+  if (!html || typeof html !== 'string') return null;
+  const fromRaw = extractHeroImageFromRawImgTags(html);
+  if (fromRaw) return fromRaw;
+  return extractHeroImageFromHtmlRegex(html);
 }
 
 /**
@@ -1174,6 +1412,13 @@ export function extractPermissiveCardPreviewImageUrl(
     if (n && isCardSuitableUrl(n)) return n;
   }
 
+  for (const u of collectChannelsImageUrlCandidates(raw)) {
+    if (u && isCardSuitableUrl(u)) return u;
+  }
+  for (const u of collectCreativeFieldUrlCandidates(raw)) {
+    if (u && isCardSuitableUrl(u)) return u;
+  }
+
   const messages = raw.messages as Record<string, unknown> | undefined;
   if (messages && typeof messages === 'object') {
     for (const msg of Object.values(messages)) {
@@ -1186,7 +1431,10 @@ export function extractPermissiveCardPreviewImageUrl(
   }
 
   let htmlBlob =
-    pickBestEmailHtmlString(raw) ?? pickLongestRelaxedEmailMarkupFragment(raw) ?? undefined;
+    pickLongestEmailHtmlFragmentForListingHero(raw) ??
+    pickBestEmailHtmlString(raw) ??
+    pickLongestRelaxedEmailMarkupFragment(raw) ??
+    undefined;
   if (!htmlBlob && typeof raw.email_html_preview === 'string') {
     const ep = raw.email_html_preview.trim();
     // Short sync snippets can still contain the hero `<img>` (strict/relaxed picks require longer blobs).

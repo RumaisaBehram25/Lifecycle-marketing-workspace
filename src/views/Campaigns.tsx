@@ -81,14 +81,11 @@ import {
   buildCampaignSearchIndex,
   extractPreviewImageUrl,
   extractPermissiveCardPreviewImageUrl,
-  extractHeroImageFromHtml,
   formatCampaignRate,
-  isLikelyLogo,
-  normalizeImageUrlString,
-  pickEmailHtmlForGridHeroExtraction,
   getCampaignPreviewLine,
   getCampaignSecondaryLine,
   normalizeCampaignChannel,
+  resolveCampaignCardThumbnailUrl,
   resolveEmailModalPreview,
   getModalOptimizedImageUrl,
   isRawDetailsEmpty,
@@ -159,7 +156,8 @@ function campaignDataRichnessScore(c: CampaignViewModel): number {
   );
 }
 
-const PAGE_SIZE = 24;
+/** Grid/list: same page size as Lifecycle for a consistent 21-up layout. */
+const PAGE_SIZE = 21;
 
 type BrazeCampaignRow = {
   id: string;
@@ -195,6 +193,39 @@ function brazeCampaignListId(row: Pick<BrazeCampaignRow, 'id' | 'braze_campaign_
   const bc = row.braze_campaign_id;
   if (bc != null && String(bc).trim() !== '') return String(bc).trim();
   return String(row.id);
+}
+
+function rowHasImageUrl(r: Record<string, unknown>): boolean {
+  const u = r.image_url;
+  return typeof u === 'string' && u.trim() !== '';
+}
+
+function rawDetailsJsonLength(r: Record<string, unknown>): number {
+  const rd = r.raw_details;
+  if (!rd || typeof rd !== 'object' || Array.isArray(rd)) return 0;
+  try {
+    return JSON.stringify(rd).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * When `braze_campaigns` has duplicate rows per `braze_campaign_id`, prefer the row with
+ * `image_url` (S3 screenshot), then the row with richer `raw_details`.
+ */
+function pickBetterBrazeCampaignDuplicate(
+  incoming: Record<string, unknown>,
+  existing: Record<string, unknown>,
+): Record<string, unknown> {
+  const incImg = rowHasImageUrl(incoming);
+  const exImg = rowHasImageUrl(existing);
+  if (incImg && !exImg) return incoming;
+  if (exImg && !incImg) return existing;
+
+  const score = (r: Record<string, unknown>) =>
+    Object.values(r).filter(v => v != null && v !== '').length + rawDetailsJsonLength(r) / 5000;
+  return score(incoming) >= score(existing) ? incoming : existing;
 }
 
 const now = new Date();
@@ -686,6 +717,8 @@ export default function Campaigns() {
         if (!isAdmin) {
           query = query.eq('client_id', cid);
         }
+        // Order by `sent_date` only — a secondary `image_url` sort caused PostgREST 500 / PG 57014
+        // (timeout) on large TEXT columns. Duplicate rows are merged in JS (prefer `image_url`).
         const { data: page, error: qErr } = await query
           .order('sent_date', { ascending: false })
           .range(from, from + pageSize - 1);
@@ -695,26 +728,18 @@ export default function Campaigns() {
         if (page.length < pageSize) break;
         from += pageSize;
       }
-      // Admins see all client_ids — deduplicate by braze_campaign_id, keeping the row with most data
-      if (isAdmin) {
-        const seen = new Map<string, Record<string, unknown>>();
-        for (const row of allRows) {
-          const key = brazeCampaignListId(row as BrazeCampaignRow);
-          const existing = seen.get(key);
-          if (!existing) {
-            seen.set(key, row);
-          } else {
-            // Prefer the row with more non-null fields (richer details)
-            const score = (r: Record<string, unknown>) =>
-              Object.values(r).filter(v => v != null && v !== '').length;
-            if (score(row) > score(existing)) {
-              seen.set(key, row);
-            }
-          }
+      // Duplicate rows per `braze_campaign_id` — keep the row with `image_url` (S3 screenshot), else richest `raw_details`
+      const seen = new Map<string, Record<string, unknown>>();
+      for (const row of allRows) {
+        const key = brazeCampaignListId(row as BrazeCampaignRow);
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, row);
+        } else {
+          seen.set(key, pickBetterBrazeCampaignDuplicate(row, existing));
         }
-        return Array.from(seen.values());
       }
-      return allRows;
+      return Array.from(seen.values());
     },
     enabled: showLiveCampaigns,
   });
@@ -734,25 +759,12 @@ export default function Campaigns() {
       const push_title = typeof rawDetails.push_title === 'string' ? rawDetails.push_title : undefined;
       const push_body = typeof rawDetails.push_body === 'string' ? rawDetails.push_body : undefined;
       const description = typeof rawDetails.description === 'string' ? rawDetails.description : undefined;
-      const fromCol = typeof row.image_url === 'string' ? row.image_url.trim() : '';
-      const fromColumn =
-        fromCol && !isLikelyLogo(fromCol) ? normalizeImageUrlString(fromCol) || '' : '';
-
-      const emailHtml = pickEmailHtmlForGridHeroExtraction(rawDetails);
-      const heroFromHtml = emailHtml ? extractHeroImageFromHtml(emailHtml) : null;
-
-      const rawPreview =
-        typeof rawDetails.preview_image_url === 'string' ? rawDetails.preview_image_url.trim() : '';
-      const guardedPreview =
-        rawPreview && !isLikelyLogo(rawPreview) ? normalizeImageUrlString(rawPreview) || '' : '';
-
-      /** HTML hero first; skip Braze `preview_image_url` when it is logo-like; then permissive / strict fallbacks. */
+      /** Grid/list thumbnail: same discovery as modal (channels, messages, creatives, longest HTML hero). */
       const preview_image_url =
-        fromColumn ||
-        (heroFromHtml ?? '') ||
-        guardedPreview ||
-        extractPermissiveCardPreviewImageUrl(rawDetails) ||
-        extractPreviewImageUrl(rawDetails);
+        resolveCampaignCardThumbnailUrl({
+          rawDetails,
+          imageUrlColumn: row.image_url,
+        }) ?? '';
 
       const base: PlaceholderCampaign = {
         id: brazeCampaignListId(row),
@@ -1167,7 +1179,10 @@ export default function Campaigns() {
     const cardThumb =
       colThumb ||
       (mergedForThumb
-        ? extractPreviewImageUrl(mergedForThumb) || extractPermissiveCardPreviewImageUrl(mergedForThumb)
+        ? resolveCampaignCardThumbnailUrl({
+            rawDetails: mergedForThumb,
+            imageUrlColumn: dbRow?.image_url ?? null,
+          }) ?? ''
         : '');
     if (cardThumb) return;
 
@@ -1895,3 +1910,4 @@ export default function Campaigns() {
     </>
   );
 }
+
