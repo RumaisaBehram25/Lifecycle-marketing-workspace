@@ -18,3 +18,7 @@ verify_jwt = false
 
 [functions.braze-campaign-creative]
 verify_jwt = false
+
+# Braze servers POST without a user JWT; optional BRAZE_WEBHOOK_SECRET verified in function.
+[functions.braze-webhook]
+verify_jwt = false

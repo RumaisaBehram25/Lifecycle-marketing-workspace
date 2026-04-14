@@ -15,6 +15,12 @@ type Row = Record<string, unknown>;
 const BRAZE_EMAIL_EVENTS_ANALYTICS_LOOKBACK_DAYS = 30;
 const BRAZE_EMAIL_EVENTS_PER_TYPE_LIMIT = 5_000;
 
+/** Align with app-wide React Query defaults; analytics bundles are expensive — avoid refetch on every revisit. */
+const ANALYTICS_STALE_MS = 120_000;
+
+/** Safety cap: each page is one HTTP round-trip — prevents runaway loops if filters match huge row sets. */
+const BRAZE_CAMPAIGN_ANALYTICS_MAX_PAGES = 100;
+
 function num(v: unknown): number {
   if (v == null || v === '') return 0;
   const n = Number(v);
@@ -357,7 +363,8 @@ export function useAnalyticsData(period: string = 'default') {
       const allRows: Row[] = [];
       const pageSize = 1000;
       let from = 0;
-      while (true) {
+      let pages = 0;
+      while (pages < BRAZE_CAMPAIGN_ANALYTICS_MAX_PAGES) {
         let query = (supabase as any)
           .from('braze_campaign_analytics')
           .select('*')
@@ -372,12 +379,14 @@ export function useAnalyticsData(period: string = 'default') {
         if (error) throw error;
         if (!data || data.length === 0) break;
         allRows.push(...(data as Row[]));
+        pages += 1;
         if (data.length < pageSize) break;
         from += pageSize;
       }
       return allRows;
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -394,6 +403,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -410,6 +420,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -427,6 +438,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -444,6 +456,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -465,6 +478,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -480,6 +494,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -514,6 +529,7 @@ export function useAnalyticsData(period: string = 'default') {
       return merged;
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -525,16 +541,18 @@ export function useAnalyticsData(period: string = 'default') {
       const [{ count: bounces, error: e1 }, { count: unsubs, error: e2 }] = await Promise.all([
         (supabase as any)
           .from('braze_email_events')
-          .select('id', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('client_id', clientId)
           .eq('event_type', 'hard_bounce')
-          .gte('occurred_at', since),
+          .gte('occurred_at', since)
+          .limit(1),
         (supabase as any)
           .from('braze_email_events')
-          .select('id', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('client_id', clientId)
           .eq('event_type', 'unsubscribe')
-          .gte('occurred_at', since),
+          .gte('occurred_at', since)
+          .limit(1),
       ]);
       if (e1) throw e1;
       if (e2) throw e2;
@@ -548,6 +566,7 @@ export function useAnalyticsData(period: string = 'default') {
       return { bounces: b, unsubs: u };
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -564,6 +583,7 @@ export function useAnalyticsData(period: string = 'default') {
       return (data ?? []) as Row[];
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
@@ -574,27 +594,40 @@ export function useAnalyticsData(period: string = 'default') {
       return fetchCampaignHygieneDirectory(clientId);
     },
     enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
     retry: false,
   });
 
   /**
-   * Full-page spinner until first fetch settles for each source that feeds `hasAnyData`.
-   * Uses `isPending` (not `isLoading`) so background refetches do not re-block the page.
-   * Customer.io is omitted — it loads async so a missing/slow CIO table cannot stall Analytics.
+   * Primary bundle: charts + KPI tiles. Secondary: segment sync rows, email samples, counts, hygiene directory.
+   * If primary is empty we still wait for secondary so we do not flash “no data” when only those tables have rows.
+   * Uses `isPending` so background refetches do not re-block the page.
    */
+  const primaryPending =
+    brazeCampaignAnalytics.isPending ||
+    segmentAnalytics.isPending ||
+    usageAnalytics.isPending ||
+    brazeCanvases.isPending ||
+    brazeKpiSeries.isPending;
+
+  const secondaryPending =
+    segmentsSync.isPending ||
+    emailEvents.isPending ||
+    emailHealth30d.isPending ||
+    scheduledBroadcasts.isPending ||
+    campaignDirectory.isPending;
+
+  const primaryHasData =
+    !primaryPending &&
+    ((brazeCampaignAnalytics.data ?? []).length > 0 ||
+      (customerioCampaigns.data ?? []).length > 0 ||
+      (segmentAnalytics.data ?? []).length > 0 ||
+      (usageAnalytics.data ?? []).length > 0 ||
+      (brazeCanvases.data ?? []).length > 0 ||
+      (brazeKpiSeries.data ?? []).length > 0);
+
   const isLoading =
-    isClientLoading ||
-    (!!clientId &&
-      (brazeCampaignAnalytics.isPending ||
-        segmentAnalytics.isPending ||
-        usageAnalytics.isPending ||
-        brazeCanvases.isPending ||
-        brazeKpiSeries.isPending ||
-        segmentsSync.isPending ||
-        emailEvents.isPending ||
-        emailHealth30d.isPending ||
-        scheduledBroadcasts.isPending ||
-        campaignDirectory.isPending));
+    isClientLoading || (!!clientId && (primaryPending || (!primaryHasData && secondaryPending)));
 
   const error =
     brazeCampaignAnalytics.error ||

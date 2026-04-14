@@ -237,17 +237,19 @@ export function useDashboardBrazeMetrics() {
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
       const { count: bounces, error: e1 } = await (supabase as any)
         .from('braze_email_events')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('client_id', clientId)
         .eq('event_type', 'hard_bounce')
-        .gte('occurred_at', since);
+        .gte('occurred_at', since)
+        .limit(1);
       if (e1) throw e1;
       const { count: unsubs, error: e2 } = await (supabase as any)
         .from('braze_email_events')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('client_id', clientId)
         .eq('event_type', 'unsubscribe')
-        .gte('occurred_at', since);
+        .gte('occurred_at', since)
+        .limit(1);
       if (e2) throw e2;
       let b = bounces ?? 0;
       let u = unsubs ?? 0;
@@ -285,16 +287,26 @@ export function useDashboardBrazeMetrics() {
       ] = await Promise.all([
         (supabase as any)
           .from('braze_canvases')
-          .select('id', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('client_id', clientId)
-          .or('archived.is.null,archived.eq.false'),
-        (supabase as any).from('braze_segments_sync').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+          .or('archived.is.null,archived.eq.false')
+          .limit(1),
+        (supabase as any)
+          .from('braze_segments_sync')
+          .select('id', { count: 'exact' })
+          .eq('client_id', clientId)
+          .limit(1),
         (supabase as any)
           .from('braze_email_events')
-          .select('id', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('client_id', clientId)
-          .gte('occurred_at', since),
-        (supabase as any).from('braze_scheduled_broadcasts').select('id', { count: 'exact', head: true }).eq('client_id', clientId),
+          .gte('occurred_at', since)
+          .limit(1),
+        (supabase as any)
+          .from('braze_scheduled_broadcasts')
+          .select('id', { count: 'exact' })
+          .eq('client_id', clientId)
+          .limit(1),
         (supabase as any)
           .from('braze_sync_runs')
           .select('status,started_at,completed_at,error_message')

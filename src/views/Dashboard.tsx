@@ -497,10 +497,11 @@ export default function Dashboard() {
       const cutoffIso = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000)).toISOString();
       const { count, error } = await supabase
         .from('braze_canvases')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('client_id', cid)
         .or('archived.is.null,archived.eq.false')
-        .gte('updated_at', cutoffIso);
+        .gte('updated_at', cutoffIso)
+        .limit(1);
       if (error) throw error;
       return count ?? 0;
     },

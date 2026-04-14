@@ -45,6 +45,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { BRCGIcon } from '@/components/BRCGLogo';
+import { prefetchPageChunk } from '@/lib/prefetchRoutes';
 
 const resourceSubItems = [
   { name: 'Brand Voice', href: '/resources?tab=voice', icon: Volume2 },
@@ -80,7 +81,12 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       {/* Logo */}
       <SidebarHeader className={`border-b border-sidebar-border ${isCollapsed ? 'p-1' : ''}`}>
-        <Link to="/dashboard" className={`flex items-center gap-3 ${isCollapsed ? 'justify-center p-1' : 'px-2 py-3'}`}>
+        <Link
+          to="/dashboard"
+          className={`flex items-center gap-3 ${isCollapsed ? 'justify-center p-1' : 'px-2 py-3'}`}
+          onMouseEnter={() => prefetchPageChunk('/dashboard')}
+          onFocus={() => prefetchPageChunk('/dashboard')}
+        >
           <div className={`flex items-center justify-center rounded-xl bg-primary flex-shrink-0 transition-all ${isCollapsed ? 'h-9 w-9' : 'h-10 w-10'}`}>
             <BRCGIcon className={`text-primary-foreground ${isCollapsed ? 'h-5 w-5' : 'h-6 w-6'}`} />
           </div>
@@ -112,7 +118,11 @@ export function AppSidebar() {
                       isActive={isActive}
                       tooltip={item.name}
                     >
-                      <Link to={item.href}>
+                      <Link
+                        to={item.href}
+                        onMouseEnter={() => prefetchPageChunk(item.href)}
+                        onFocus={() => prefetchPageChunk(item.href)}
+                      >
                         <item.icon className="h-5 w-5" />
                         <span>{item.name}</span>
                       </Link>
@@ -129,6 +139,8 @@ export function AppSidebar() {
                       isActive={isResourcesActive}
                       tooltip="Resource Center"
                       onClick={() => navigate('/resources')}
+                      onMouseEnter={() => prefetchPageChunk('/resources')}
+                      onFocus={() => prefetchPageChunk('/resources')}
                     >
                       <BookOpen className="h-5 w-5" />
                       <span className="flex-1">Resource Center</span>
@@ -190,7 +202,11 @@ export function AppSidebar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem asChild>
-              <Link to="/settings">
+              <Link
+                to="/settings"
+                onMouseEnter={() => prefetchPageChunk('/settings')}
+                onFocus={() => prefetchPageChunk('/settings')}
+              >
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </Link>

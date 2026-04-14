@@ -30,8 +30,9 @@ export async function countDistinctSegmentsFromAnalytics(clientId: string): Prom
 export async function resolveBrazeSegmentDirectoryCount(clientId: string): Promise<BrazeSegmentDirectoryCount> {
   const { count, error } = await supabase
     .from('braze_segments_sync')
-    .select('id', { count: 'exact', head: true })
-    .eq('client_id', clientId);
+    .select('id', { count: 'exact' })
+    .eq('client_id', clientId)
+    .limit(1);
   if (error) throw error;
   const syncN = count ?? 0;
   if (syncN > 0) return { count: syncN, source: 'sync' };

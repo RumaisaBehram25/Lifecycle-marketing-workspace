@@ -27,6 +27,9 @@ const queryClient = new QueryClient({
     queries: {
       // Tab focus otherwise refetches every mounted query and can feel like a full reload.
       refetchOnWindowFocus: false,
+      /** Reuse server data when switching Dashboard ↔ Campaigns ↔ Analytics within this window — avoids a full network refetch on every navigation. Per-query `staleTime` still overrides. */
+      staleTime: 60_000,
+      gcTime: 10 * 60_000,
     },
   },
 });
