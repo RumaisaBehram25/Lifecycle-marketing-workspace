@@ -11,6 +11,8 @@ const corsHeaders = {
 
 // Reduced batch size and limits for memory safety
 const BATCH_SIZE = 3;
+/** Touchpoints-only incremental sync: canvases per Edge invocation (cursor + resume). */
+const TOUCHPOINTS_CHUNK_SIZE = 50;
 const FALLBACK_BRAZE_REST_URL = "https://rest.iad-06.braze.com";
 
 function clampIntEnv(key: string, fallback: number, min: number, max: number): number {
@@ -634,6 +636,167 @@ function collectCanvasDetailStepRows(
   return out;
 }
 
+/**
+ * Channel + minimal `messages` rows for Lifecycle `isMessagingTouchpointStep` / `getLifecycleStepChannel`.
+ * No bodies, HTML, or template ids — only enough for UI classification.
+ */
+function buildMinimalTouchpointMessagesArray(
+  s: Record<string, unknown>,
+  fallbackChannel: string | undefined,
+): Array<{ channel: string }> {
+  const out: Array<{ channel: string }> = [];
+
+  const pushCh = (ch: string | undefined) => {
+    const c = String(ch ?? "").trim();
+    if (!c) return;
+    out.push({ channel: c });
+  };
+
+  if (s.messages && typeof s.messages === "object") {
+    if (Array.isArray(s.messages)) {
+      for (const msgData of s.messages) {
+        if (!msgData || typeof msgData !== "object" || Array.isArray(msgData)) continue;
+        const msg = msgData as Record<string, unknown>;
+        const ch = (msg.channel as string) || fallbackChannel;
+        if (ch) pushCh(ch);
+      }
+    } else {
+      for (const [msgKey, msgData] of Object.entries(
+        s.messages as Record<string, unknown>,
+      )) {
+        const msg =
+          msgData != null && typeof msgData === "object" && !Array.isArray(msgData)
+            ? (msgData as Record<string, unknown>)
+            : {};
+        let ch = (msg.channel as string) || undefined;
+        if (!ch && isMessagingChannelForSync(msgKey)) ch = msgKey;
+        if (!ch) ch = fallbackChannel;
+        if (ch) pushCh(ch);
+      }
+    }
+  }
+
+  if (out.length === 0 && s.message && typeof s.message === "object" && !Array.isArray(s.message)) {
+    const msg = s.message as Record<string, unknown>;
+    const ch =
+      (msg.channel as string) ||
+      (Array.isArray(s.channels) && s.channels[0] ? String(s.channels[0]) : undefined) ||
+      (typeof s.channel === "string" ? s.channel : undefined) ||
+      fallbackChannel;
+    if (ch) pushCh(ch);
+  }
+
+  if (out.length === 0) {
+    const stCh =
+      (typeof s.channel === "string" ? s.channel : undefined) ||
+      (Array.isArray(s.channels) && s.channels[0] ? String(s.channels[0]) : undefined) ||
+      fallbackChannel;
+    if (stCh && isMessagingChannelForSync(stCh)) pushCh(stCh);
+  }
+
+  if (
+    out.length === 0 &&
+    (s.email_template_id || s.template_id || s.subject || s.title)
+  ) {
+    pushCh("email");
+  }
+
+  return out;
+}
+
+/**
+ * Lightweight `raw_steps` for `touchpoints_only`: connectivity + step metadata only (no message bodies / HTML).
+ * Avoids retaining references into the large canvas/details JSON after `details` is released.
+ */
+function buildMinimalTouchpointStepsFromRows(
+  detailStepRows: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  const steps: Record<string, unknown> = {};
+  for (const s of detailStepRows) {
+    const stepId = String(
+      s.id ??
+        s.api_id ??
+        s.step_id ??
+        (s as { canvas_step_id?: unknown }).canvas_step_id ??
+        (s as { step_api_id?: unknown }).step_api_id ??
+        "",
+    ).trim();
+    if (!stepId) continue;
+
+    const nextPaths: Array<{ name: string; next_step_id: string; percentage?: number }> = [];
+    if (Array.isArray(s.next_paths) && s.next_paths.length > 0) {
+      for (const p of s.next_paths as unknown[]) {
+        const pr = p as Record<string, unknown>;
+        const nid = String(
+          pr.next_step_id ?? pr.nextStepId ?? pr.next_canvas_step_id ?? "",
+        ).trim();
+        nextPaths.push({
+          name: (pr.name as string) || "Path",
+          next_step_id: nid,
+          percentage: typeof pr.percentage === "number" ? pr.percentage : undefined,
+        });
+      }
+    }
+    const nextStepIdsFromPaths = nextPaths.map((p) => p.next_step_id).filter(Boolean);
+    const nextStepIds = Array.isArray(s.next_step_ids) && s.next_step_ids.length > 0
+      ? (s.next_step_ids as unknown[]).map((x) => String(x).trim()).filter(Boolean)
+      : nextStepIdsFromPaths;
+
+    const delayObj = s.delay as { value?: number } | undefined;
+    const delaySecondsParsed =
+      typeof delayObj?.value === "number"
+        ? delayObj.value
+        : typeof (s as { delay_seconds?: number }).delay_seconds === "number"
+          ? (s as { delay_seconds: number }).delay_seconds
+          : typeof (s as { wait_seconds?: number }).wait_seconds === "number"
+            ? (s as { wait_seconds: number }).wait_seconds
+            : undefined;
+
+    const rawStepType = String(s.type ?? "message");
+    let resolvedChannel: string | undefined =
+      typeof s.channel === "string" && s.channel.trim() !== ""
+        ? s.channel.trim()
+        : undefined;
+    if (!resolvedChannel) {
+      resolvedChannel = (s.channels?.[0] as string | undefined) || undefined;
+    }
+    if (!resolvedChannel && rawStepType.includes("/")) {
+      const tail = rawStepType.split("/").pop()?.toLowerCase() ?? "";
+      if (
+        tail === "email" ||
+        tail === "sms" ||
+        tail === "webhook" ||
+        tail.includes("push") ||
+        tail.includes("in_app") ||
+        tail.includes("in-app")
+      ) {
+        resolvedChannel = tail;
+      }
+    }
+
+    const minimalMessages = buildMinimalTouchpointMessagesArray(s, resolvedChannel);
+
+    const stepObj: Record<string, unknown> = {
+      id: stepId,
+      name: (s.name || s.type || "Step") as string,
+      type: rawStepType,
+      channel: resolvedChannel,
+      delay_seconds: delaySecondsParsed,
+      delay_formatted:
+        typeof delaySecondsParsed === "number"
+          ? formatDelay(delaySecondsParsed)
+          : undefined,
+      next_step_ids: nextStepIds,
+      next_paths: nextPaths.length > 0 ? nextPaths : undefined,
+    };
+    if (minimalMessages.length > 0) {
+      stepObj.messages = minimalMessages;
+    }
+    steps[stepId] = stepObj;
+  }
+  return steps;
+}
+
 /** List endpoints may use `canvases`, `campaigns`, or nest under `data`. */
 function getBrazeListArray(
   raw: Record<string, unknown>,
@@ -882,6 +1045,11 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  /** Declared on the handler (not inside `try`) so segment/scheduled counters stay in scope for schema_cache and response. */
+  let segmentsSynced = 0;
+  let scheduledBroadcastsCount = 0;
+  let apiScheduledListed = 0;
+
   try {
     const authResult = await validateAuth(req);
     if (!authResult.success) {
@@ -893,8 +1061,11 @@ Deno.serve(async (req) => {
       platformId?: string;
       restEndpoint?: string;
       force_canvas_ids?: unknown;
+      touchpoints_only?: unknown;
+      canvas_offset?: unknown;
     };
     const { clientId, platformId, restEndpoint } = body;
+    const touchpointsOnly = body.touchpoints_only === true;
     const forceCanvasIds: string[] = Array.isArray(body.force_canvas_ids)
       ? body.force_canvas_ids.map((x) => String(x).trim()).filter(Boolean)
       : [];
@@ -969,6 +1140,11 @@ Deno.serve(async (req) => {
     const kpiAppQuery = brazeKpiAppId ? `&app_id=${encodeURIComponent(brazeKpiAppId)}` : "";
 
     console.log("[Braze Sync] START — clientId=", clientId, "REST=", brazeRestEndpoint);
+    if (touchpointsOnly) {
+      console.log(
+        "[Braze Sync] TOUCHPOINTS_ONLY: canvas list + Phase 3 for ALL canvases (total_steps/raw_steps only); no cap, no time budget; skipping KPI, email, campaigns, segments, scheduled_broadcasts",
+      );
+    }
     if (forceCanvasIds.length > 0) {
       console.log(
         "[Braze Sync] force_canvas_ids:",
@@ -987,9 +1163,26 @@ Deno.serve(async (req) => {
     const maxWallMs = maxSyncWallMs();
     const syncOverBudgetPreview = () => Date.now() - syncStart > maxWallMs;
 
-    await pruneBrazeStorageForClient(supabase, String(clientId));
+    /** When set, skip KPI / email / campaigns / segments / scheduled_broadcasts; canvas list + Phase 3 for forced IDs only. */
+    const FORCE_CANVAS_FAST_PATH =
+      !touchpointsOnly && forceCanvasIds.length > 0 && forceCanvasIds.length < 10;
 
-    if (syncOverBudgetPreview()) {
+    /** KPI, Phase 1b, email, Phase 4+ — skipped for fast path or touchpoints-only sync. */
+    const skipHeavySyncPhases = FORCE_CANVAS_FAST_PATH || touchpointsOnly;
+
+    if (!skipHeavySyncPhases) {
+      await pruneBrazeStorageForClient(supabase, String(clientId));
+    } else if (FORCE_CANVAS_FAST_PATH) {
+      console.log(
+        "[Braze Sync] FORCE_CANVAS_FAST_PATH: skipping storage prune, KPI, email events, full canvas minimal upsert, campaigns, segments, scheduled_broadcasts",
+      );
+    } else if (touchpointsOnly) {
+      console.log(
+        "[Braze Sync] TOUCHPOINTS_ONLY: skipping storage prune and all phases except canvas list + Phase 3",
+      );
+    }
+
+    if (!touchpointsOnly && syncOverBudgetPreview()) {
       console.warn("[Braze Sync] Wall budget exhausted during prune; returning partial without main sync.");
       const nowIsoEarly = new Date().toISOString();
       return new Response(
@@ -1013,7 +1206,17 @@ Deno.serve(async (req) => {
     const syncRunId = syncRun?.id as string | undefined;
     const nowIso = new Date().toISOString();
 
-    const syncOverBudget = () => Date.now() - syncStart > maxWallMs;
+    let canvasMinimalUpserted = 0;
+    let campaignsProcessedCount = 0;
+    let campaignsEnabledCount = 0;
+    let allCampaignList: CampaignListItem[] = [];
+    let kpiSeriesPoints = 0;
+    let kpiLatestDau = 0;
+    let kpiLatestMau = 0;
+    let kpiNewUsers30Sum = 0;
+
+    const syncOverBudget = () =>
+      touchpointsOnly ? false : Date.now() - syncStart > maxWallMs;
     let syncPartial = false;
     let syncStoppedReason: string | null = null;
     let emailHardBounceRows = 0;
@@ -1044,12 +1247,9 @@ Deno.serve(async (req) => {
     );
 
     // === PHASE KPI (early): braze_kpi_series — runs before heavy canvas/campaign work to survive ~150s Edge limit ===
+    if (!skipHeavySyncPhases) {
     console.log("[SYNC] Starting: kpi_metrics");
     console.log('[START] KPI series (braze_kpi_series) — DAU / MAU / new_users');
-    let kpiSeriesPoints = 0;
-    let kpiLatestDau = 0;
-    let kpiLatestMau = 0;
-    let kpiNewUsers30Sum = 0;
     const endingAtEncKpi = encodeURIComponent(new Date().toISOString());
     const kpiMetricsEarly: Array<{ metric: 'dau' | 'mau' | 'new_users'; path: string }> = [
       { metric: 'dau', path: `kpi/dau/data_series?length=${KPI_LENGTH_DAU}&ending_at=${endingAtEncKpi}${kpiAppQuery}` },
@@ -1143,6 +1343,7 @@ Deno.serve(async (req) => {
       }
       await new Promise((r) => setTimeout(r, 150));
     }
+    }
 
     // === PHASE 1: Fetch ALL canvas IDs with names (lightweight) — paginate until empty ===
     console.log('[SYNC] Starting: canvases');
@@ -1204,7 +1405,7 @@ Deno.serve(async (req) => {
     );
 
     // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
-    let canvasMinimalUpserted = 0;
+    if (!skipHeavySyncPhases) {
     const minimalChunks: CanvasListItem[][] = [];
     for (let i = 0; i < allCanvasList.length; i += 40) {
       minimalChunks.push(allCanvasList.slice(i, i + 40));
@@ -1251,8 +1452,10 @@ Deno.serve(async (req) => {
     console.log(
       `Canvas minimal upsert: attempted ${allCanvasList.length}, saved ${canvasMinimalUpserted}`,
     );
+    }
 
     // === PHASE EMAIL (early): hard bounces + unsubscribes — before heavy canvas/campaign/segment work ===
+    if (!skipHeavySyncPhases) {
     const endDateStrEmail = new Date().toISOString().slice(0, 10);
     const startDateStrEmail = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     console.log(
@@ -1374,29 +1577,10 @@ Deno.serve(async (req) => {
     console.log(
       `[Braze Sync] Email events (early phase): hard_bounce_rows=${emailHardBounceRows} unsub_rows=${emailUnsubRows}`,
     );
-
-    // === PHASE 2: Score and prioritize canvases ===
-    console.log('Phase 2: Scoring canvases by lifecycle priority...');
-    if (EXCLUDE_DRAFT_FROM_CANVAS_DETAIL) {
-      console.log(
-        "[Braze Sync] BRAZE_SYNC_EXCLUDE_DRAFT_CANVAS_DETAIL=true: draft canvases will not receive Phase 3 detail / raw_steps",
-      );
     }
-    const scoredCanvases = allCanvasList
-      .filter((c) => !c.archived && (!EXCLUDE_DRAFT_FROM_CANVAS_DETAIL || !c.draft))
-      .map((c) => ({
-        canvas: c,
-        priority: getCanvasPriority(c.name),
-      }))
-      .sort((a, b) => b.priority - a.priority);
 
-    // Log top scoring canvases for debugging
-    console.log(
-      "Top 20 priority canvases:",
-      scoredCanvases.slice(0, 20).map((s) => `${s.priority}: ${s.canvas.name}`),
-    );
-
-    /** Forced IDs always get Phase 3 (deduped); rest filled from priority slice up to MAX. */
+    // === PHASE 2: Resolve forced canvases; score rest unless FORCE_CANVAS_FAST_PATH ===
+    /** Forced IDs always get Phase 3 (deduped); rest filled from priority slice up to MAX (full sync only). */
     const forcedIdSet = new Set<string>();
     const forcedCanvases: CanvasListItem[] = [];
     for (const fid of forceCanvasIds) {
@@ -1416,101 +1600,210 @@ Deno.serve(async (req) => {
       }
     }
 
-    const restAfterForced = scoredCanvases
-      .map((s) => s.canvas)
-      .filter((c) => !forcedIdSet.has(c.id));
-    const scoredSlice = restAfterForced.slice(0, MAX_CANVASES_TO_PROCESS);
-    const canvasesToProcess = [...forcedCanvases, ...scoredSlice];
+    /** Start index into allCanvasList for this touchpoints_only chunk (incremental sync). */
+    let touchpointsStartOffsetForChunk = 0;
+    let canvasesToProcess: CanvasListItem[];
 
-    const cutoffPriority =
-      scoredCanvases.length >= MAX_CANVASES_TO_PROCESS
-        ? scoredCanvases[MAX_CANVASES_TO_PROCESS - 1].priority
-        : null;
-    const cutoffName =
-      scoredCanvases.length >= MAX_CANVASES_TO_PROCESS
-        ? scoredCanvases[MAX_CANVASES_TO_PROCESS - 1].canvas.name
-        : null;
-
-    console.log("[Braze Sync][Phase3][debug] canvas list + detail selection:", {
-      allCanvasList_length: allCanvasList.length,
-      scored_eligible: scoredCanvases.length,
-      max_detail_cap: MAX_CANVASES_TO_PROCESS,
-      forced_count: forcedCanvases.length,
-      scored_slice_count: scoredSlice.length,
-      canvasesToProcess_length: canvasesToProcess.length,
-      cutoff_priority_at_rank_max: cutoffPriority,
-      cutoff_name_at_rank_max: cutoffName,
-    });
-
-    const alexTestMatcher = (n: string) => /alex\s*test/i.test(n);
-    const alexMatches = scoredCanvases.filter((s) => alexTestMatcher(s.canvas.name));
-    for (const s of alexMatches) {
-      const rank = scoredCanvases.findIndex((x) => x.canvas.id === s.canvas.id) + 1;
-      const inQueue = canvasesToProcess.some((c) => c.id === s.canvas.id);
-      console.log("[Braze Sync][Phase3][debug] name matches /Alex Test/i:", {
-        id: s.canvas.id,
-        name: s.canvas.name,
-        priority: s.priority,
-        rank_in_priority_list: rank,
-        in_phase3_detail_queue: inQueue,
-        force_included: forcedIdSet.has(s.canvas.id),
-      });
-      if (!inQueue) {
-        console.warn(
-          `[Braze Sync][Phase3][debug] Canvas ${JSON.stringify(s.canvas.name)} NOT in detail queue — rank ${rank}, priority ${s.priority}` +
-            (cutoffPriority != null
-              ? ` (lowest priority that made the priority-slice-only cut: ${cutoffPriority}, "${cutoffName}")`
-              : ""),
+    if (touchpointsOnly) {
+      const { data: progressRow } = await supabase
+        .from("client_sync_progress")
+        .select("last_offset")
+        .eq("client_id", clientId)
+        .eq("platform_id", platformId)
+        .eq("sync_kind", "braze_touchpoints")
+        .maybeSingle();
+      const dbLast = typeof progressRow?.last_offset === "number" ? progressRow.last_offset : 0;
+      const b = body as { canvas_offset?: unknown };
+      const hasExplicitOffset =
+        typeof b.canvas_offset === "number" && Number.isFinite(b.canvas_offset);
+      const resolvedOffset = hasExplicitOffset
+        ? Math.max(0, Math.floor(b.canvas_offset as number))
+        : dbLast;
+      touchpointsStartOffsetForChunk = Math.min(resolvedOffset, allCanvasList.length);
+      const sliceEnd = Math.min(
+        touchpointsStartOffsetForChunk + TOUCHPOINTS_CHUNK_SIZE,
+        allCanvasList.length,
+      );
+      canvasesToProcess = allCanvasList.slice(touchpointsStartOffsetForChunk, sliceEnd);
+      console.log(
+        `[Braze Sync] TOUCHPOINTS_ONLY: offset=${touchpointsStartOffsetForChunk} chunk=${canvasesToProcess.length}/${allCanvasList.length} (max ${TOUCHPOINTS_CHUNK_SIZE} per request; omit canvas_offset to resume from client_sync_progress)`,
+      );
+    } else if (FORCE_CANVAS_FAST_PATH) {
+      canvasesToProcess = forcedCanvases;
+      console.log(
+        `[Braze Sync] FORCE_CANVAS_FAST_PATH: Phase 3 queue = ${canvasesToProcess.length} canvas(es) (forced only; requested ${forceCanvasIds.length} id(s)).`,
+      );
+    } else {
+      console.log("Phase 2: Scoring canvases by lifecycle priority...");
+      if (EXCLUDE_DRAFT_FROM_CANVAS_DETAIL) {
+        console.log(
+          "[Braze Sync] BRAZE_SYNC_EXCLUDE_DRAFT_CANVAS_DETAIL=true: draft canvases will not receive Phase 3 detail / raw_steps",
         );
       }
-    }
-    if (alexMatches.length === 0) {
+      const scoredCanvases = allCanvasList
+        .filter((c) => !c.archived && (!EXCLUDE_DRAFT_FROM_CANVAS_DETAIL || !c.draft))
+        .map((c) => ({
+          canvas: c,
+          priority: getCanvasPriority(c.name),
+        }))
+        .sort((a, b) => b.priority - a.priority);
+
       console.log(
-        "[Braze Sync][Phase3][debug] No canvas name matched /alex\\s*test/i — if testing \"[Alex Test] Canvas\", rename or use force_canvas_ids with its braze canvas id",
+        "Top 20 priority canvases:",
+        scoredCanvases.slice(0, 20).map((s) => `${s.priority}: ${s.canvas.name}`),
+      );
+
+      const restAfterForced = scoredCanvases
+        .map((s) => s.canvas)
+        .filter((c) => !forcedIdSet.has(c.id));
+      const scoredSlice = restAfterForced.slice(0, MAX_CANVASES_TO_PROCESS);
+      canvasesToProcess = [...forcedCanvases, ...scoredSlice];
+
+      const cutoffPriority =
+        scoredCanvases.length >= MAX_CANVASES_TO_PROCESS
+          ? scoredCanvases[MAX_CANVASES_TO_PROCESS - 1].priority
+          : null;
+      const cutoffName =
+        scoredCanvases.length >= MAX_CANVASES_TO_PROCESS
+          ? scoredCanvases[MAX_CANVASES_TO_PROCESS - 1].canvas.name
+          : null;
+
+      console.log("[Braze Sync][Phase3][debug] canvas list + detail selection:", {
+        allCanvasList_length: allCanvasList.length,
+        scored_eligible: scoredCanvases.length,
+        max_detail_cap: MAX_CANVASES_TO_PROCESS,
+        forced_count: forcedCanvases.length,
+        scored_slice_count: scoredSlice.length,
+        canvasesToProcess_length: canvasesToProcess.length,
+        cutoff_priority_at_rank_max: cutoffPriority,
+        cutoff_name_at_rank_max: cutoffName,
+      });
+
+      const alexTestMatcher = (n: string) => /alex\s*test/i.test(n);
+      const alexMatches = scoredCanvases.filter((s) => alexTestMatcher(s.canvas.name));
+      for (const s of alexMatches) {
+        const rank = scoredCanvases.findIndex((x) => x.canvas.id === s.canvas.id) + 1;
+        const inQueue = canvasesToProcess.some((c) => c.id === s.canvas.id);
+        console.log("[Braze Sync][Phase3][debug] name matches /Alex Test/i:", {
+          id: s.canvas.id,
+          name: s.canvas.name,
+          priority: s.priority,
+          rank_in_priority_list: rank,
+          in_phase3_detail_queue: inQueue,
+          force_included: forcedIdSet.has(s.canvas.id),
+        });
+        if (!inQueue) {
+          console.warn(
+            `[Braze Sync][Phase3][debug] Canvas ${JSON.stringify(s.canvas.name)} NOT in detail queue — rank ${rank}, priority ${s.priority}` +
+              (cutoffPriority != null
+                ? ` (lowest priority that made the priority-slice-only cut: ${cutoffPriority}, "${cutoffName}")`
+                : ""),
+          );
+        }
+      }
+      if (alexMatches.length === 0) {
+        console.log(
+          "[Braze Sync][Phase3][debug] No canvas name matched /alex\\s*test/i — if testing \"[Alex Test] Canvas\", rename or use force_canvas_ids with its braze canvas id",
+        );
+      }
+
+      console.log(
+        `[Braze Sync][Phase3] detail queue: ${canvasesToProcess.length} canvas(es) (${forcedCanvases.length} forced + ${scoredSlice.length} from priority slice)`,
       );
     }
 
-    console.log(
-      `[Braze Sync][Phase3] detail queue: ${canvasesToProcess.length} canvas(es) (${forcedCanvases.length} forced + ${scoredSlice.length} from priority slice)`,
-    );
-
     // === PHASE 3: Process canvases in small batches with immediate checkpointing ===
-    console.log("Phase 3: Processing canvas details in batches of 3...");
+    const phase3BatchSize = touchpointsOnly ? 1 : BATCH_SIZE;
+    console.log(
+      touchpointsOnly
+        ? "Phase 3 (touchpoints_only): one canvas at a time, minimal steps — no parallel batch, no result accumulation"
+        : `Phase 3: Processing canvas details in batches of ${phase3BatchSize}...`,
+    );
     let processedCount = 0;
     let enabledCount = 0;
     let phase3CanvasesWithRawSteps = 0;
     let phase3DbWritesWithRawSteps = 0;
 
-    // Build template map first (limited to 30 templates for memory)
+    // Build template map first (limited to 30 templates for memory) — skipped in touchpoints_only (only raw_steps/total_steps persisted)
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
-    try {
-      const templatesData = await brazeFetch('templates/email/list?limit=30', apiKey, brazeRestEndpoint);
-      const templateList = templatesData.templates || [];
-      
-      for (let i = 0; i < Math.min(templateList.length, 30); i += BATCH_SIZE) {
-        const batch = templateList.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(batch.map(async (t: { email_template_id: string }) => {
-          try {
-            const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
-            const htmlContent = truncateHtml(details.body);
-            if (htmlContent) {
-              templateHtmlMap.set(t.email_template_id, {
-                subject: details.subject || '',
-                preheader: details.preheader || '',
-                html: htmlContent,
-              });
-            }
-          } catch { /* skip */ }
-        }));
-        await new Promise(r => setTimeout(r, 50));
+    if (!touchpointsOnly) {
+      try {
+        const templatesData = await brazeFetch('templates/email/list?limit=30', apiKey, brazeRestEndpoint);
+        const templateList = templatesData.templates || [];
+        
+        for (let i = 0; i < Math.min(templateList.length, 30); i += BATCH_SIZE) {
+          const batch = templateList.slice(i, i + BATCH_SIZE);
+          await Promise.allSettled(batch.map(async (t: { email_template_id: string }) => {
+            try {
+              const details = await brazeFetch(`templates/email/info?email_template_id=${t.email_template_id}`, apiKey, brazeRestEndpoint);
+              const htmlContent = truncateHtml(details.body);
+              if (htmlContent) {
+                templateHtmlMap.set(t.email_template_id, {
+                  subject: details.subject || '',
+                  preheader: details.preheader || '',
+                  html: htmlContent,
+                });
+              }
+            } catch { /* skip */ }
+          }));
+          await new Promise(r => setTimeout(r, 50));
+        }
+        console.log(`Loaded ${templateHtmlMap.size} templates for enrichment`);
+      } catch (e) {
+        console.warn('Failed to load templates:', e);
       }
-      console.log(`Loaded ${templateHtmlMap.size} templates for enrichment`);
-    } catch (e) {
-      console.warn('Failed to load templates:', e);
     }
 
+    if (touchpointsOnly) {
+      for (let ti = 0; ti < canvasesToProcess.length; ti++) {
+        const c = canvasesToProcess[ti];
+        console.log(
+          `[Braze Sync][Phase3][touchpoints] ${ti + 1}/${canvasesToProcess.length} id=${c.id} name=${JSON.stringify(c.name)}`,
+        );
+        let details: Record<string, unknown> | null = null;
+        try {
+          details = (await brazeFetch(
+            `canvas/details?canvas_id=${encodeURIComponent(c.id)}`,
+            apiKey,
+            brazeRestEndpoint,
+          )) as Record<string, unknown>;
+          const canvasNested = details.canvas as Record<string, unknown> | undefined;
+          const detailStepRows = collectCanvasDetailStepRows(details, canvasNested);
+          let stepsObj: Record<string, unknown> = buildMinimalTouchpointStepsFromRows(detailStepRows);
+          detailStepRows.length = 0;
+          details = null;
+
+          const totalSteps = Object.keys(stepsObj).length;
+          const { error: upsertErr } = await supabase.rpc("upsert_braze_canvas_touchpoints", {
+            p_client_id: clientId,
+            p_braze_canvas_id: c.id,
+            p_name: c.name || "Canvas",
+            p_total_steps: totalSteps,
+            p_raw_steps: stepsObj,
+          });
+          stepsObj = {} as Record<string, unknown>;
+          if (!upsertErr) {
+            processedCount++;
+            phase3DbWritesWithRawSteps++;
+            phase3CanvasesWithRawSteps++;
+            console.log(
+              `[Braze Sync][Phase3][touchpoints] upsert ok id=${c.id} total_steps=${totalSteps}`,
+            );
+          } else {
+            console.warn(
+              `[Braze Sync][Phase3][touchpoints] upsert failed id=${c.id}`,
+              upsertErr.message,
+            );
+            pushDbErr("braze_canvases(touchpoints)", upsertErr);
+          }
+        } catch (e) {
+          console.warn(`[Braze Sync][Phase3][touchpoints] canvas id=${c.id} failed:`, e);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    } else {
     // Process canvases in batches
-    for (let i = 0; i < canvasesToProcess.length; i += BATCH_SIZE) {
+    for (let i = 0; i < canvasesToProcess.length; i += phase3BatchSize) {
       if (syncOverBudget()) {
         console.warn(
           "[Braze Sync] Time budget: stopping canvas detail enrichment early (remaining canvases skipped)",
@@ -1519,9 +1812,9 @@ Deno.serve(async (req) => {
         syncStoppedReason = "time_budget";
         break;
       }
-      const batch = canvasesToProcess.slice(i, i + BATCH_SIZE);
+      const batch = canvasesToProcess.slice(i, i + phase3BatchSize);
       console.log(
-        `[Braze Sync][Phase3] batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(canvasesToProcess.length / BATCH_SIZE)} (${batch.length} canvas(es))`,
+        `[Braze Sync][Phase3] batch ${Math.floor(i / phase3BatchSize) + 1}/${Math.ceil(canvasesToProcess.length / phase3BatchSize)} (${batch.length} canvas(es))`,
       );
       for (const c of batch) {
         const pr = getCanvasPriority(c.name);
@@ -1840,8 +2133,8 @@ Deno.serve(async (req) => {
             );
           }
 
-          // Fetch activity data if canvas is enabled
-          if (enabled) {
+          // Fetch activity data if canvas is enabled (skipped in touchpoints_only)
+          if (enabled && !touchpointsOnly) {
             try {
               const now = new Date();
               const end = now.toISOString().split('T')[0];
@@ -1927,41 +2220,41 @@ Deno.serve(async (req) => {
           const hasIncomingSteps = Object.keys(stepsObj).length > 0;
 
           const row = {
-            client_id: clientId,
-            braze_canvas_id: c.id,
-            name: c.name,
-            description: c.description || null,
-            draft: c.draft ?? false,
-            enabled: c.enabled ?? false,
-            archived: c.archived ?? false,
-            schedule_type: c.schedule_type || null,
-            entry_type: c.entry_type || null,
-            trigger_event_name: c.trigger_event_name || null,
-            entry_segment_name: c.entry_segment_name || null,
-            tags: normalizeStringArray(c.tags),
-            first_entry: c.first_entry || null,
-            last_entry: c.last_entry || null,
-            created_in_braze: c.created_at || null,
-            updated_in_braze: c.updated_at || null,
-            raw_variants: c.variants || [],
-            conversion_events: c.conversion_events || [],
-            entry_filters: c.entry_filters || [],
-            exception_events: c.exception_events || [],
-            entries_last_30d: c.entries_last_30d || 0,
-            entries_last_60d: c.entries_last_60d || 0,
-            sends_last_30d: c.sends_last_30d || 0,
-            last_activity_at: c.last_activity_at || null,
-            synced_at: nowIso,
-            ...(hasIncomingSteps
-              ? {
-                  total_steps:
-                    typeof c.total_steps === "number"
-                      ? c.total_steps
-                      : Object.keys(stepsObj).length,
-                  raw_steps: stepsObj,
-                }
-              : {}),
-          };
+                client_id: clientId,
+                braze_canvas_id: c.id,
+                name: c.name,
+                description: c.description || null,
+                draft: c.draft ?? false,
+                enabled: c.enabled ?? false,
+                archived: c.archived ?? false,
+                schedule_type: c.schedule_type || null,
+                entry_type: c.entry_type || null,
+                trigger_event_name: c.trigger_event_name || null,
+                entry_segment_name: c.entry_segment_name || null,
+                tags: normalizeStringArray(c.tags),
+                first_entry: c.first_entry || null,
+                last_entry: c.last_entry || null,
+                created_in_braze: c.created_at || null,
+                updated_in_braze: c.updated_at || null,
+                raw_variants: c.variants || [],
+                conversion_events: c.conversion_events || [],
+                entry_filters: c.entry_filters || [],
+                exception_events: c.exception_events || [],
+                entries_last_30d: c.entries_last_30d || 0,
+                entries_last_60d: c.entries_last_60d || 0,
+                sends_last_30d: c.sends_last_30d || 0,
+                last_activity_at: c.last_activity_at || null,
+                synced_at: nowIso,
+                ...(hasIncomingSteps
+                  ? {
+                      total_steps:
+                        typeof c.total_steps === "number"
+                          ? c.total_steps
+                          : Object.keys(stepsObj).length,
+                      raw_steps: stepsObj,
+                    }
+                  : {}),
+              };
 
           const { error: upsertErr } = await supabase
             .from('braze_canvases')
@@ -2004,35 +2297,68 @@ Deno.serve(async (req) => {
       // Release memory between batches
       await new Promise(r => setTimeout(r, 100));
     }
+    }
 
     console.log(
       `[Braze Sync] Phase 3 done: processed=${processedCount} enabled=${enabledCount} ` +
         `fulfilled_with_step_object=${phase3CanvasesWithRawSteps} db_upserts_with_raw_steps=${phase3DbWritesWithRawSteps} ` +
-        `(list_total=${allCanvasList.length}, priority_detail_cap=${MAX_CANVASES_TO_PROCESS}, forced=${forcedCanvases.length})`,
+        `(list_total=${allCanvasList.length}, priority_detail_cap=${touchpointsOnly ? "none" : MAX_CANVASES_TO_PROCESS}, forced=${forcedCanvases.length})`,
     );
 
-    // === PHASE 4: Fetch and process campaigns ===
-    let campaignsProcessedCount = 0;
-    let campaignsEnabledCount = 0;
-    const allCampaignList: CampaignListItem[] = [];
+    if (touchpointsOnly) {
+      const syncDurationTouch = Date.now() - syncStart;
+      const totalCanvases = allCanvasList.length;
+      const nextOffset = touchpointsStartOffsetForChunk + canvasesToProcess.length;
+      const done = nextOffset >= totalCanvases;
+      const { error: progErr } = await supabase.from("client_sync_progress").upsert(
+        {
+          client_id: clientId,
+          platform_id: platformId,
+          sync_kind: "braze_touchpoints",
+          last_offset: done ? 0 : nextOffset,
+          total_canvases: totalCanvases,
+          updated_at: nowIso,
+        },
+        { onConflict: "client_id,platform_id,sync_kind" },
+      );
+      if (progErr) {
+        console.warn("[Braze Sync] client_sync_progress upsert:", progErr.message);
+        pushDbErr("client_sync_progress", progErr);
+      }
+      if (syncRunId) {
+        await supabase.from("braze_sync_runs").update({
+          status: "success",
+          completed_at: nowIso,
+          duration_ms: syncDurationTouch,
+          canvases_synced: processedCount,
+          campaigns_synced: 0,
+        }).eq("id", syncRunId);
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          processed: done ? totalCanvases : processedCount,
+          offset: done ? totalCanvases : nextOffset,
+          total: totalCanvases,
+          done,
+          counts: {
+            canvases_detail_enriched: processedCount,
+            total: totalCanvases,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-    if (!syncOverBudget()) {
+    if (!skipHeavySyncPhases) {
+    // === PHASE 4: Fetch and process campaigns ===
     console.log('Phase 4: Fetching all campaign IDs...');
     const seenCampaignIds = new Set<string>();
-    let campaignPage = 0;
 
-    while (campaignPage < 50) {
-      if (syncOverBudget()) {
-        console.warn(
-          "[Braze Sync] Time budget: stopping campaign list pagination early",
-        );
-        syncPartial = true;
-        syncStoppedReason = "time_budget";
-        break;
-      }
+    const ingestCampaignListPage = async (pageNum: number): Promise<boolean> => {
       try {
         const campaignsData = (await brazeFetch(
-          `campaigns/list?page=${campaignPage}&include_archived=false&sort_direction=desc`,
+          `campaigns/list?page=${pageNum}&include_archived=false&sort_direction=desc`,
           apiKey,
           brazeRestEndpoint
         )) as Record<string, unknown>;
@@ -2041,10 +2367,8 @@ Deno.serve(async (req) => {
           "items",
           "data",
         ]);
-        console.log(`Campaign page ${campaignPage}: ${rawCampaigns.length} items`);
-
-        if (rawCampaigns.length === 0) break;
-
+        console.log(`Campaign page ${pageNum}: ${rawCampaigns.length} items`);
+        if (rawCampaigns.length === 0) return false;
         for (const raw of rawCampaigns) {
           const row = raw as Record<string, unknown>;
           const cid = campaignIdFromListItem(row);
@@ -2066,13 +2390,29 @@ Deno.serve(async (req) => {
             _raw: row,
           });
         }
-
-        campaignPage++;
-        await new Promise(r => setTimeout(r, 100));
+        return true;
       } catch (err) {
-        logger.error(`Failed to fetch campaign page ${campaignPage}:`, err);
+        logger.error(`Failed to fetch campaign page ${pageNum}:`, err);
+        return false;
+      }
+    };
+
+    await ingestCampaignListPage(0);
+
+    let campaignPage = 1;
+    while (campaignPage < 50) {
+      if (syncOverBudget()) {
+        console.warn(
+          "[Braze Sync] Time budget: stopping campaign list pagination early",
+        );
+        syncPartial = true;
+        syncStoppedReason = "time_budget";
         break;
       }
+      const hadRows = await ingestCampaignListPage(campaignPage);
+      if (!hadRows) break;
+      campaignPage++;
+      await new Promise(r => setTimeout(r, 100));
     }
 
     console.log(`Total campaigns found: ${allCampaignList.length}`);
@@ -2080,6 +2420,13 @@ Deno.serve(async (req) => {
     const campaignsToProcess = allCampaignList.slice(0, MAX_CAMPAIGNS_TO_PROCESS);
     console.log(`Will process ${campaignsToProcess.length} campaigns`);
 
+    if (syncOverBudget()) {
+      console.warn(
+        "[Braze Sync] Time budget: skipping campaign detail + DB upsert (list kept for schema_cache)",
+      );
+      syncPartial = true;
+      if (!syncStoppedReason) syncStoppedReason = "time_budget";
+    } else {
     console.log('Phase 4b: Processing campaign details in batches of 3...');
     const campaignDataSeriesEndingAt = encodeURIComponent(nowIso);
 
@@ -2414,16 +2761,11 @@ Deno.serve(async (req) => {
     }
 
     console.log(`Processed ${campaignsProcessedCount} campaigns, ${campaignsEnabledCount} enabled/sent`);
-    } else {
-      console.warn("[Braze Sync] Time budget: skipping campaign sync");
-      syncPartial = true;
-      syncStoppedReason = "time_budget";
     }
 
     // === PHASE 6: Segment directory → public.braze_segments_sync (not braze_segments) ===
     console.log("[SYNC] Starting: segments");
     console.log('[START] segments/list → braze_segments_sync');
-    let segmentsSynced = 0;
     try {
       let segPage = 0;
       while (segPage < MAX_SEGMENT_PAGES) {
@@ -2518,8 +2860,6 @@ Deno.serve(async (req) => {
     console.log(`[Braze Sync] Segment sync complete: ${segmentsSynced} segment rows upserted`);
 
     // === PHASE 8: Upcoming scheduled campaigns & Canvases ===
-    let scheduledBroadcastsCount = 0;
-    let apiScheduledListed = 0;
     try {
       const endSch = encodeURIComponent(new Date(Date.now() + 30 * 86400000).toISOString());
       const schJson = (await brazeFetch(
@@ -2606,17 +2946,28 @@ Deno.serve(async (req) => {
       console.warn('scheduled_broadcasts sync failed:', e);
     }
 
-    // === Update schema_cache with summary (no full canvas data) ===
+    } // end !skipHeavySyncPhases (campaigns, segments, scheduled_broadcasts)
+
+    // === Update schema_cache with summary + lightweight campaign list (Settings + Campaigns fallback) ===
+    const schemaCacheCampaigns = allCampaignList.slice(0, 300).map((c) => ({
+      id: c.id,
+      name: c.name,
+      last_sent: c.last_sent,
+    }));
+
     const schemaCache = {
-      cache_version: 10,
+      cache_version: 11,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
+      force_canvas_fast_path: FORCE_CANVAS_FAST_PATH,
       canvas_list_total: allCanvasList.length,
       canvas_minimal_upserted: canvasMinimalUpserted,
       canvases_count: processedCount,
       canvases_enabled_count: enabledCount,
       campaigns_count: campaignsProcessedCount,
       campaigns_enabled_count: campaignsEnabledCount,
+      /** Mirrors legacy shape: used in Settings + Campaigns when braze_campaigns rows are empty (e.g. RLS client mismatch or partial sync). */
+      campaigns: schemaCacheCampaigns,
       kpi_series_points: kpiSeriesPoints,
       segments_synced: segmentsSynced,
       email_events_ingested: emailEventsSynced,
@@ -2737,6 +3088,7 @@ Deno.serve(async (req) => {
         warning: responseWarning,
         data: {
           sync_run_id: syncRunId,
+          force_canvas_fast_path: FORCE_CANVAS_FAST_PATH,
           saved_at: nowIso,
           duration_ms: syncDuration,
           db_errors: dbWriteErrors,

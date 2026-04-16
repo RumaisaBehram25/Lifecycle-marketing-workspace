@@ -8,14 +8,12 @@ import {
   dashboardSurfaceCard,
   dashboardTopAccentClass,
 } from '@/lib/dashboard-surface';
-import {
-  useDoubleGoodClient,
-  useDoubleGoodPlatforms,
-  useResolvedClientId,
-} from '@/hooks/useDoubleGoodClient';
+import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -70,10 +68,8 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  brazeSyncPartialDescription,
-  formatBrazeSyncInvokeError,
-} from '@/lib/brazeSyncInvoke';
+import { formatBrazeSyncInvokeError } from '@/lib/brazeSyncInvoke';
+import { invokeTouchpointsChunk } from '@/lib/touchpointsSyncClient';
 import { logger } from '@/lib/logger';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import {
@@ -99,11 +95,6 @@ interface CanvasVariant {
   name: string;
   percentage: number;
   first_step_id: string | null;
-}
-
-interface BrazeSchemaCache {
-  canvases?: any[];
-  last_sync?: string;
 }
 
 /** Same display count as cards / metrics — used to order journeys by touchpoints (highest first). */
@@ -214,13 +205,16 @@ function LifecycleMetricTile({
 }
 
 export default function Lifecycle() {
-  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
-  const { data: platforms } = useDoubleGoodPlatforms();
   const { clientId: workspaceClientId } = useResolvedClientId();
+  const { clientId: brazeReadClientId, isLoading: brazeDashboardClientLoading } =
+    useBrazeDashboardClientId();
+  const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
+  const [syncPausedAt, setSyncPausedAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState('All');
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
@@ -229,24 +223,110 @@ export default function Lifecycle() {
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
 
-  /** Only show lifecycle data when Braze is connected with API credentials — no mock/cached list. */
-  const hasBrazeApi = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
+  /** Braze credentials on this workspace (used for sync — always resolved client, not admin fallback). */
+  const hasBrazeOnWorkspace = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
-  const brazeJsonCache = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
+
+  const { data: dashboardBrazePlatform, isFetching: dashboardBrazePlatformFetching } = useQuery({
+    queryKey: ['braze-platform-schema-dashboard', brazeReadClientId],
+    queryFn: async () => {
+      if (!brazeReadClientId) return null;
+      const { data, error } = await supabase
+        .from('client_platforms_public')
+        .select('*')
+        .eq('client_id', brazeReadClientId)
+        .eq('platform', 'braze')
+        .order('last_sync_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!brazeReadClientId,
+    staleTime: 60_000,
+  });
+
+  /** Same client as Analytics / Settings visibility — includes admin fallback when Braze synced elsewhere. */
+  const canViewLifecycleFromBraze =
+    hasBrazeOnWorkspace || Boolean(dashboardBrazePlatform?.is_connected);
 
   const handleSyncFromBraze = async () => {
     if (!workspaceClientId || !brazePlatform?.id) return;
     setSyncing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('sync-braze', {
-        body: { clientId: workspaceClientId, platformId: brazePlatform.id },
+    setSyncProgress(null);
+    const willResume = syncPausedAt !== null;
+    if (!willResume) setSyncPausedAt(null);
+    let lastCursor = 0;
+    let lastTotal = 0;
+    let total = 0;
+    let offset: number | undefined = willResume ? undefined : 0;
+    /** Offset sent (or omitted) on the request that failed — for error toasts. */
+    let lastAttemptedOffset: number | undefined;
+
+    const runChunk = async (): Promise<void> => {
+      lastAttemptedOffset = offset;
+      const { data: d, error } = await invokeTouchpointsChunk({
+        clientId: workspaceClientId,
+        platformId: brazePlatform.id,
+        canvasOffset: offset,
       });
       if (error) throw error;
-      const partialDesc = brazeSyncPartialDescription(data);
-      toast({
-        title: data?.partial ? 'Synced from Braze (partial)' : 'Synced from Braze',
-        description: partialDesc,
+      if (!d?.success) throw new Error('Braze sync returned success: false');
+
+      total = typeof d.total === 'number' && !Number.isNaN(d.total) ? d.total : total;
+      const nextOffset =
+        typeof d.offset === 'number' && !Number.isNaN(d.offset) ? d.offset : null;
+
+      if (nextOffset === null) {
+        throw new Error(
+          'Touchpoints sync response missing numeric offset — cannot continue. Check sync-braze / API proxy response.',
+        );
+      }
+
+      const done =
+        d.done === true ||
+        (typeof d.total === 'number' && d.total > 0 && nextOffset >= d.total) ||
+        (total > 0 && nextOffset >= total);
+
+      console.log('[Lifecycle] touchpoints batch response', {
+        requestedOffset: offset,
+        offset: d.offset,
+        done: d.done,
+        inferredDone: done,
+        processed: d.processed,
+        total: d.total,
       });
+
+      lastTotal = total;
+      lastCursor = nextOffset;
+      setSyncProgress({ current: Math.min(nextOffset, total || nextOffset), total: total || nextOffset });
+
+      if (done) {
+        setSyncPausedAt(null);
+        toast({
+          title: 'Sync complete!',
+          description: `Synced ${total} journeys from Braze.`,
+        });
+        return;
+      }
+
+      if (
+        typeof lastAttemptedOffset === 'number' &&
+        nextOffset === lastAttemptedOffset
+      ) {
+        throw new Error(
+          `Touchpoints sync stalled: server returned offset ${nextOffset} again with done=false (same as requested canvas_offset).`,
+        );
+      }
+
+      offset = nextOffset;
+      // Brief pause between chunks avoids bursty invokes (relay/network flakes show up most often on the 2nd+ request after a long first chunk).
+      await new Promise((r) => setTimeout(r, 400));
+      await runChunk();
+    };
+
+    try {
+      await runChunk();
       queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
@@ -254,48 +334,60 @@ export default function Lifecycle() {
     } catch (error: unknown) {
       logger.error('Sync error:', error);
       const description = await formatBrazeSyncInvokeError(error);
+      setSyncPausedAt(lastCursor);
+      const requestHint =
+        lastAttemptedOffset === undefined
+          ? 'Last request omitted canvas_offset (server resume).'
+          : `Last request used canvas_offset=${lastAttemptedOffset}.`;
+      const progressHint =
+        lastTotal > 0
+          ? ` Last successful cursor: ${lastCursor} of ${lastTotal}.`
+          : lastCursor > 0
+            ? ` Last successful cursor: ${lastCursor}.`
+            : '';
       toast({
-        title: 'Failed to sync from Braze',
-        description,
+        title: 'Sync paused',
+        description: `${requestHint}${progressHint} ${description} Click Sync from Braze to resume.`,
         variant: 'destructive',
       });
     } finally {
       setSyncing(false);
+      setSyncProgress(null);
     }
   };
 
   // Fetch canvases from normalized table (synced rows only — avoids flooding the tab with schema_cache dumps)
   const { data: normalizedCanvases, isLoading: canvasesLoading } = useQuery({
-    queryKey: ['braze_canvases', client?.id],
+    queryKey: ['braze_canvases', brazeReadClientId],
     queryFn: async () => {
-      if (!client?.id) return [];
+      if (!brazeReadClientId) return [];
       const { data, error } = await supabase
         .from('braze_canvases')
         .select('*')
-        .eq('client_id', client.id)
+        .eq('client_id', brazeReadClientId)
         .eq('archived', false)
         // Include draft canvases (often enabled=false in Braze) so journeys with synced step data are visible.
         .or('enabled.eq.true,draft.eq.true');
       if (error) throw error;
       return sortLifecycleCanvases(data ?? []);
     },
-    enabled: !!client?.id && hasBrazeApi,
+    enabled: !!brazeReadClientId && canViewLifecycleFromBraze,
   });
 
   // Fetch visibility settings
   const { data: visibilityData } = useQuery({
-    queryKey: ['data-visibility-canvas', client?.id],
+    queryKey: ['data-visibility-canvas', brazeReadClientId],
     queryFn: async () => {
-      if (!client?.id) return [];
+      if (!brazeReadClientId) return [];
       const { data, error } = await supabase
         .from('data_visibility')
         .select('*')
-        .eq('client_id', client.id)
+        .eq('client_id', brazeReadClientId)
         .eq('item_type', 'canvas');
       if (error) throw error;
       return data as Array<{ item_id: string; is_visible: boolean }>;
     },
-    enabled: !!client?.id && hasBrazeApi,
+    enabled: !!brazeReadClientId && canViewLifecycleFromBraze,
   });
 
   const visibilityMap = useMemo(() => {
@@ -304,9 +396,9 @@ export default function Lifecycle() {
     return map;
   }, [visibilityData]);
 
-  // Transform canvases to journey format (DB sync only; optional step hydration from schema_cache)
+  // Transform canvases to journey format — only `braze_canvases` rows (no Braze schema_cache / API dump merge).
   const journeys = useMemo(() => {
-    if (!hasBrazeApi) return [];
+    if (!canViewLifecycleFromBraze) return [];
 
     const rawSource: unknown[] = Array.isArray(normalizedCanvases) ? normalizedCanvases : [];
 
@@ -317,16 +409,7 @@ export default function Lifecycle() {
       const name = (canvas.name as string) ?? '';
       const taxonomy = parseCampaignTaxonomy(name);
 
-      let stepsRecord = normalizeRawSteps(canvas.raw_steps ?? canvas.steps);
-      if (Object.keys(stepsRecord).length === 0 && brazeJsonCache?.canvases?.length) {
-        const brazeId = String(canvas.braze_canvas_id ?? canvas.id ?? '');
-        const cached = (brazeJsonCache.canvases as Record<string, unknown>[]).find(
-          (c) => String(c.id ?? '') === brazeId,
-        );
-        if (cached?.steps) {
-          stepsRecord = normalizeRawSteps(cached.steps);
-        }
-      }
+      const stepsRecord = normalizeRawSteps(canvas.raw_steps ?? canvas.steps);
 
       const stepsList = Object.values(stepsRecord);
 
@@ -390,7 +473,7 @@ export default function Lifecycle() {
         schedule_type: canvas.schedule_type as string | undefined,
       };
     });
-  }, [normalizedCanvases, brazeJsonCache?.canvases, hasBrazeApi]);
+  }, [normalizedCanvases, canViewLifecycleFromBraze]);
 
   const isItemVisible = (brazeOrVisibilityId: string) => {
     const explicitSetting = visibilityMap.get(brazeOrVisibilityId);
@@ -464,7 +547,10 @@ export default function Lifecycle() {
   }, [filteredJourneys, journeyPage, journeyTotalPages]);
 
   const listLoading =
-    hasBrazeApi && (clientLoading || (!!client?.id && canvasesLoading));
+    canViewLifecycleFromBraze &&
+    (brazeDashboardClientLoading ||
+      dashboardBrazePlatformFetching ||
+      (!!brazeReadClientId && canvasesLoading));
 
   const entries60dTotal = useMemo(
     () =>
@@ -498,37 +584,58 @@ export default function Lifecycle() {
             title="Lifecycle"
             titleClassName="text-4xl sm:text-5xl text-black dark:text-white"
             description={
-              hasBrazeApi
+              canViewLifecycleFromBraze
                 ? 'Browse synced Braze canvases as journeys — same card layout as Campaigns.'
                 : 'Connect Braze to sync multi-touch journeys into this workspace.'
             }
             actions={
-              hasBrazeApi ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={syncing || !brazePlatform}
-                    onClick={handleSyncFromBraze}
-                    className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20"
-                  >
-                    {syncing ? (
-                      <LoadingSpinner size="sm" className="mr-2" />
-                    ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                    )}
-                    Sync from Braze
-                  </Button>
-                  <Badge className="border border-teal-500/20 bg-teal-500/10 text-xs font-normal text-teal-800 dark:text-teal-200">
-                    Braze connected
-                  </Badge>
-                </>
+              hasBrazeOnWorkspace ? (
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={syncing || !brazePlatform}
+                      onClick={handleSyncFromBraze}
+                      className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20"
+                    >
+                      {syncing ? (
+                        <LoadingSpinner size="sm" className="mr-2" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
+                      Sync from Braze
+                    </Button>
+                    <Badge className="border border-teal-500/20 bg-teal-500/10 text-xs font-normal text-teal-800 dark:text-teal-200">
+                      Braze connected
+                    </Badge>
+                  </div>
+                  {syncProgress && syncProgress.total > 0 && (
+                    <div className="w-full min-w-[220px] max-w-sm">
+                      <p className="mb-1.5 text-xs text-muted-foreground">
+                        {`Syncing ${syncProgress.current} of ${syncProgress.total} canvases…`}
+                      </p>
+                      <Progress
+                        value={
+                          syncProgress.total > 0
+                            ? Math.min(100, (syncProgress.current / syncProgress.total) * 100)
+                            : 0
+                        }
+                      />
+                    </div>
+                  )}
+                  {syncPausedAt != null && !syncing && (
+                    <p className="max-w-sm text-right text-xs text-amber-800 dark:text-amber-200">
+                      Sync paused at {syncPausedAt} — click Sync from Braze to resume
+                    </p>
+                  )}
+                </div>
               ) : undefined
             }
           />
         </div>
 
-          {!hasBrazeApi && (
+          {!canViewLifecycleFromBraze && (
             <div
               className={cn(
                 'mx-auto w-full max-w-md rounded-3xl border border-border/70',
@@ -569,7 +676,7 @@ export default function Lifecycle() {
             </div>
           )}
 
-          {hasBrazeApi && (
+          {canViewLifecycleFromBraze && (
             <div
               className={cn(
                 'flex flex-col justify-between gap-4 rounded-2xl border border-border/60 bg-card/85 p-4 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:p-5',
@@ -636,7 +743,7 @@ export default function Lifecycle() {
             </div>
           )}
 
-          {hasBrazeApi && !listLoading && journeys.length > 0 && (
+          {canViewLifecycleFromBraze && !listLoading && journeys.length > 0 && (
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <LifecycleMetricTile
                 icon={Workflow}
@@ -669,7 +776,7 @@ export default function Lifecycle() {
             </div>
           )}
 
-          {!hasBrazeApi ? null : listLoading ? (
+          {!canViewLifecycleFromBraze ? null : listLoading ? (
             <div className="flex min-h-[45vh] flex-col items-center justify-center gap-4 p-6">
               <LoadingPage message="Loading journeys…" />
             </div>
@@ -823,7 +930,7 @@ export default function Lifecycle() {
               >
                 <JourneyDetail
                   journey={selectedJourney}
-                  clientId={client?.id}
+                  clientId={workspaceClientId}
                   inDialog
                   onBack={() => setSelectedJourney(null)}
                   onViewTouchpoint={(step: unknown) => setSelectedTouchpoint(step)}

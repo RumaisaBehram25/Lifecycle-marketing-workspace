@@ -180,6 +180,44 @@ export type Database = {
           },
         ]
       }
+      client_sync_progress: {
+        Row: {
+          client_id: string
+          id: string
+          last_offset: number
+          platform_id: string
+          sync_kind: string
+          total_canvases: number | null
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          id?: string
+          last_offset?: number
+          platform_id: string
+          sync_kind?: string
+          total_canvases?: number | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          id?: string
+          last_offset?: number
+          platform_id?: string
+          sync_kind?: string
+          total_canvases?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_sync_progress_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       briefs: {
         Row: {
           about: string | null

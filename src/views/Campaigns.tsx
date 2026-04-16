@@ -352,6 +352,36 @@ function enrichToViewModel(c: PlaceholderCampaign, index = 0): CampaignViewModel
   };
 }
 
+/** Same shape as Settings → Braze schema cache `campaigns` (list from Braze API during sync). */
+function schemaCacheRowToPlaceholder(raw: unknown): PlaceholderCampaign | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = String(o.id ?? o.campaign_id ?? '').trim();
+  const name = String(o.name ?? '').trim();
+  if (!id || !name) return null;
+  const lastSent = typeof o.last_sent === 'string' ? o.last_sent.trim() : '';
+  let sent_date = format(new Date(), 'yyyy-MM-dd');
+  let lastSentLabel: string | null = null;
+  if (lastSent) {
+    const d = new Date(lastSent);
+    if (!Number.isNaN(d.getTime())) {
+      sent_date = format(d, 'yyyy-MM-dd');
+      lastSentLabel = format(d, 'MMM d, yyyy');
+    }
+  }
+  const draft = o.draft === true;
+  return {
+    id,
+    name,
+    channel: 'email',
+    sent_date,
+    status: draft ? 'draft' : 'sent',
+    creative_preview: lastSentLabel
+      ? `Braze list snapshot · last sent ${lastSentLabel}`
+      : 'Braze list snapshot (same source as Settings → Braze)',
+  };
+}
+
 function sortCampaigns(list: CampaignViewModel[], sortKey: CampaignSortKey): CampaignViewModel[] {
   const out = [...list];
   const perfScore = (c: CampaignViewModel) =>
@@ -519,6 +549,11 @@ export default function Campaigns() {
   /** Stable check — avoids treating “no row yet” as disconnected while `platforms` is still loading. */
   const brazeConnected = Boolean(platforms?.some(p => p.platform === 'braze' && p.is_connected));
   const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
+  const schemaCacheCampaignRows = useMemo(() => {
+    const cache = brazePlatform?.schema_cache as { campaigns?: unknown } | undefined;
+    const list = cache?.campaigns;
+    return Array.isArray(list) ? list : [];
+  }, [brazePlatform?.schema_cache]);
   /** Must match `sync-braze` body `clientId` — not `useBrazeDashboardClientId()` (admin fallback can point at another workspace). */
   const showLiveCampaigns = Boolean(workspaceClientId && brazeConnected);
   /** Demo cards only when we know the workspace has no Braze link — never while platforms query is in flight (prevents fake rows flashing after API save). */
@@ -544,6 +579,7 @@ export default function Campaigns() {
         description: partialDesc,
       });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
     } catch (error: unknown) {
@@ -584,10 +620,11 @@ export default function Campaigns() {
 
   const campaigns: CampaignViewModel[] = useMemo(() => {
     if (showLiveCampaigns) {
-      if (dbCampaigns === undefined) return [];
-      if (dbCampaigns.length === 0) return [];
+      if (isLoading) return [];
 
-      return (dbCampaigns as BrazeCampaignRow[]).map(row => {
+      const dbRows = Array.isArray(dbCampaigns) ? dbCampaigns : [];
+      if (dbRows.length > 0) {
+      return (dbRows as BrazeCampaignRow[]).map(row => {
       const rawDetails = (row.raw_details ?? {}) as Record<string, unknown>;
       const channel = normalizeCampaignChannel(row.channel);
       const push_title = typeof rawDetails.push_title === 'string' ? rawDetails.push_title : undefined;
@@ -650,6 +687,18 @@ export default function Campaigns() {
         clickRateSort: parseRateToSort(base.click_rate),
       };
     });
+      }
+
+      if (schemaCacheCampaignRows.length > 0) {
+        return schemaCacheCampaignRows
+          .map((raw, i) => {
+            const p = schemaCacheRowToPlaceholder(raw);
+            return p ? enrichToViewModel(p, i) : null;
+          })
+          .filter((x): x is CampaignViewModel => x != null);
+      }
+
+      return [];
     }
 
     if (showDemoCampaigns) {
@@ -657,19 +706,32 @@ export default function Campaigns() {
     }
 
     return [];
-  }, [dbCampaigns, showLiveCampaigns, showDemoCampaigns]);
+  }, [
+    dbCampaigns,
+    showLiveCampaigns,
+    showDemoCampaigns,
+    isLoading,
+    schemaCacheCampaignRows,
+  ]);
 
   const showLoading =
     workspaceClientLoading ||
     (Boolean(workspaceClientId) && platformsLoading) ||
     Boolean(showLiveCampaigns && isLoading);
   const showSampleBanner = showDemoCampaigns;
+  const showSchemaSnapshotBanner =
+    showLiveCampaigns &&
+    !isLoading &&
+    Array.isArray(dbCampaigns) &&
+    dbCampaigns.length === 0 &&
+    schemaCacheCampaignRows.length > 0;
   const isEmptyLive =
     showLiveCampaigns &&
     !isLoading &&
     !isError &&
     Array.isArray(dbCampaigns) &&
-    dbCampaigns.length === 0;
+    dbCampaigns.length === 0 &&
+    schemaCacheCampaignRows.length === 0;
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -939,6 +1001,16 @@ export default function Campaigns() {
           </Collapsible>
         )}
 
+        {showSchemaSnapshotBanner && (
+          <Alert className="border-teal-200 bg-teal-50/80 dark:border-teal-900 dark:bg-teal-950/40">
+            <Database className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+            <AlertDescription className="text-sm text-teal-900 dark:text-teal-100">
+              Showing campaign names from your last Braze sync snapshot (same source as Settings). Detailed metrics and
+              creatives load from the <code className="rounded bg-teal-100/80 px-1 py-0.5 font-mono text-xs dark:bg-teal-900/60">braze_campaigns</code> table after a full sync writes rows for this workspace. If this list is empty after sync, check that campaigns are stored under your current client in the database.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {showSampleBanner && (
           <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/50">
             <Info className="h-4 w-4 text-amber-600 dark:text-amber-400" />
@@ -980,7 +1052,10 @@ export default function Campaigns() {
           ) : (
             <CampaignsListSkeleton />
           )
-        ) : isError && showLiveCampaigns && !dbCampaigns?.length ? (
+        ) : isError &&
+          showLiveCampaigns &&
+          !dbCampaigns?.length &&
+          schemaCacheCampaignRows.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
               <Mail className="h-12 w-12 text-muted-foreground opacity-60" />

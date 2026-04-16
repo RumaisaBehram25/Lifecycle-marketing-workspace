@@ -139,6 +139,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         if (!session?.user) {
           setIsLoading(false);
+        } else {
+          // Do not rely only on INITIAL_SESSION: in some cases it can lag or not run before first paint,
+          // leaving isLoading true forever while user/session are already set.
+          void fetchUserData(session.user.id);
         }
       })
       .catch((err) => {

@@ -17,6 +17,7 @@ import Chat from "./views/Chat";
 import Analytics from "./views/Analytics";
 import NotFound from "./views/NotFound";
 import PendingApproval from "./views/PendingApproval";
+import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,7 +82,9 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <AppRoutes />
+          <RouteErrorBoundary>
+            <AppRoutes />
+          </RouteErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

@@ -206,9 +206,10 @@ function getTableWhitelist(table: string): Set<string> {
 const UPSERT_ON_CONFLICT: Record<string, string> = {
   braze_campaign_analytics: 'client_id,campaign_id,date,variation_api_id',
   braze_canvases: 'campaign_id,date,variation_api_id',
-  braze_segment_analytics: 'segment_id,date',
+  /** Include client_id so upserts are per-workspace (see migration analytics_csv_tenant_scoped_unique). */
+  braze_segment_analytics: 'client_id,segment_id,date',
   braze_usage_analytics: 'date,client_id',
-  customerio_campaigns: 'campaign_name,date_range',
+  customerio_campaigns: 'client_id,campaign_name,date_range',
 };
 
 /** Coerce a CSV string for DB: strip "%" and parse as number for numeric columns, else return trimmed string. */

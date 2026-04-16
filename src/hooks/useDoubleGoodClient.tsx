@@ -94,7 +94,7 @@ export function queryStillResolving(q: {
  * - Members: personal workspace from `ensure_personal_workspace_client` (own Braze/CSV/Drive data).
  */
 export function useResolvedClientId() {
-  const { isAdmin, isApproved, isLoading: authLoading } = useAuth();
+  const { isAdmin, isApproved, isLoading: authLoading, session } = useAuth();
   const clientQuery = useDoubleGoodClient();
   const personalWorkspace = useQuery({
     queryKey: ['personal-workspace-client-id'],
@@ -118,7 +118,11 @@ export function useResolvedClientId() {
       if (error) throw error;
       return data as { id: string } | null;
     },
-    enabled: !authLoading && isAdmin && !clientQuery.data?.id,
+    enabled:
+      !authLoading &&
+      Boolean(session?.user) &&
+      isAdmin &&
+      !clientQuery.data?.id,
     staleTime: 1000 * 60 * 5,
   });
 
@@ -184,8 +188,11 @@ export function useActiveClientRow() {
 
 // Hook to get or create the single DoubleGood client (admin shared workspace; also used internally by useResolvedClientId for admins)
 export function useDoubleGoodClient() {
+  const { isLoading: authLoading, session } = useAuth();
   return useQuery({
     queryKey: ['doublegood-client'],
+    /** Without a session, PostgREST uses `anon` — `clients` RLS only allows `authenticated`, → 403 spam on app load. */
+    enabled: !authLoading && Boolean(session?.user),
     queryFn: async () => {
       // Try to get existing DoubleGood client
       const { data: existing, error: fetchError } = await supabase

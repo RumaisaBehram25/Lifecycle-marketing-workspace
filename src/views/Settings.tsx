@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { UserManagementPanel } from '@/components/settings/UserManagementPanel';
-import { useActiveClientRow, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -59,33 +59,59 @@ interface DataVisibility {
 
 export default function Settings() {
   const { profile, role, isAdmin } = useAuth();
-  const { data: client } = useActiveClientRow();
-  const { data: platforms, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
+  const { clientId: brazeDashboardClientId } = useBrazeDashboardClientId();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   const [activeTab, setActiveTab] = useState('profile');
   const [campaignSearch, setCampaignSearch] = useState('');
   const [canvasSearch, setCanvasSearch] = useState('');
   const [segmentSearch, setSegmentSearch] = useState('');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
-  const brazePlatform = platforms?.find(p => p.platform === 'braze' && p.is_connected);
-  const brazeData = brazePlatform?.schema_cache as BrazeSchemaCache | undefined;
-
-  // Fetch visibility settings
-  const { data: visibilityData, isLoading: visibilityLoading } = useQuery({
-    queryKey: ['data-visibility', client?.id],
+  /** Same Braze client as Analytics / KPIs — admins see schema from the workspace that actually synced (not only DoubleGood). */
+  const { data: dashboardBrazePlatform } = useQuery({
+    queryKey: ['braze-platform-schema-dashboard', brazeDashboardClientId],
     queryFn: async () => {
-      if (!client?.id) return [];
+      if (!brazeDashboardClientId) return null;
+      const { data, error } = await supabase
+        .from('client_platforms_public')
+        .select('*')
+        .eq('client_id', brazeDashboardClientId)
+        .eq('platform', 'braze')
+        .order('last_sync_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!brazeDashboardClientId,
+    staleTime: 60_000,
+  });
+
+  const brazeData = dashboardBrazePlatform?.schema_cache as BrazeSchemaCache | undefined;
+
+  const hasBrazeVisibilityCatalog =
+    Boolean(brazeData?.last_sync) ||
+    (brazeData?.campaigns?.length ?? 0) > 0 ||
+    (brazeData?.canvases?.length ?? 0) > 0 ||
+    (brazeData?.segments?.length ?? 0) > 0;
+
+  const visibilityClientId = brazeDashboardClientId;
+
+  // Fetch visibility settings (scoped to the same client as Braze sync / dashboard metrics)
+  const { data: visibilityData } = useQuery({
+    queryKey: ['data-visibility', visibilityClientId],
+    queryFn: async () => {
+      if (!visibilityClientId) return [];
       const { data, error } = await supabase
         .from('data_visibility')
         .select('*')
-        .eq('client_id', client.id);
+        .eq('client_id', visibilityClientId);
       if (error) throw error;
       return data as DataVisibility[];
     },
-    enabled: !!client?.id,
+    enabled: !!visibilityClientId,
   });
 
   // Create visibility map for quick lookup
@@ -111,13 +137,13 @@ export default function Settings() {
   // Toggle visibility mutation
   const toggleVisibility = useMutation({
     mutationFn: async ({ itemType, itemId, isVisible }: { itemType: string; itemId: string; isVisible: boolean }) => {
-      if (!client?.id) throw new Error('No client');
-      
+      if (!visibilityClientId) throw new Error('No client');
+
       // Upsert visibility record
       const { error } = await supabase
         .from('data_visibility')
         .upsert({
-          client_id: client.id,
+          client_id: visibilityClientId,
           item_type: itemType,
           item_id: itemId,
           is_visible: isVisible,
@@ -128,7 +154,10 @@ export default function Settings() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['data-visibility', client?.id] });
+      queryClient.invalidateQueries({ queryKey: ['data-visibility', visibilityClientId] });
+      queryClient.invalidateQueries({ queryKey: ['data-visibility-canvas'] });
+      queryClient.invalidateQueries({ queryKey: ['data-visibility-segments'] });
+      queryClient.invalidateQueries({ queryKey: ['data-visibility-starred-segments'] });
     },
     onError: (error) => {
       toast({ title: 'Failed to update', description: error.message, variant: 'destructive' });
@@ -319,17 +348,18 @@ export default function Settings() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {!brazeData?.last_sync ? (
+                  {!hasBrazeVisibilityCatalog ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <p>No Braze data synced yet.</p>
                       <p className="text-sm mt-1">Connect and sync Braze from the Knowledge Base page first.</p>
                     </div>
                   ) : (
                     <>
-                      {/* Last Sync Info */}
-                      <div className="text-xs text-muted-foreground text-right">
-                        Last synced: {new Date(brazeData.last_sync).toLocaleString()}
-                      </div>
+                      {brazeData?.last_sync ? (
+                        <div className="text-xs text-muted-foreground text-right">
+                          Last synced: {new Date(brazeData.last_sync).toLocaleString()}
+                        </div>
+                      ) : null}
 
                       {/* Campaigns */}
                       <div className="space-y-3">
