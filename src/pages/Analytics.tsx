@@ -9,8 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAnalyticsData } from '@/hooks/useAnalyticsData';
 import { LoadingPage } from '@/components/ui/loading-spinner';
-import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
 import {
   Select,
   SelectContent,
@@ -43,8 +41,8 @@ import {
   Legend,
 } from 'recharts';
 import {
-  Send, Workflow, UserPlus, Sparkles, Search, DollarSign, ChevronDown, ChevronUp,
-  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers, Loader2,
+  Send, Workflow, UserPlus, Search, DollarSign, ChevronDown, ChevronUp,
+  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -159,7 +157,6 @@ function formatPct(value: number): string {
 }
 
 export default function Analytics() {
-  const { data: client } = useDoubleGoodClient();
   const {
     clientId,
     isClientLoading,
@@ -190,50 +187,6 @@ export default function Analytics() {
   const [siteRevenueInput, setSiteRevenueInput] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('revenue');
   const [sortAsc, setSortAsc] = useState(false);
-  const [insights, setInsights] = useState<{ title: string; body: string; tag: string; tagColor: string }[]>([]);
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const [insightsError, setInsightsError] = useState<string | null>(null);
-
-  const generateInsights = async () => {
-    if (!client?.id) return;
-    setInsightsLoading(true);
-    setInsightsError(null);
-    try {
-      const { data: canvases, error: dbError } = await supabase
-        .from('braze_canvases')
-        .select('name, sends_last_30d, entries_last_30d, entries_last_60d, tags, enabled, schedule_type, conversion_events')
-        .eq('client_id', client.id)
-        .eq('archived', false);
-      if (dbError) throw dbError;
-
-      const campaigns = (canvases || []).map(c => ({
-        name: c.name,
-        sends_30d: c.sends_last_30d || 0,
-        entries_30d: c.entries_last_30d || 0,
-        entries_60d: c.entries_last_60d || 0,
-        tags: c.tags || [],
-        enabled: c.enabled,
-        schedule_type: c.schedule_type,
-        conversion_events: c.conversion_events || [],
-      }));
-
-      const res = await fetch('/api/generate-insights', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ campaigns }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to generate insights');
-      }
-      const data = await res.json();
-      setInsights(data?.insights ?? []);
-    } catch (err: unknown) {
-      setInsightsError(err instanceof Error ? err.message : 'Failed to generate insights');
-    } finally {
-      setInsightsLoading(false);
-    }
-  };
 
   if (!clientId) {
     if (isClientLoading) {
@@ -962,40 +915,6 @@ export default function Analytics() {
           </Card>
         </div>
 
-        {/* AI Insights */}
-        <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                AI Insights
-              </CardTitle>
-              <Button size="sm" onClick={generateInsights} disabled={insightsLoading || !client?.id}>
-                {insightsLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
-                {insightsLoading ? 'Generating...' : 'Generate Insights'}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              {insightsError && (
-                <p className="text-sm text-red-500">{insightsError}</p>
-              )}
-              {insights.length === 0 && !insightsLoading && !insightsError && (
-                <p className="text-sm text-muted-foreground">Click "Generate Insights" to analyze your campaign data with AI.</p>
-              )}
-              {insights.map((insight, i) => (
-                <div key={i} className="p-3 rounded-lg border bg-card/50">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="secondary" className={cn("text-[10px]", insight.tagColor)}>{insight.tag}</Badge>
-                    <span className="text-sm font-semibold">{insight.title}</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{insight.body}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
         </div>
       </div>
     </AppLayout>
