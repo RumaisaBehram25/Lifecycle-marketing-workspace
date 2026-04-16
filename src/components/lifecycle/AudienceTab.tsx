@@ -107,6 +107,12 @@ export function AudienceTab() {
 
   const brazeSegments: Segment[] = segmentsFromSync;
 
+  /**
+   * Segment “stars” are not stored on Braze segment rows. They persist in `data_visibility`:
+   * - `item_type` = `'segment_starred'` (one row per starred Braze segment id in `item_id`)
+   * - `is_visible` = true means starred; false would unstar (we upsert true/false from the toggle)
+   * RLS must allow the workspace user to upsert for their `client_id`.
+   */
   const { data: visibilityData, isLoading: visibilityLoading } = useQuery({
     queryKey: ['data-visibility', client?.id],
     queryFn: async () => {
@@ -147,6 +153,7 @@ export function AudienceTab() {
           item_id: segmentId,
           is_visible: next,
         },
+        // Unique on (client_id, item_type, item_id) — toggling the same segment updates the same row.
         { onConflict: 'client_id,item_type,item_id' },
       );
       if (error) throw error;
@@ -180,6 +187,7 @@ export function AudienceTab() {
     staleTime: 60_000,
   });
 
+  /** “Starred only” = Braze segments whose id appears in `starredMap` with value true (see `data_visibility` above). */
   const filteredSegments = useMemo(() => {
     let list = brazeSegments;
     if (showStarredOnly) {

@@ -8,7 +8,11 @@ import { buildCrmPlatformContexts, type CrmChatPlatformContext } from '@/lib/crm
 
 /**
  * Active workspace `clients` row (admin = BRCG shared workspace or fallback; member = personal workspace)
- * and platform schema for Chat / Copilot.
+ * plus connected platforms for Chat / Copilot UI.
+ *
+ * Used by AI Chat (`/chat`) and Resource Center (`/resources`). After saving brand or rules in Resource Center,
+ * invalidate `['client-row-for-chat', clientId]` (see `ResourceCenter` `invalidateWorkspaceClient`) so this hook refetches.
+ * Edge function `ops-chat` does **not** rely on this cache: it calls `buildUnifiedContext` and reads `clients` again per request.
  */
 export function useClientForChat() {
   const { clientId, isClientLoading, resolveError } = useResolvedClientId();

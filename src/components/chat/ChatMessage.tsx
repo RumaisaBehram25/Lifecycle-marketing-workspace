@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { User, Sparkles, Copy, Check } from 'lucide-react';
+import { User, Sparkles, Copy, Check, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import ReactMarkdown from 'react-markdown';
@@ -15,9 +15,43 @@ interface ChatMessageProps {
   timestamp?: Date;
 }
 
+/** Shown for the whole assistant stream — stays until `isStreaming` ends (below the user bubble in thread order). */
+function AssistantStreamingChrome({ showSkeleton }: { showSkeleton: boolean }) {
+  return (
+    <div className="space-y-3 py-0.5" aria-busy="true" aria-live="polite">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" aria-hidden />
+        <span className="font-medium text-foreground/90">CRM Copilot</span>
+        <span className="text-muted-foreground">— composing your reply…</span>
+      </div>
+      {showSkeleton && (
+        <div className="space-y-2 max-w-[min(100%,28rem)]">
+          <div
+            className="h-2.5 rounded-full bg-gradient-to-r from-muted via-muted/70 to-muted animate-pulse"
+            style={{ width: '100%' }}
+          />
+          <div
+            className="h-2.5 rounded-full bg-gradient-to-r from-muted via-muted/70 to-muted animate-pulse [animation-delay:90ms]"
+            style={{ width: '88%' }}
+          />
+          <div
+            className="h-2.5 rounded-full bg-gradient-to-r from-muted via-muted/70 to-muted animate-pulse [animation-delay:180ms]"
+            style={{ width: '72%' }}
+          />
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground leading-snug">
+        Connecting to the assistant and streaming the response here — no need to resend your message.
+      </p>
+    </div>
+  );
+}
+
 export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const isUser = role === 'user';
+  const assistantStreaming = !isUser && Boolean(isStreaming);
+  const hasAssistantContent = Boolean(content.trim());
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
@@ -164,18 +198,22 @@ export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
             "text-sm prose-sm max-w-none",
             isUser ? "text-primary-foreground" : "text-foreground"
           )}>
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {content}
-            </ReactMarkdown>
-            {isStreaming && (
-              <span className="inline-flex items-center gap-1 ml-1">
-                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
-                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse [animation-delay:300ms]" />
-              </span>
+            {assistantStreaming && (
+              <AssistantStreamingChrome showSkeleton={!hasAssistantContent} />
+            )}
+            {hasAssistantContent && (
+              <div className={cn(assistantStreaming && 'mt-4 pt-3 border-t border-border/50')}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {content}
+                </ReactMarkdown>
+                {assistantStreaming && (
+                  <span className="inline-flex items-center gap-1 ml-1 align-middle" aria-hidden>
+                    <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
+                    <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse [animation-delay:300ms]" />
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>

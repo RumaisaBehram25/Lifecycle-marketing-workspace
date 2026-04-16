@@ -84,6 +84,7 @@ export interface UnifiedContext {
 
 // ============= Context Builder =============
 
+/** Loads client + platforms + knowledge for one AI request (no cross-request memoization). */
 export async function buildUnifiedContext(params: {
   clientId: string;
   supabase: SupabaseClient;
@@ -109,6 +110,11 @@ export async function buildUnifiedContext(params: {
 
 // ============= Client Fetcher =============
 
+/**
+ * Loads the canonical `clients` row for AI features (CRM Copilot / `ops-chat`, `generate-copy`, etc.).
+ * Resource Center edits the same row (`brand_voice`, `tone_presets`, `do_rules`, `dont_rules`, `copy_rules`, …).
+ * `select('*')` keeps new brand columns available to `buildSystemPromptFromContext` without a separate migration step here.
+ */
 async function fetchClient(supabase: SupabaseClient, clientId: string): Promise<ClientContext> {
   const { data, error } = await supabase
     .from('clients')
@@ -379,6 +385,15 @@ function buildKnowledgeStats(docs: any[], clientId: string): KnowledgeContext['s
 
 // ============= System Prompt Builder =============
 
+/**
+ * Serializes `UnifiedContext` into markdown instructions for the model.
+ *
+ * **Resource Center alignment (chat / copy):** the `## CLIENT CONTEXT` block below injects the latest
+ * `brand_voice`, `tone_presets`, `do_rules`, `dont_rules`, and optional extended fields from `fetchClient`.
+ * **Copy Rules** (`clients.copy_rules`, edited under Resource Center → Rules) are appended when
+ * `formatCopyRulesForPrompt` returns text. Callers should run `buildUnifiedContext` per request so edits
+ * in the app appear on the next Copilot turn without relying on the browser cache.
+ */
 export function buildSystemPromptFromContext(
   context: UnifiedContext,
   purpose: 'chat' | 'copy' | 'code' = 'chat'

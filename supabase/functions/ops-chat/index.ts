@@ -300,7 +300,7 @@ serve(async (req) => {
       .filter(m => m.role === 'user')
       .pop()?.content || '';
 
-    // Build unified context with full platform data from database
+    // Fresh read of `clients` + platforms + knowledge each request — Resource Center saves hit Copilot on the next message.
     console.log('Building unified context for client:', client.id);
     const unifiedContext = await buildUnifiedContext({
       clientId: client.id,

@@ -729,17 +729,17 @@ export default function Campaigns() {
         from += pageSize;
       }
       // Duplicate rows per `braze_campaign_id` — keep the row with `image_url` (S3 screenshot), else richest `raw_details`
-      const seen = new Map<string, Record<string, unknown>>();
-      for (const row of allRows) {
+        const seen = new Map<string, Record<string, unknown>>();
+        for (const row of allRows) {
         const key = brazeCampaignListId(row as BrazeCampaignRow);
-        const existing = seen.get(key);
-        if (!existing) {
-          seen.set(key, row);
-        } else {
+          const existing = seen.get(key);
+          if (!existing) {
+            seen.set(key, row);
+          } else {
           seen.set(key, pickBetterBrazeCampaignDuplicate(row, existing));
+          }
         }
-      }
-      return Array.from(seen.values());
+        return Array.from(seen.values());
     },
     enabled: showLiveCampaigns,
   });
@@ -1663,16 +1663,16 @@ export default function Campaigns() {
                         </TooltipContent>
                       </Tooltip>
                       {viewMode === 'list' && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">
-                              {previewLine}
-                            </p>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-sm">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">
                             {previewLine}
-                          </TooltipContent>
-                        </Tooltip>
+                          </p>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-sm">
+                          {previewLine}
+                        </TooltipContent>
+                      </Tooltip>
                       )}
                     </div>
                     <div
@@ -1685,10 +1685,10 @@ export default function Campaigns() {
                         {channelLabels[campaign.channel]}
                       </Badge>
                       <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
-                          <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
-                          {format(new Date(campaign.sent_date), 'MMM d')}
-                        </span>
+                      <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
+                        <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
+                        {format(new Date(campaign.sent_date), 'MMM d')}
+                      </span>
                         {viewMode === 'grid' && (
                           <span className="font-medium text-primary" aria-hidden>
                             Read
@@ -1789,11 +1789,11 @@ export default function Campaigns() {
                 {selectedCampaign.channel === 'email' ? (
                   <div className="space-y-2">
                     {selectedRawDetailsEmpty && showLiveCampaigns && brazePlatform && (
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
                           variant="outline"
-                          size="sm"
+                            size="sm"
                           className="gap-1.5"
                           disabled={creativeLoading || !workspaceClientId}
                           onClick={() => void handleRefreshCampaignPreview()}
@@ -1803,8 +1803,8 @@ export default function Campaigns() {
                             aria-hidden
                           />
                           Refresh preview
-                        </Button>
-                      </div>
+                          </Button>
+                        </div>
                     )}
                     <EmailModalCreative
                       key={selectedCampaign.id}
@@ -1814,7 +1814,7 @@ export default function Campaigns() {
                       previewMode={emailModalPreview.previewType}
                       loading={creativeLoading && !emailModalPreviewReady}
                     />
-                  </div>
+                      </div>
                 ) : (
                   <PushSmsModalHero
                     key={selectedCampaign.id}
@@ -1845,7 +1845,7 @@ export default function Campaigns() {
                   <div className="space-y-5">
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-xs font-medium text-muted-foreground">Subject line</p>
+                      <p className="text-xs font-medium text-muted-foreground">Subject line</p>
                         {selectedCampaignModalCopy.subject.hadLiquid && <PersonalizedLiquidBadge />}
                       </div>
                       <p className="select-text text-sm font-medium leading-snug text-foreground break-words">
@@ -1856,7 +1856,7 @@ export default function Campaigns() {
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-xs font-medium text-muted-foreground">Preheader</p>
+                      <p className="text-xs font-medium text-muted-foreground">Preheader</p>
                         {selectedCampaignModalCopy.emailPreheader.hadLiquid && <PersonalizedLiquidBadge />}
                       </div>
                       <p className="text-[11px] text-muted-foreground">
@@ -1873,12 +1873,12 @@ export default function Campaigns() {
 
                 {(selectedCampaign.segment || (modalStatRows && modalStatRows.rows.length > 0)) && (
                   <div className="space-y-3">
-                    {selectedCampaign.segment && (
+                  {selectedCampaign.segment && (
                       <div className="rounded-lg bg-muted/50 p-3">
-                        <p className="text-xs text-muted-foreground">Segment</p>
-                        <p className="text-sm font-semibold">{selectedCampaign.segment}</p>
-                      </div>
-                    )}
+                      <p className="text-xs text-muted-foreground">Segment</p>
+                      <p className="text-sm font-semibold">{selectedCampaign.segment}</p>
+                    </div>
+                  )}
                     {modalStatRows && modalStatRows.rows.length > 0 && (
                       <>
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -1886,9 +1886,9 @@ export default function Campaigns() {
                             <div key={row.id} className="rounded-lg bg-muted/50 p-3">
                               <p className="text-xs text-muted-foreground">{row.label}</p>
                               <p className="text-lg font-semibold tabular-nums">{row.value}</p>
-                            </div>
+                    </div>
                           ))}
-                        </div>
+                    </div>
                         {modalStatRows.showProcessingNote && (
                           <Alert className="border-amber-500/30 bg-amber-500/[0.06] dark:bg-amber-950/30">
                             <Info className="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden />
@@ -1899,8 +1899,8 @@ export default function Campaigns() {
                         )}
                       </>
                     )}
-                  </div>
-                )}
+                    </div>
+                  )}
                 </div>
               </div>
             </>

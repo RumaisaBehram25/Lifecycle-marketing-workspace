@@ -19,7 +19,9 @@
     "sync:missing-raw-details": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/sync-missing-raw-details.ts",
     "migrate:campaign-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-images-to-s3.ts",
     "migrate:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-lifecycle-canvas-images-to-s3.ts",
-    "patch:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/patch-lifecycle-canvas-images-to-s3.ts"
+    "patch:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/patch-lifecycle-canvas-images-to-s3.ts",
+    "braze:segment-mix-sync": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/braze-segment-mix-setup-and-sync.ts",
+    "braze:segment-track-create": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/braze-segment-track-stats-and-create.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

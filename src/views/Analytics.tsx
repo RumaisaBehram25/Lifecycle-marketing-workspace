@@ -1,6 +1,6 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +55,7 @@ import {
 import {
   Send, Workflow, UserPlus, Sparkles, DollarSign, ChevronDown, ChevronUp,
   Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers, Loader2, AlertCircle,
-  ChevronsUpDown, Check,
+  ChevronsUpDown, Check, Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -111,6 +111,56 @@ const analyticsTooltipLabelStyle: CSSProperties = {
   maxWidth: '100%',
 };
 
+/** Collapse whitespace / newlines so Recharts does not stack multiple SVG lines on one tick. */
+function normalizeCategoryAxisLabel(value: unknown): string {
+  return String(value ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function ellipsizeAxisLabel(str: string, maxChars: number): string {
+  if (str.length <= maxChars) return str;
+  if (maxChars <= 1) return '…';
+  return `${str.slice(0, maxChars - 1)}…`;
+}
+
+type VerticalCategoryTickProps = {
+  x?: number;
+  y?: number;
+  payload?: { value?: unknown };
+  fill?: string;
+  maxChars: number;
+  fontSize?: number;
+};
+
+/** Single-line category tick; hover shows full name via SVG title. */
+function VerticalCategoryAxisTick({
+  x = 0,
+  y = 0,
+  payload,
+  fill = 'hsl(var(--muted-foreground))',
+  maxChars,
+  fontSize = 11,
+}: VerticalCategoryTickProps) {
+  const full = normalizeCategoryAxisLabel(payload?.value);
+  const label = ellipsizeAxisLabel(full, maxChars);
+  return (
+    <text
+      x={x}
+      y={y}
+      dy="0.35em"
+      textAnchor="end"
+      fill={fill}
+      fontSize={fontSize}
+      className="recharts-cartesian-axis-tick-value"
+    >
+      <title>{full}</title>
+      {label}
+    </text>
+  );
+}
+
 type StatAccent = 'primary' | 'blue' | 'amber' | 'cyan' | 'rose' | 'emerald' | 'violet' | 'orange' | 'purple';
 
 const statRail: Record<StatAccent, string> = {
@@ -126,6 +176,9 @@ const statRail: Record<StatAccent, string> = {
 };
 
 type BenchmarkTooltipPayload = { campaignRev?: number; crmPct?: number | null };
+type BenchmarkType = 'campaign' | 'canvas';
+type BenchmarkRangePreset = '7d' | '30d' | '90d' | 'custom';
+type SegmentRangePreset = '7d' | '30d' | '90d' | 'custom';
 
 function StatCard({
   icon: Icon,
@@ -189,6 +242,19 @@ function formatPct(value: number): string {
   return `${Number(value).toFixed(2)}%`;
 }
 
+function toIsoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function parseIsoDayToUtcMs(day: string): number {
+  const t = Date.parse(`${day}T00:00:00.000Z`);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+const STARRED_CORE_SEGMENTS_STORAGE_KEY = 'analytics:starred-core-segments:v1';
+/** First-time visitors: star the top N segments by size in Segment mix (localStorage unset only). */
+const DEFAULT_STARRED_SEGMENT_MIX_COUNT = 5;
+
 export default function Analytics() {
   const { data: client } = useDoubleGoodClient();
   const { clientId: workspaceClientId } = useResolvedClientId();
@@ -242,6 +308,40 @@ export default function Analytics() {
   const [compOpen, setCompOpen] = useState(false);
   const [compStartDate, setCompStartDate] = useState('');
   const [compEndDate, setCompEndDate] = useState('');
+  type CompViewMode = 'by_campaign' | 'by_date';
+  type CompRangePreset = 'all' | '7d' | '30d' | '90d' | 'custom';
+  const [compViewMode, setCompViewMode] = useState<CompViewMode>('by_campaign');
+  const [compRangePreset, setCompRangePreset] = useState<CompRangePreset>('all');
+  const [compShowBenchmark, setCompShowBenchmark] = useState(true);
+
+  const applyCompRangePreset = useCallback((p: CompRangePreset) => {
+    setCompRangePreset(p);
+    if (p === 'all') {
+      setCompStartDate('');
+      setCompEndDate('');
+      return;
+    }
+    if (p === 'custom') return;
+    const endD = toIsoDate(new Date());
+    const startD = new Date();
+    const days = p === '7d' ? 7 : p === '30d' ? 30 : 90;
+    startD.setDate(startD.getDate() - days);
+    setCompStartDate(toIsoDate(startD));
+    setCompEndDate(endD);
+  }, []);
+  const [benchmarkType, setBenchmarkType] = useState<BenchmarkType>('campaign');
+  const [benchmarkRangePreset, setBenchmarkRangePreset] = useState<BenchmarkRangePreset>('30d');
+  const [benchmarkCustomStart, setBenchmarkCustomStart] = useState('');
+  const [benchmarkCustomEnd, setBenchmarkCustomEnd] = useState('');
+  const [segmentRangePreset, setSegmentRangePreset] = useState<SegmentRangePreset>('30d');
+  const [segmentCustomStart, setSegmentCustomStart] = useState('');
+  const [segmentCustomEnd, setSegmentCustomEnd] = useState('');
+  /**
+   * Starred/core segments persistence:
+   * - Stored in localStorage so stars survive reloads/sessions without backend dependency.
+   * - Keyed by segment name because analytics dataset is name-keyed in this view.
+   */
+  const [starredCoreSegments, setStarredCoreSegments] = useState<string[]>([]);
 
   const handleCanvasMetricsSync = async () => {
     if (!workspaceClientId || !brazeWorkspacePlatform?.id) return;
@@ -343,15 +443,16 @@ export default function Analytics() {
     if (!client?.id) return;
     setInsightsLoading(true);
     setInsightsError(null);
-    try {
+
+    /** Same-origin — avoids CORS when Edge Function is missing or preflight fails (local dev). */
+    const runLocalViteInsights = async () => {
       const { data: canvases, error: dbError } = await supabase
         .from('braze_canvases')
         .select('name, sends_last_30d, entries_last_30d, entries_last_60d, tags, enabled, schedule_type, conversion_events')
         .eq('client_id', client.id)
         .eq('archived', false);
       if (dbError) throw dbError;
-
-      const campaigns = (canvases || []).map(c => ({
+      const campaigns = (canvases || []).map((c) => ({
         name: c.name,
         sends_30d: c.sends_last_30d || 0,
         entries_30d: c.entries_last_30d || 0,
@@ -361,20 +462,72 @@ export default function Analytics() {
         schedule_type: c.schedule_type,
         conversion_events: c.conversion_events || [],
       }));
-
       const res = await fetch('/api/generate-insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ campaigns }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to generate insights');
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        insights?: { title: string; body: string; tag: string; tagColor: string }[];
+      };
+      if (!res.ok) throw new Error(json.error || `Insights API HTTP ${res.status}`);
+      setInsights(Array.isArray(json.insights) ? json.insights : []);
+    };
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        setInsightsError('Sign in to generate AI insights.');
+        return;
       }
-      const data = await res.json();
-      setInsights(data?.insights ?? []);
+
+      const { data, error: fnError } = await supabase.functions.invoke<{
+        insights?: { title: string; body: string; tag: string; tagColor: string }[];
+        error?: string;
+      }>('generate-analytics-insights', {
+        body: { client_id: client.id },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const edgePayloadErr =
+        data && typeof data === 'object' && 'error' in data && (data as { error?: string }).error;
+      if (!fnError && !edgePayloadErr) {
+        setInsights(Array.isArray(data?.insights) ? data.insights : []);
+        return;
+      }
+
+      const msg = fnError
+        ? typeof fnError === 'object' && fnError !== null && 'message' in fnError
+          ? String((fnError as { message?: string }).message)
+          : 'Edge function failed'
+        : String(edgePayloadErr);
+
+      if (import.meta.env.DEV) {
+        try {
+          await runLocalViteInsights();
+          return;
+        } catch {
+          setInsightsError(
+            `${msg} (local fallback failed — set ANTHROPIC_API_KEY in .env and use npm run dev).`,
+          );
+        }
+      } else {
+        setInsightsError(
+          `${msg} If you see a CORS error, deploy: supabase functions deploy generate-analytics-insights`,
+        );
+      }
     } catch (err: unknown) {
-      setInsightsError(err instanceof Error ? err.message : 'Failed to generate insights');
+      if (import.meta.env.DEV) {
+        try {
+          await runLocalViteInsights();
+        } catch {
+          setInsightsError(err instanceof Error ? err.message : 'Failed to generate insights');
+        }
+      } else {
+        setInsightsError(err instanceof Error ? err.message : 'Failed to generate insights');
+      }
     } finally {
       setInsightsLoading(false);
     }
@@ -382,8 +535,8 @@ export default function Analytics() {
 
   const campaignComparisonData = useMemo(() => {
     let rows = rawCampaignRows as Record<string, unknown>[];
-    if (compStartDate) rows = rows.filter((r) => String(r.date ?? '') >= compStartDate);
-    if (compEndDate) rows = rows.filter((r) => String(r.date ?? '') <= compEndDate);
+    if (compStartDate) rows = rows.filter((r) => String(r.date ?? '').slice(0, 10) >= compStartDate);
+    if (compEndDate) rows = rows.filter((r) => String(r.date ?? '').slice(0, 10) <= compEndDate);
     const aggMap = new Map<string, { revenue: number; conversions: number }>();
     for (const r of rows) {
       const name = String(r.campaign_name ?? r.name ?? '').trim();
@@ -403,10 +556,220 @@ export default function Analytics() {
     return allResults.slice(0, 15);
   }, [rawCampaignRows, compStartDate, compEndDate, compSelectedCampaign]);
 
+  /** Vertical bar chart needs explicit pixel height; outer wrapper scrolls when there are many campaigns. */
+  const campaignComparisonBarChartHeight = useMemo(() => {
+    const n = campaignComparisonData.length;
+    if (n <= 0) return 320;
+    const perRow = 52;
+    const legendAndMargins = 88;
+    return Math.min(3200, Math.max(300, n * perRow + legendAndMargins));
+  }, [campaignComparisonData]);
+
+  const campaignComparisonByDateData = useMemo(() => {
+    let rows = rawCampaignRows as Record<string, unknown>[];
+    if (compStartDate) rows = rows.filter((r) => String(r.date ?? '').slice(0, 10) >= compStartDate);
+    if (compEndDate) rows = rows.filter((r) => String(r.date ?? '').slice(0, 10) <= compEndDate);
+    if (compSelectedCampaign !== 'all') {
+      rows = rows.filter((r) => String(r.campaign_name ?? r.name ?? '').trim() === compSelectedCampaign);
+    }
+    const byDate = new Map<string, { revenue: number; conversions: number }>();
+    for (const r of rows) {
+      const date = String(r.date ?? '').slice(0, 10);
+      if (!date) continue;
+      const cur = byDate.get(date) ?? { revenue: 0, conversions: 0 };
+      cur.revenue += Number(r.revenue ?? 0);
+      cur.conversions += Number(r.conversions ?? r.orders ?? 0);
+      byDate.set(date, cur);
+    }
+    return [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, v]) => ({ date, revenue: v.revenue, conversions: v.conversions }))
+      .filter((row) => row.revenue > 0 || row.conversions > 0);
+  }, [rawCampaignRows, compStartDate, compEndDate, compSelectedCampaign]);
+
   const compBenchmarkRevenue =
     campaignComparisonData.length > 1
       ? campaignComparisonData.reduce((s, r) => s + r.revenue, 0) / campaignComparisonData.length
       : 0;
+
+  const compBenchmarkDailyRevenue =
+    campaignComparisonByDateData.length > 1
+      ? campaignComparisonByDateData.reduce((s, r) => s + r.revenue, 0) / campaignComparisonByDateData.length
+      : 0;
+
+  const compBenchmarkDailyConversions =
+    campaignComparisonByDateData.length > 1
+      ? campaignComparisonByDateData.reduce((s, r) => s + r.conversions, 0) / campaignComparisonByDateData.length
+      : 0;
+
+  const benchmarkRange = useMemo(() => {
+    /**
+     * Date filter logic for Core Benchmark:
+     * - Presets compute [startDate, endDate] anchored to today.
+     * - Custom uses explicit user-selected dates.
+     * - Toggle (campaign/canvas) does not mutate this state, so date range is preserved while switching type.
+     */
+    const endDate = toIsoDate(new Date());
+    if (benchmarkRangePreset === 'custom') {
+      return {
+        startDate: benchmarkCustomStart || null,
+        endDate: benchmarkCustomEnd || null,
+      };
+    }
+    const days = benchmarkRangePreset === '7d' ? 7 : benchmarkRangePreset === '30d' ? 30 : 90;
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    return {
+      startDate: toIsoDate(start),
+      endDate,
+    };
+  }, [benchmarkRangePreset, benchmarkCustomStart, benchmarkCustomEnd]);
+
+  const benchmarkSeriesQuery = useQuery({
+    queryKey: [
+      'analytics',
+      'core-benchmark-series',
+      clientId,
+      benchmarkType,
+      benchmarkRange.startDate,
+      benchmarkRange.endDate,
+    ],
+    queryFn: async () => {
+      if (!clientId) return [] as Array<{ date: string; revenue: number }>;
+      /**
+       * Benchmark calculation method:
+       * - Date filter logic is applied in SQL using `startDate`/`endDate`.
+       * - Campaign mode: only aggregate variation rows (`__braze_sync_aggregate__`) and non-canvas channels.
+       * - Canvas mode: channel contains "canvas" (case-insensitive), then fallback to `braze_canvases` snapshots if empty.
+       * - Revenue is clamped at >= 0 for benchmark rollups to avoid negative correction rows producing counterintuitive totals.
+       */
+      let rows: Array<Record<string, unknown>> = [];
+      if (benchmarkType === 'campaign') {
+        let cq = (supabase as any)
+          .from('braze_campaign_analytics')
+          .select('date,revenue,channel')
+          .eq('client_id', clientId)
+          .eq('variation_api_id', '__braze_sync_aggregate__');
+        if (benchmarkRange.startDate) cq = cq.gte('date', benchmarkRange.startDate);
+        if (benchmarkRange.endDate) cq = cq.lte('date', benchmarkRange.endDate);
+        const { data, error } = await cq.order('date', { ascending: true });
+        if (error) throw error;
+        rows = ((data ?? []) as Array<Record<string, unknown>>).filter((row) => {
+          const channel = String(row.channel ?? '').trim().toLowerCase();
+          return !channel.includes('canvas');
+        });
+      } else {
+        let q = (supabase as any)
+          .from('braze_campaign_analytics')
+          .select('date,revenue,channel')
+          .eq('client_id', clientId);
+        if (benchmarkRange.startDate) q = q.gte('date', benchmarkRange.startDate);
+        if (benchmarkRange.endDate) q = q.lte('date', benchmarkRange.endDate);
+        const { data, error } = await q.order('date', { ascending: true });
+        if (error) throw error;
+        rows = ((data ?? []) as Array<Record<string, unknown>>).filter((row) =>
+          String(row.channel ?? '').trim().toLowerCase().includes('canvas'),
+        );
+      }
+
+      if (benchmarkType === 'canvas' && rows.length === 0) {
+        /**
+         * Canvas fallback:
+         * Some workspaces only have canvas metrics in `braze_canvases` snapshot columns.
+         * We map `synced_at` as date and `revenue_last_30d` as benchmark revenue so the
+         * Canvas toggle still displays linked data instead of an empty benchmark.
+         */
+        let cq = (supabase as any)
+          .from('braze_canvases')
+          .select('synced_at,revenue_last_30d')
+          .eq('client_id', clientId)
+          .eq('archived', false);
+        if (benchmarkRange.startDate) cq = cq.gte('synced_at', `${benchmarkRange.startDate}T00:00:00.000Z`);
+        if (benchmarkRange.endDate) cq = cq.lte('synced_at', `${benchmarkRange.endDate}T23:59:59.999Z`);
+        const { data: canvasData, error: canvasErr } = await cq.order('synced_at', { ascending: true });
+        if (canvasErr) throw canvasErr;
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const selectedStartMs = benchmarkRange.startDate ? parseIsoDayToUtcMs(benchmarkRange.startDate) : null;
+        const selectedEndMs = benchmarkRange.endDate ? parseIsoDayToUtcMs(benchmarkRange.endDate) : null;
+        return (canvasData ?? []).map((row: Record<string, unknown>) => ({
+          /**
+           * `revenue_last_30d` is a rolling snapshot, not a historical daily series.
+           * To honor benchmark date filters in fallback mode, we estimate the contribution
+           * by overlap ratio between:
+           * - selected range [startDate, endDate]
+           * - canvas rolling window [synced_at - 29d, synced_at]
+           */
+          date: String(row.synced_at ?? '').slice(0, 10),
+          revenue: (() => {
+            const syncDay = String(row.synced_at ?? '').slice(0, 10);
+            const syncMs = parseIsoDayToUtcMs(syncDay);
+            if (!syncDay || syncMs <= 0) return 0;
+            const windowEndMs = syncMs;
+            const windowStartMs = syncMs - 29 * DAY_MS;
+            const rangeStartMs = selectedStartMs ?? windowStartMs;
+            const rangeEndMs = selectedEndMs ?? windowEndMs;
+            const overlapStart = Math.max(windowStartMs, rangeStartMs);
+            const overlapEnd = Math.min(windowEndMs, rangeEndMs);
+            if (overlapEnd < overlapStart) return 0;
+            const overlapDays = Math.floor((overlapEnd - overlapStart) / DAY_MS) + 1;
+            const ratio = Math.max(0, Math.min(1, overlapDays / 30));
+            return Math.max(0, Number(row.revenue_last_30d ?? 0)) * ratio;
+          })(),
+        }));
+      }
+
+      return rows.map((row: Record<string, unknown>) => ({
+        date: String(row.date ?? '').slice(0, 10),
+        revenue: Math.max(0, Number(row.revenue ?? 0)),
+      }));
+    },
+    enabled: !!clientId,
+    staleTime: 60_000,
+  });
+
+  const benchmarkMonthly = useMemo(() => {
+    const byMonth = new Map<string, number>();
+    for (const row of benchmarkSeriesQuery.data ?? []) {
+      if (!row.date) continue;
+      const month = row.date.slice(0, 7);
+      byMonth.set(month, (byMonth.get(month) ?? 0) + Number(row.revenue ?? 0));
+    }
+    return [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, revenue]) => {
+        const mm = month.slice(5, 7);
+        const yyyy = month.slice(0, 4);
+        const monthLabel = `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(mm) - 1] ?? mm} ${yyyy}`;
+        return { month, monthLabel, campaignRev: revenue };
+      });
+  }, [benchmarkSeriesQuery.data]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STARRED_CORE_SEGMENTS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setStarredCoreSegments(parsed.filter((v): v is string => typeof v === 'string'));
+      }
+    } catch {
+      // Ignore invalid local storage payload and continue with empty starred set.
+    }
+  }, []);
+
+  const toggleStarredCoreSegment = useCallback((segmentName: string) => {
+    setStarredCoreSegments((prev) => {
+      const next = prev.includes(segmentName)
+        ? prev.filter((s) => s !== segmentName)
+        : [...prev, segmentName];
+      try {
+        localStorage.setItem(STARRED_CORE_SEGMENTS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Storage failures (private mode/quota) should not break the dashboard.
+      }
+      return next;
+    });
+  }, []);
 
   const bounceRateData = useMemo(() => {
     const byDate = new Map<string, { bounces: number; sent: number }>();
@@ -426,6 +789,133 @@ export default function Analytics() {
         bounce_rate: v.sent > 0 ? Number(((v.bounces / v.sent) * 100).toFixed(3)) : 0,
       }));
   }, [rawCampaignRows]);
+
+  const segmentRange = useMemo(() => {
+    const endDate = toIsoDate(new Date());
+    if (segmentRangePreset === 'custom') {
+      return { startDate: segmentCustomStart || null, endDate: segmentCustomEnd || null };
+    }
+    const days = segmentRangePreset === '7d' ? 7 : segmentRangePreset === '30d' ? 30 : 90;
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    return { startDate: toIsoDate(start), endDate };
+  }, [segmentRangePreset, segmentCustomStart, segmentCustomEnd]);
+
+  // segmentChartDataByDate is pivoted: { date, "<segmentName>": size, ... } from real Braze/CSV analytics sync.
+  const filteredSegmentSeries = useMemo(() => {
+    return segmentChartDataByDate.filter((rawRow) => {
+      const row = rawRow as Record<string, unknown>;
+      const d = String(row.date ?? '').slice(0, 10);
+      if (!d) return false;
+      if (segmentRange.startDate && d < segmentRange.startDate) return false;
+      if (segmentRange.endDate && d > segmentRange.endDate) return false;
+      return true;
+    });
+  }, [segmentChartDataByDate, segmentRange.startDate, segmentRange.endDate]);
+
+  const latestSegmentRow = filteredSegmentSeries.length > 0
+    ? (filteredSegmentSeries[filteredSegmentSeries.length - 1] as Record<string, string | number>)
+    : null;
+  // For summary cards/list, keep showing the latest real snapshot even if selected range has no rows.
+  const latestAnySegmentRow = segmentChartDataByDate.length > 0
+    ? (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>)
+    : null;
+  const segmentSummaryRow = latestSegmentRow ?? latestAnySegmentRow;
+  /** As-of date for Subscriber Segments subtitle — uses global latest when range has no rows. */
+  const segmentMixAsOfDate = segmentSummaryRow
+    ? String((segmentSummaryRow as Record<string, unknown>).date ?? '').slice(0, 10)
+    : '';
+  const segmentMixStaleDays = segmentMixAsOfDate
+    ? Math.max(
+        0,
+        Math.floor((parseIsoDayToUtcMs(toIsoDate(new Date())) - parseIsoDayToUtcMs(segmentMixAsOfDate)) / 86400000),
+      )
+    : null;
+  const segmentMixIsStale = segmentMixStaleDays != null && segmentMixStaleDays > 1;
+  const firstSegmentRow = filteredSegmentSeries.length > 0
+    ? (filteredSegmentSeries[0] as Record<string, string | number>)
+    : null;
+
+  /** Top segments by latest snapshot size — used only to seed default stars when nothing is stored yet. */
+  const segmentMixDefaultStarNames = useMemo(() => {
+    if (!segmentSummaryRow || segmentNames.length === 0) return [];
+    return segmentNames
+      .map((name) => ({
+        name,
+        value: Number((segmentSummaryRow as Record<string, unknown>)[name] ?? 0),
+      }))
+      .filter((r) => Number.isFinite(r.value) && r.value >= 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, DEFAULT_STARRED_SEGMENT_MIX_COUNT)
+      .map((r) => r.name);
+  }, [segmentNames, segmentSummaryRow]);
+
+  /** First visit: no storage key → star top segments so Segment Size Over Time is populated without extra clicks. */
+  useEffect(() => {
+    if (segmentMixDefaultStarNames.length === 0) return;
+    try {
+      if (localStorage.getItem(STARRED_CORE_SEGMENTS_STORAGE_KEY) !== null) return;
+    } catch {
+      return;
+    }
+    setStarredCoreSegments(segmentMixDefaultStarNames);
+    try {
+      localStorage.setItem(STARRED_CORE_SEGMENTS_STORAGE_KEY, JSON.stringify(segmentMixDefaultStarNames));
+    } catch {
+      // private mode / quota
+    }
+  }, [segmentMixDefaultStarNames]);
+
+  const segmentCurrentSizes = useMemo(
+    () =>
+      segmentNames
+        .map((name) => ({
+          name,
+          value: segmentSummaryRow ? Number(segmentSummaryRow[name] ?? 0) : 0,
+          isStarred: starredCoreSegments.includes(name),
+        }))
+        .filter((r) => Number.isFinite(r.value) && r.value >= 0)
+        .sort((a, b) => b.value - a.value),
+    [segmentNames, segmentSummaryRow, starredCoreSegments],
+  );
+
+  const trackedCoreSegments = segmentCurrentSizes.filter((s) => s.isStarred);
+  const trackedCoreSegmentNames = trackedCoreSegments.map((s) => s.name);
+
+  const trackedCoreMetrics = useMemo(() => {
+    /**
+     * Growth calculation:
+     * - When the selected date range has ≥1 row: current = last in-range point, first = first in-range point.
+     * - When range has no rows (sparse CSV): show latest global snapshot for current; growth line stays empty.
+     */
+    const rangeHasRows = filteredSegmentSeries.length > 0;
+    return trackedCoreSegmentNames.map((name) => {
+      if (rangeHasRows && latestSegmentRow && firstSegmentRow) {
+        const current = Number(latestSegmentRow[name] ?? 0);
+        const first = Number(firstSegmentRow[name] ?? 0);
+        const netGrowth = current - first;
+        const growthPct = first > 0 ? (netGrowth / first) * 100 : current > 0 ? 100 : 0;
+        return { name, current, netGrowth, growthPct, rangeEmpty: false };
+      }
+      const current = segmentSummaryRow ? Number(segmentSummaryRow[name] ?? 0) : 0;
+      return { name, current, netGrowth: 0, growthPct: 0, rangeEmpty: true };
+    });
+  }, [trackedCoreSegmentNames, filteredSegmentSeries.length, latestSegmentRow, firstSegmentRow, segmentSummaryRow]);
+
+  const trackedSegmentChartData = useMemo(
+    () =>
+      filteredSegmentSeries.map((rawRow) => {
+        const row = rawRow as Record<string, unknown>;
+        const mapped: Record<string, string | number> = { date: String(row.date ?? '') };
+        trackedCoreSegmentNames.forEach((name) => {
+          mapped[name] = Number(row[name] ?? 0);
+        });
+        return mapped;
+      }),
+    [filteredSegmentSeries, trackedCoreSegmentNames],
+  );
+
+  const segmentTotal = segmentCurrentSizes.reduce((sum, s) => sum + s.value, 0);
 
   if (!clientId) {
     if (isClientLoading) {
@@ -506,19 +996,20 @@ export default function Analytics() {
     );
   }
 
-  const bestMonth = revenueMonthly.length > 0
-    ? revenueMonthly.reduce((best, m) => (m.campaignRev > (best?.campaignRev ?? 0) ? m : best), revenueMonthly[0])
+  const bestMonth = benchmarkMonthly.length > 0
+    ? benchmarkMonthly.reduce((best, m) => (m.campaignRev > (best?.campaignRev ?? 0) ? m : best), benchmarkMonthly[0])
     : null;
   const parsedSiteRevenue = Number(siteRevenueInput.replace(/[^0-9.]/g, ''));
   const hasSiteRevenue = Number.isFinite(parsedSiteRevenue) && parsedSiteRevenue > 0;
-  const overallCrmPct = hasSiteRevenue ? (totalCampaignRevenue / parsedSiteRevenue) * 100 : null;
+  const benchmarkTotalRevenue = benchmarkMonthly.reduce((sum, row) => sum + Number(row.campaignRev ?? 0), 0);
+  const overallCrmPct = hasSiteRevenue ? (benchmarkTotalRevenue / parsedSiteRevenue) * 100 : null;
   const overallGapToBenchmark = overallCrmPct != null ? overallCrmPct - 25 : null;
   const benchmarkStatText =
     overallGapToBenchmark == null
       ? 'Enter site revenue to compare'
       : `${overallGapToBenchmark >= 0 ? '+' : ''}${overallGapToBenchmark.toFixed(1)} pts vs 25%`;
 
-  const benchmarkChartData = revenueMonthly.map((m) => ({
+  const benchmarkChartData = benchmarkMonthly.map((m) => ({
     monthLabel: m.monthLabel,
     campaignRev: Number(m.campaignRev ?? 0),
     crmPct: hasSiteRevenue ? (Number(m.campaignRev ?? 0) / parsedSiteRevenue) * 100 : null,
@@ -551,15 +1042,14 @@ export default function Analytics() {
 
   // Daily Email Engagement: prefer campaign analytics (synced from Braze API), fall back to usage CSV
   const dailyEmailEngagementData = (() => {
-    const byDate = new Map<string, { opens: number; clicks: number; bounces: number }>();
+    const byDate = new Map<string, { opens: number; clicks: number }>();
     for (const r of rawCampaignRows) {
       const row = r as Record<string, unknown>;
       const date = String(row.date ?? '').slice(0, 10);
       if (!date) continue;
-      const cur = byDate.get(date) ?? { opens: 0, clicks: 0, bounces: 0 };
+      const cur = byDate.get(date) ?? { opens: 0, clicks: 0 };
       cur.opens += Number(row.opens ?? 0);
       cur.clicks += Number(row.clicks ?? 0);
-      cur.bounces += Number(row.bounces ?? 0);
       byDate.set(date, cur);
     }
     if (byDate.size > 0) {
@@ -569,7 +1059,6 @@ export default function Analytics() {
           date,
           emails_opened: v.opens,
           email_clicks: v.clicks,
-          email_bounces: v.bounces,
         }));
     }
     return usageChartData.map((r) => {
@@ -578,50 +1067,12 @@ export default function Analytics() {
         date: String(row.date ?? ''),
         emails_opened: Number(row.emails_opened ?? 0),
         email_clicks: Number(row.email_clicks ?? 0),
-        email_bounces: Number(row.email_bounces ?? 0),
       };
     });
   })();
 
   const engagementRatio = metrics.mau > 0 ? (metrics.dau / metrics.mau) * 100 : 0;
 
-  // segmentChartDataByDate is pivoted: { date, "All Email Subscribers": 89950, "Active Subscribers (opened in 90d)": 62965, ... }
-  const latestSegmentDate = segmentChartDataByDate.length > 0
-    ? String((segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, unknown>).date ?? '')
-    : '';
-  const latestSegmentRow = segmentChartDataByDate.length > 0
-    ? (segmentChartDataByDate[segmentChartDataByDate.length - 1] as Record<string, string | number>)
-    : null;
-
-  // Resolve segments by keyword so names like "All Email Subscribers", "Active Subscribers (opened in 90d)" etc. resolve correctly
-  const findSegmentByKeyword = (keywords: string[]) => {
-    if (!latestSegmentRow) return 0;
-    for (const name of segmentNames) {
-      const lower = name.toLowerCase();
-      if (keywords.every((k) => lower.includes(k))) {
-        return Number(latestSegmentRow[name] ?? 0);
-      }
-    }
-    return 0;
-  };
-
-  const segmentAll = findSegmentByKeyword(['all', 'email', 'subscriber']);
-  const segmentActive = findSegmentByKeyword(['active', 'subscriber']);
-  const segmentChurned = findSegmentByKeyword(['churn']);
-  const segmentOther = Math.max(0, segmentAll - segmentActive - segmentChurned);
-  const segmentTotal = segmentAll > 0 ? segmentAll : segmentActive + segmentChurned;
-
-  const segmentDonutData = segmentAll > 0
-    ? [
-        { name: 'Active Subscribers', value: segmentActive, color: 'hsl(142 71% 45%)' },
-        { name: 'Churned', value: segmentChurned, color: 'hsl(0 72% 51%)' },
-        { name: 'Other (inactive)', value: segmentOther, color: 'hsl(217 91% 60%)' },
-      ].filter((s) => s.value > 0)
-    : segmentNames.slice(0, 6).map((name, i) => ({
-        name,
-        value: latestSegmentRow ? Number(latestSegmentRow[name] ?? 0) : 0,
-        color: ['hsl(217 91% 60%)', 'hsl(142 71% 45%)', 'hsl(0 72% 51%)', 'hsl(262 83% 58%)', 'hsl(24 95% 53%)', 'hsl(173 58% 39%)'][i % 6],
-      }));
 
   const chartMutedFill = 'hsl(var(--muted-foreground))';
 
@@ -694,8 +1145,8 @@ export default function Analytics() {
             })
             .slice(0, 15);
 
-          const barHeight = 36;
-          const chartHeight = Math.max(220, flowChartData.length * barHeight + 40);
+          const barHeight = 48;
+          const chartHeight = Math.max(240, flowChartData.length * barHeight + 52);
           const flowKey = (prefix: 'campaign' | 'canvas', name: string) => `${prefix}:${name}`;
 
           return (
@@ -801,7 +1252,16 @@ export default function Analytics() {
                       <YAxis
                         type="category"
                         dataKey="name"
-                        tick={{ fill: chartMutedFill, fontSize: 10 }}
+                        tick={(p) => (
+                          <VerticalCategoryAxisTick
+                            x={p.x}
+                            y={p.y}
+                            payload={p.payload}
+                            fill={chartMutedFill}
+                            maxChars={42}
+                            fontSize={10}
+                          />
+                        )}
                         tickLine={false}
                         axisLine={false}
                         width={280}
@@ -967,7 +1427,7 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
-        {/* Campaign revenue vs benchmark — combined chart */}
+        {/* Core Benchmark: date-filtered campaign/canvas revenue vs benchmark */}
         <Card className={cn(analyticsCardClass, 'overflow-hidden')}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardHeader className={analyticsCardHeaderClass}>
@@ -975,15 +1435,79 @@ export default function Analytics() {
               <span className={cn(dashIconChip, 'h-9 w-9 shrink-0')}>
                 <BarChart2 className="h-4 w-4" />
               </span>
-              How your campaigns compare to the benchmark
+              Core Benchmark
             </CardTitle>
-            <p className={analyticsSubtitleClass}>Your revenue from campaigns and what “good” looks like (25% of total site revenue from CRM).</p>
+            <p className={analyticsSubtitleClass}>
+              Compare {benchmarkType === 'campaign' ? 'campaign' : 'canvas'} revenue to the 25% CRM benchmark within the selected date range.
+            </p>
           </CardHeader>
           <CardContent className="pt-2 pb-6 space-y-4 bg-muted/10">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-card/40 p-3">
+              <Select
+                value={benchmarkRangePreset}
+                onValueChange={(v) => setBenchmarkRangePreset(v as BenchmarkRangePreset)}
+              >
+                <SelectTrigger className="h-8 w-[170px] text-xs bg-background/80 border-primary/15">
+                  <SelectValue placeholder="Date range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="90d">Last 90 days</SelectItem>
+                  <SelectItem value="custom">Custom date range</SelectItem>
+                </SelectContent>
+              </Select>
+              {benchmarkRangePreset === 'custom' && (
+                <>
+                  <input
+                    type="date"
+                    value={benchmarkCustomStart}
+                    onChange={(e) => setBenchmarkCustomStart(e.target.value)}
+                    className="h-8 rounded-md border border-primary/15 bg-background/80 px-2 text-xs shadow-sm text-foreground"
+                  />
+                  <span className="text-xs text-muted-foreground">—</span>
+                  <input
+                    type="date"
+                    value={benchmarkCustomEnd}
+                    onChange={(e) => setBenchmarkCustomEnd(e.target.value)}
+                    className="h-8 rounded-md border border-primary/15 bg-background/80 px-2 text-xs shadow-sm text-foreground"
+                  />
+                </>
+              )}
+              <div className="inline-flex h-8 rounded-md border border-primary/15 bg-background/80 p-0.5">
+                <button
+                  onClick={() => setBenchmarkType('campaign')}
+                  className={cn(
+                    'rounded px-2.5 text-xs transition-colors',
+                    benchmarkType === 'campaign'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Campaigns
+                </button>
+                <button
+                  onClick={() => setBenchmarkType('canvas')}
+                  className={cn(
+                    'rounded px-2.5 text-xs transition-colors',
+                    benchmarkType === 'canvas'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Canvases
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="rounded-xl border border-border/50 bg-gradient-to-br from-primary/[0.08] via-card to-card p-4 shadow-sm ring-1 ring-inset ring-primary/10 border-l-[3px] border-l-primary/50">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Total Campaign Revenue</p>
-                <p className="text-xl font-bold tabular-nums text-foreground tracking-tight">${totalCampaignRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Total {benchmarkType === 'campaign' ? 'Campaign' : 'Canvas'} Revenue
+                </p>
+                <p className="text-xl font-bold tabular-nums text-foreground tracking-tight">
+                  ${benchmarkTotalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                </p>
               </div>
               <div className="rounded-xl border border-border/50 bg-gradient-to-br from-cyan-500/[0.06] via-card to-card p-4 shadow-sm ring-1 ring-inset ring-border/35 border-l-[3px] border-l-cyan-500/45">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Best Month</p>
@@ -998,6 +1522,9 @@ export default function Analytics() {
             </div>
 
             <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
+              {benchmarkSeriesQuery.isFetching && (
+                <p className="px-3 pt-2 text-[11px] text-muted-foreground">Refreshing benchmark data…</p>
+              )}
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={benchmarkChartData.length ? benchmarkChartData : [{ monthLabel: '—', campaignRev: 0, crmPct: null, benchmark: 25 }]}
@@ -1010,7 +1537,7 @@ export default function Analytics() {
                   <Tooltip content={renderBenchmarkTooltip} />
                   <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
                   <ReferenceLine yAxisId="pct" y={25} stroke="hsl(24 95% 53%)" strokeDasharray="6 4" ifOverflow="extendDomain" label={{ value: '25% benchmark', fill: chartMutedFill, fontSize: 10, position: 'insideTopRight' }} />
-                  <Bar yAxisId="revenue" dataKey="campaignRev" name="Revenue" fill="hsl(217 91% 60% / 0.85)" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="revenue" dataKey="campaignRev" name={`${benchmarkType === 'campaign' ? 'Campaign' : 'Canvas'} Revenue`} fill="hsl(217 91% 60% / 0.85)" radius={[4, 4, 0, 0]} />
                   <Line yAxisId="pct" type="monotone" dataKey="crmPct" name="CRM %" stroke="hsl(173 58% 39%)" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1057,30 +1584,138 @@ export default function Analytics() {
                 </Button>
               </div>
             ) : (
-              <div className={cn('h-[300px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]')}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={segmentChartDataByDate} margin={{ top: 12, right: 12, bottom: 8, left: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
-                    <Tooltip
-                      contentStyle={analyticsTooltipContentStyle}
-                      labelStyle={analyticsTooltipLabelStyle}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
-                    {segmentNames.slice(0, 5).map((seg, i) => (
-                      <Line
-                        key={seg}
-                        type="monotone"
-                        dataKey={seg}
-                        name={seg}
-                        stroke={['hsl(217 91% 60%)', 'hsl(173 58% 39%)', 'hsl(262 83% 58%)', 'hsl(199 89% 48%)', 'hsl(24 95% 53%)'][i]}
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: 'hsl(var(--card))' }}
-                      />
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-card/40 p-3">
+                  <div className="inline-flex h-8 flex-wrap gap-0.5 rounded-md border border-primary/15 bg-background/80 p-0.5">
+                    {(['7d', '30d', '90d'] as const).map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setSegmentRangePreset(preset)}
+                        className={cn(
+                          'rounded px-2.5 text-xs transition-colors',
+                          segmentRangePreset === preset
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {preset === '7d' ? '7 days' : preset === '30d' ? '30 days' : '90 days'}
+                      </button>
                     ))}
-                  </ComposedChart>
-                </ResponsiveContainer>
+                    <button
+                      type="button"
+                      onClick={() => setSegmentRangePreset('custom')}
+                      className={cn(
+                        'rounded px-2.5 text-xs transition-colors',
+                        segmentRangePreset === 'custom'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      Custom
+                    </button>
+                  </div>
+                  {segmentRangePreset === 'custom' && (
+                    <>
+                      <input
+                        type="date"
+                        value={segmentCustomStart}
+                        onChange={(e) => setSegmentCustomStart(e.target.value)}
+                        className="h-8 rounded-md border border-primary/15 bg-background/80 px-2 text-xs shadow-sm text-foreground"
+                      />
+                      <span className="text-xs text-muted-foreground">—</span>
+                      <input
+                        type="date"
+                        value={segmentCustomEnd}
+                        onChange={(e) => setSegmentCustomEnd(e.target.value)}
+                        className="h-8 rounded-md border border-primary/15 bg-background/80 px-2 text-xs shadow-sm text-foreground"
+                      />
+                    </>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Tracked Core Segments ({trackedCoreSegments.length})
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {trackedCoreMetrics.length === 0 ? (
+                    <div className="md:col-span-3 rounded-xl border border-dashed border-border/50 bg-card/40 p-4 text-xs text-muted-foreground space-y-2">
+                      <p>
+                        No <strong className="font-medium text-foreground/85">core</strong> segments selected. Star segments in{' '}
+                        <a
+                          href="#analytics-segment-mix"
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          Segment mix
+                        </a>{' '}
+                        (below) — the star button next to each row — then they appear here and in the chart.
+                      </p>
+                    </div>
+                  ) : (
+                    trackedCoreMetrics.map((seg) => (
+                      <div key={seg.name} className="rounded-xl border border-border/50 bg-card/70 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{seg.name}</p>
+                        <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{seg.current.toLocaleString()}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {seg.rangeEmpty ? (
+                            <>No daily snapshots in this range · totals are latest available</>
+                          ) : (
+                            <>
+                              Net growth {seg.netGrowth >= 0 ? '+' : ''}
+                              {seg.netGrowth.toLocaleString()} · {formatPct(seg.growthPct)}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className={cn('h-[300px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]')}>
+                  {trackedCoreSegmentNames.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
+                      <span>Select segments using the star in</span>
+                      <a
+                        href="#analytics-segment-mix"
+                        className="font-medium text-primary underline-offset-4 hover:underline"
+                      >
+                        Segment mix
+                      </a>
+                    </div>
+                  ) : trackedSegmentChartData.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-sm text-muted-foreground">
+                      <p>No daily segment snapshots in this date range.</p>
+                      <p className="text-xs max-w-md">
+                        Run a Braze sync so <code className="rounded bg-muted px-1 py-0.5 text-[11px]">braze_segment_analytics</code> gets rows for
+                        these dates, import segment analytics CSV, or widen the range (e.g. 90 days).
+                      </p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={trackedSegmentChartData} margin={{ top: 12, right: 12, bottom: 8, left: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+                        <Tooltip
+                          contentStyle={analyticsTooltipContentStyle}
+                          labelStyle={analyticsTooltipLabelStyle}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
+                        {trackedCoreSegmentNames.map((seg, i) => (
+                          <Line
+                            key={seg}
+                            type="monotone"
+                            dataKey={seg}
+                            name={seg}
+                            stroke={['hsl(217 91% 60%)', 'hsl(173 58% 39%)', 'hsl(262 83% 58%)', 'hsl(199 89% 48%)', 'hsl(24 95% 53%)'][i % 5]}
+                            strokeWidth={2}
+                            dot={{ r: 3, fill: 'hsl(var(--card))' }}
+                          />
+                        ))}
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>
@@ -1092,15 +1727,15 @@ export default function Analytics() {
             <h2 className={analyticsSectionHeadingClass}>Performance Overview</h2>
             <p className={analyticsSubtitleClass}>Engagement, campaign mix, and subscriber composition</p>
           </div>
-          <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-3">
-            <Card className={cn(analyticsCardClass, 'min-w-0')}>
+          <div className="flex min-w-0 flex-col gap-4">
+            <Card className={cn(analyticsCardClass, 'min-w-0 w-full')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
                 <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Daily Email Engagement</CardTitle>
-                <p className={analyticsSubtitleClass}>Opens, clicks, and bounces from Braze usage analytics by day.</p>
+                <p className={analyticsSubtitleClass}>Opens and clicks by day (campaign analytics when available, otherwise Braze usage).</p>
               </CardHeader>
               <CardContent className="pb-6 bg-muted/10">
-                <div className={cn('h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
+                <div className={cn('h-[min(360px,42vh)] min-h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={dailyEmailEngagementData} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -1119,17 +1754,85 @@ export default function Analytics() {
               </CardContent>
             </Card>
 
-            <Card className={cn(analyticsCardClass, 'min-w-0 overflow-visible')}>
+            <Card className={cn(analyticsCardClass, 'min-w-0 w-full overflow-visible')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
                 <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Campaign Comparison</CardTitle>
-                <p className={analyticsSubtitleClass}>Revenue and conversions by campaign, sorted by revenue.</p>
+                <p className={analyticsSubtitleClass}>
+                  Toggle top campaigns vs daily totals; filter by campaign name and date range. Benchmark lines show the average among rows in view.
+                </p>
               </CardHeader>
               <CardContent className="space-y-3 overflow-visible pb-6 bg-muted/10">
                 <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex h-8 flex-wrap gap-0.5 rounded-md border border-primary/15 bg-card/80 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setCompViewMode('by_campaign')}
+                      className={cn(
+                        'rounded px-2.5 text-xs transition-colors',
+                        compViewMode === 'by_campaign'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      By campaign
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompViewMode('by_date')}
+                      className={cn(
+                        'rounded px-2.5 text-xs transition-colors',
+                        compViewMode === 'by_date'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      By day
+                    </button>
+                  </div>
+                  <div className="inline-flex h-8 flex-wrap gap-0.5 rounded-md border border-primary/15 bg-card/80 p-0.5">
+                    {(['all', '7d', '30d', '90d'] as const).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => applyCompRangePreset(p)}
+                        className={cn(
+                          'rounded px-2 text-xs transition-colors',
+                          compRangePreset === p
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {p === 'all' ? 'All' : p === '7d' ? '7d' : p === '30d' ? '30d' : '90d'}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => applyCompRangePreset('custom')}
+                      className={cn(
+                        'rounded px-2 text-xs transition-colors',
+                        compRangePreset === 'custom'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      Custom
+                    </button>
+                  </div>
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="rounded border-border"
+                      checked={compShowBenchmark}
+                      onChange={(e) => setCompShowBenchmark(e.target.checked)}
+                    />
+                    Benchmark
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <Popover open={compOpen} onOpenChange={setCompOpen}>
                     <PopoverTrigger asChild>
-                      <button className="inline-flex h-8 w-[200px] items-center justify-between rounded-md border border-primary/15 bg-card/80 px-3 text-xs shadow-sm hover:bg-muted/50 transition-colors truncate">
+                      <button className="inline-flex h-8 w-[min(100%,220px)] items-center justify-between rounded-md border border-primary/15 bg-card/80 px-3 text-xs shadow-sm hover:bg-muted/50 transition-colors truncate">
                         <span className="truncate">
                           {compSelectedCampaign === 'all' ? 'All campaigns' : compSelectedCampaign}
                         </span>
@@ -1189,24 +1892,38 @@ export default function Analytics() {
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  <input
-                    type="date"
-                    value={compStartDate}
-                    onChange={(e) => setCompStartDate(e.target.value)}
-                    className="h-8 rounded-md border border-primary/15 bg-card/80 px-2 text-xs shadow-sm text-foreground"
-                    placeholder="Start date"
-                  />
-                  <span className="text-xs text-muted-foreground">—</span>
-                  <input
-                    type="date"
-                    value={compEndDate}
-                    onChange={(e) => setCompEndDate(e.target.value)}
-                    className="h-8 rounded-md border border-primary/15 bg-card/80 px-2 text-xs shadow-sm text-foreground"
-                    placeholder="End date"
-                  />
-                  {(compSelectedCampaign !== 'all' || compStartDate || compEndDate) && (
+                  {compRangePreset === 'custom' && (
+                    <>
+                      <input
+                        type="date"
+                        value={compStartDate}
+                        onChange={(e) => {
+                          setCompRangePreset('custom');
+                          setCompStartDate(e.target.value);
+                        }}
+                        className="h-8 rounded-md border border-primary/15 bg-card/80 px-2 text-xs shadow-sm text-foreground"
+                      />
+                      <span className="text-xs text-muted-foreground">—</span>
+                      <input
+                        type="date"
+                        value={compEndDate}
+                        onChange={(e) => {
+                          setCompRangePreset('custom');
+                          setCompEndDate(e.target.value);
+                        }}
+                        className="h-8 rounded-md border border-primary/15 bg-card/80 px-2 text-xs shadow-sm text-foreground"
+                      />
+                    </>
+                  )}
+                  {(compSelectedCampaign !== 'all' || compStartDate || compEndDate || compRangePreset !== 'all') && (
                     <button
-                      onClick={() => { setCompSelectedCampaign('all'); setCompStartDate(''); setCompEndDate(''); }}
+                      type="button"
+                      onClick={() => {
+                        setCompSelectedCampaign('all');
+                        setCompStartDate('');
+                        setCompEndDate('');
+                        setCompRangePreset('all');
+                      }}
                       className="h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border/40 hover:border-border transition-colors"
                     >
                       Clear
@@ -1215,133 +1932,242 @@ export default function Analytics() {
                 </div>
                 <div
                   className={cn(
-                    'relative z-0 h-[280px] overflow-visible',
+                    'relative z-0 min-h-[280px]',
+                    compViewMode === 'by_date' && 'h-[min(380px,45vh)]',
                     analyticsChartPanelClass,
                     '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]',
-                    '[&_.recharts-surface]:!overflow-visible',
-                    '[&_.recharts-wrapper]:!overflow-visible',
+                    compViewMode === 'by_date' && '[&_.recharts-surface]:!overflow-visible [&_.recharts-wrapper]:!overflow-visible',
                   )}
                 >
-                  {campaignComparisonData.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No data for selected filters</div>
-                  ) : (
+                  {compViewMode === 'by_campaign' && campaignComparisonData.length === 0 && (
+                    <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">
+                      No data for selected filters
+                    </div>
+                  )}
+                  {compViewMode === 'by_campaign' && campaignComparisonData.length > 0 && (
+                    <div className="max-h-[min(52vh,560px)] overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border border-border/30 bg-muted/5 pr-1">
+                      <div className="min-w-0" style={{ height: campaignComparisonBarChartHeight }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={campaignComparisonData}
+                            layout="vertical"
+                            barCategoryGap="14%"
+                            margin={{ top: 8, right: 16, bottom: 44, left: 158 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                            <XAxis type="number" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                            <YAxis
+                              type="category"
+                              dataKey="campaign_name"
+                              tick={(p) => (
+                                <VerticalCategoryAxisTick
+                                  x={p.x}
+                                  y={p.y}
+                                  payload={p.payload}
+                                  fill={chartMutedFill}
+                                  maxChars={24}
+                                  fontSize={11}
+                                />
+                              )}
+                              tickLine={false}
+                              axisLine={false}
+                              width={150}
+                              interval={0}
+                            />
+                            <Tooltip
+                              allowEscapeViewBox={{ x: true, y: true }}
+                              wrapperStyle={{ zIndex: 50, outline: 'none' }}
+                              contentStyle={analyticsTooltipContentStyle}
+                              labelStyle={analyticsTooltipLabelStyle}
+                            />
+                            <Legend
+                              verticalAlign="bottom"
+                              align="center"
+                              layout="horizontal"
+                              wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+                              iconType="circle"
+                              iconSize={8}
+                            />
+                            {compShowBenchmark && compBenchmarkRevenue > 0 && (
+                              <ReferenceLine
+                                x={compBenchmarkRevenue}
+                                stroke="hsl(24 95% 53%)"
+                                strokeDasharray="5 3"
+                                label={{ value: 'Avg revenue', fill: chartMutedFill, fontSize: 10, position: 'insideTopRight' }}
+                              />
+                            )}
+                            <Bar dataKey="revenue" name="Revenue" fill="hsl(262 83% 58% / 0.9)" radius={[0, 4, 4, 0]} />
+                            <Bar dataKey="conversions" name="Conversions" fill="hsl(199 89% 48% / 0.9)" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                  {compViewMode === 'by_date' && campaignComparisonByDateData.length === 0 && (
+                    <div className="flex h-full min-h-[220px] items-center justify-center text-sm text-muted-foreground">
+                      No daily rows for this filter
+                    </div>
+                  )}
+                  {compViewMode === 'by_date' && campaignComparisonByDateData.length > 0 && (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={campaignComparisonData}
-                        layout="vertical"
-                        margin={{ top: 8, right: 16, bottom: 44, left: 90 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-                        <XAxis type="number" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <YAxis type="category" dataKey="campaign_name" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={90} />
-                        <Tooltip
-                          allowEscapeViewBox={{ x: true, y: true }}
-                          wrapperStyle={{ zIndex: 50, outline: 'none' }}
-                          contentStyle={analyticsTooltipContentStyle}
-                          labelStyle={analyticsTooltipLabelStyle}
+                      <ComposedChart data={campaignComparisonByDateData} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
+                        <YAxis
+                          yAxisId="rev"
+                          tick={{ fill: chartMutedFill, fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          width={56}
+                          tickFormatter={(v) => {
+                            const n = Number(v);
+                            if (!Number.isFinite(n)) return '';
+                            if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+                            if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(0)}k`;
+                            return `$${Math.round(n)}`;
+                          }}
                         />
-                        <Legend
-                          verticalAlign="bottom"
-                          align="center"
-                          layout="horizontal"
-                          wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
-                          iconType="circle"
-                          iconSize={8}
+                        <YAxis
+                          yAxisId="ord"
+                          orientation="right"
+                          tick={{ fill: chartMutedFill, fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          width={40}
                         />
-                        {compBenchmarkRevenue > 0 && (
-                          <ReferenceLine x={compBenchmarkRevenue} stroke="hsl(24 95% 53%)" strokeDasharray="5 3" label={{ value: 'Avg revenue', fill: chartMutedFill, fontSize: 10, position: 'insideTopRight' }} />
+                        <Tooltip contentStyle={analyticsTooltipContentStyle} labelStyle={analyticsTooltipLabelStyle} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
+                        {compShowBenchmark && compBenchmarkDailyRevenue > 0 && (
+                          <ReferenceLine
+                            yAxisId="rev"
+                            y={compBenchmarkDailyRevenue}
+                            stroke="hsl(24 95% 53%)"
+                            strokeDasharray="5 3"
+                            label={{ value: 'Avg revenue / day', fill: chartMutedFill, fontSize: 10, position: 'insideTopRight' }}
+                          />
                         )}
-                        <Bar dataKey="revenue" name="Revenue" fill="hsl(262 83% 58% / 0.9)" radius={[0, 4, 4, 0]} />
-                        <Bar dataKey="conversions" name="Conversions" fill="hsl(199 89% 48% / 0.9)" radius={[0, 4, 4, 0]} />
-                      </BarChart>
+                        {compShowBenchmark && compBenchmarkDailyConversions > 0 && (
+                          <ReferenceLine
+                            yAxisId="ord"
+                            y={compBenchmarkDailyConversions}
+                            stroke="hsl(173 58% 39%)"
+                            strokeDasharray="4 4"
+                            label={{ value: 'Avg conv. / day', fill: chartMutedFill, fontSize: 10, position: 'insideTopLeft' }}
+                          />
+                        )}
+                        <Bar yAxisId="rev" dataKey="revenue" name="Revenue" fill="hsl(262 83% 58% / 0.85)" radius={[4, 4, 0, 0]} />
+                        <Line
+                          yAxisId="ord"
+                          type="monotone"
+                          dataKey="conversions"
+                          name="Conversions"
+                          stroke="hsl(199 89% 48%)"
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </ComposedChart>
                     </ResponsiveContainer>
                   )}
                 </div>
               </CardContent>
             </Card>
 
-            <Card className={cn(analyticsCardClass, 'min-w-0')}>
+            <Card id="analytics-segment-mix" className={cn(analyticsCardClass, 'min-w-0 w-full scroll-mt-24')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
-                <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Subscriber Segments</CardTitle>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Segment mix</CardTitle>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    disabled={!workspaceClientId || !brazeWorkspacePlatform?.id || canvasMetricsSyncing}
+                    onClick={handleCanvasMetricsSync}
+                  >
+                    {canvasMetricsSyncing ? (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {canvasMetricsSyncing ? 'Syncing…' : 'Sync now'}
+                  </Button>
+                </div>
                 <p className={analyticsSubtitleClass}>
-                  Latest segment mix from Braze segment analytics{latestSegmentDate ? ` (${latestSegmentDate})` : ''}.
+                  Share of audience from Braze segment analytics{segmentMixAsOfDate ? ` (${segmentMixAsOfDate})` : ''}. Star a row to plot it in <strong className="font-medium text-foreground/90">Segment Size Over Time</strong> (section above).
+                  {segmentMixIsStale ? ` Data is ${segmentMixStaleDays} day${segmentMixStaleDays === 1 ? '' : 's'} old.` : ''}
+                  {segmentMixIsStale
+                    ? ' Run a full Braze sync (latest sync-braze) to append today’s segment sizes when Braze includes them on segments/list; otherwise import segment analytics CSV.'
+                    : ''}
                 </p>
               </CardHeader>
               <CardContent className="space-y-3 pb-6 bg-muted/10">
-                <div className={cn('h-[220px] overflow-visible', analyticsChartPanelClass)}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={segmentDonutData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={82}
-                        paddingAngle={2}
-                      >
-                        {segmentDonutData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        wrapperStyle={{ zIndex: 50, outline: 'none' }}
-                        contentStyle={analyticsTooltipContentStyle}
-                        labelStyle={analyticsTooltipLabelStyle}
-                        formatter={(v: number, n: string) => {
-                          const pct = segmentTotal > 0 ? ((Number(v) / segmentTotal) * 100).toFixed(1) : '0.0';
-                          return [`${Number(v).toLocaleString()} (${pct}%)`, n];
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-2 rounded-lg border border-border/40 bg-card/50 p-3">
-                  {segmentDonutData.map((s) => {
-                    const pct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
-                    return (
-                      <div key={s.name} className="flex items-center justify-between text-xs py-1 border-b border-border/30 last:border-b-0 last:pb-0 first:pt-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="h-2.5 w-2.5 rounded-full shrink-0 ring-1 ring-black/10" style={{ backgroundColor: s.color }} />
-                          <span className="text-muted-foreground truncate">{s.name}</span>
+                {segmentCurrentSizes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">No segment analytics yet — sync Braze or import segment analytics CSV.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {segmentCurrentSizes.slice(0, 10).map((s, i) => {
+                      const pct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
+                      const barPct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
+                      const barColor = ['hsl(217 91% 60%)', 'hsl(142 71% 45%)', 'hsl(0 72% 51%)', 'hsl(262 83% 58%)', 'hsl(24 95% 53%)', 'hsl(173 58% 39%)'][i % 6];
+                      return (
+                        <div key={s.name} className="space-y-1">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleStarredCoreSegment(s.name)}
+                                className={cn(
+                                  'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors',
+                                  s.isStarred ? 'text-amber-500' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                                title={s.isStarred ? 'Unstar segment' : 'Star segment'}
+                                aria-label={s.isStarred ? `Unstar ${s.name}` : `Star ${s.name}`}
+                              >
+                                <Star className={cn('h-3.5 w-3.5', s.isStarred ? 'fill-current' : '')} />
+                              </button>
+                              <span className="truncate text-muted-foreground">{s.name}</span>
+                            </div>
+                            <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                              {s.value.toLocaleString()} ({pct.toFixed(1)}%)
+                            </span>
+                          </div>
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">
+                            <div className="h-full rounded-full transition-[width]" style={{ width: `${barPct}%`, backgroundColor: barColor }} />
+                          </div>
                         </div>
-                        <span className="font-semibold text-foreground tabular-nums text-[11px] sm:text-xs">
-                          {s.value.toLocaleString()} ({pct.toFixed(1)}%)
-                        </span>
+                      );
+                    })}
+                    {segmentTotal > 0 && (
+                      <div className="flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
+                        <span className="font-medium">Total subscribers</span>
+                        <span className="font-semibold tabular-nums text-foreground">{segmentTotal.toLocaleString()}</span>
                       </div>
-                    );
-                  })}
-                  {segmentAll > 0 && (
-                    <div className="flex items-center justify-between text-xs pt-2 border-t border-border/40 mt-1">
-                      <span className="text-muted-foreground font-medium">Total subscribers</span>
-                      <span className="font-semibold text-foreground tabular-nums text-[11px] sm:text-xs">
-                        {segmentAll.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className={cn(analyticsCardClass, 'lg:col-span-2')}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardHeader className={analyticsCardHeaderClass}>
-              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Bounce Rate Over Time</CardTitle>
-              <p className={analyticsSubtitleClass}>Daily bounce rate (bounces ÷ sends) from campaign analytics data.</p>
-            </CardHeader>
-            <CardContent className="pb-6 pt-4 bg-muted/10">
-              {bounceRateData.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-                  <MailWarning className="h-8 w-8 text-muted-foreground/70" />
-                  <p className="text-sm text-muted-foreground">Bounce rate data appears after campaign analytics are synced or imported.</p>
-                </div>
-              ) : (
-                <div className={cn('h-[260px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
+        <Card className={cn(analyticsCardClass, 'min-w-0 w-full')}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={analyticsCardHeaderClass}>
+            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Bounce health</CardTitle>
+            <p className={analyticsSubtitleClass}>
+              Bounce rate over time (bounces ÷ sends) from campaign analytics. Domain list is the same hard-bounce feed, shown compactly here only.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-6 pb-6 pt-2 bg-muted/10">
+            {bounceRateData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                <MailWarning className="h-8 w-8 text-muted-foreground/70" />
+                <p className="text-sm text-muted-foreground">Bounce rate data appears after campaign analytics are synced or imported.</p>
+              </div>
+            ) : (
+              <>
+                <div className={cn('h-[min(320px,40vh)] min-h-[240px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={bounceRateData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -1350,40 +2176,35 @@ export default function Analytics() {
                       <Tooltip
                         contentStyle={analyticsTooltipContentStyle}
                         labelStyle={analyticsTooltipLabelStyle}
-                        formatter={(v: number) => [`${Number(v).toFixed(3)}%`, 'Bounce Rate']}
+                        formatter={(v: number) => [`${Number(v).toFixed(3)}%`, 'Bounce rate']}
                       />
                       <ReferenceLine y={2} stroke="hsl(24 95% 53%)" strokeDasharray="5 3" label={{ value: '2% threshold', fill: chartMutedFill, fontSize: 10, position: 'insideTopRight' }} />
-                      <Line type="monotone" dataKey="bounce_rate" name="Bounce Rate" stroke="hsl(0 72% 51%)" strokeWidth={2} dot={false} connectNulls={false} />
+                      <Line type="monotone" dataKey="bounce_rate" name="Bounce rate" stroke="hsl(0 72% 51%)" strokeWidth={2} dot={false} connectNulls={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className={analyticsCardClass}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardHeader className={analyticsCardHeaderClass}>
-              <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Top Bounce Domains</CardTitle>
-              <p className={analyticsSubtitleClass}>Highest-volume domains in hard bounce data</p>
-            </CardHeader>
-            <CardContent className="space-y-1 pb-6 bg-muted/10">
-              {bounceDomains.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">No hard bounce domain data yet.</p>
-              ) : (
-                bounceDomains.map((d) => (
-                  <div
-                    key={d.domain}
-                    className="flex items-center justify-between text-xs rounded-lg border border-border/40 bg-card/60 px-3 py-2.5 hover:bg-muted/40 transition-colors"
-                  >
-                    <span className="text-muted-foreground truncate pr-2">{d.domain}</span>
-                    <span className="font-semibold tabular-nums text-foreground shrink-0">{d.count.toLocaleString()}</span>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Top bounce domains (hard bounces)</p>
+                  {bounceDomains.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No domain breakdown yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {bounceDomains.slice(0, 9).map((d) => (
+                        <div
+                          key={d.domain}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-card/60 px-3 py-2 text-xs"
+                        >
+                          <span className="truncate text-muted-foreground">{d.domain}</span>
+                          <span className="shrink-0 font-semibold tabular-nums text-foreground">{d.count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* AI Insights */}
         <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">

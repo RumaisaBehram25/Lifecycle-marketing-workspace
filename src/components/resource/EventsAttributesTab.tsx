@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -22,7 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { Search, Zap, Tag, ChevronDown, ChevronUp, Database, Layers } from 'lucide-react';
+import { Search, Zap, Tag, ChevronDown, ChevronUp, Database, Layers, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -49,6 +50,8 @@ interface ConnectedPlatform {
   platform: string | null;
   schema_cache: unknown;
   is_connected: boolean | null;
+  /** From `client_platforms_public.last_sync_at` when the integration last completed a sync. */
+  last_sync_at?: string | null;
 }
 
 interface DisplayEvent {
@@ -81,6 +84,34 @@ type EventSortKey = 'name' | 'category' | 'source';
 type AttrSortKey = 'name' | 'type' | 'category' | 'source';
 
 const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+function formatLocalDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
+
+/** Clarifies that tables are populated from workspace syncs, not a vendor-exported catalog. */
+function EventsWorkspaceDataBanner({ syncDetail }: { syncDetail: string | null }) {
+  return (
+    <Alert className="border-primary/20 bg-muted/30 text-left">
+      <Info className="h-4 w-4" />
+      <AlertTitle>Workspace data scope</AlertTitle>
+      <AlertDescription className="text-sm mt-1 space-y-2">
+        <p>This section reflects synced workspace data and is not a full vendor event catalog.</p>
+        {syncDetail ? (
+          <p className="text-xs text-muted-foreground">{syncDetail}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            After you run a platform or Braze sync, last-updated times from your workspace will show here when available.
+          </p>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 // Schema types that represent events/actions (for Klaviyo/Iterable)
 const EVENT_SCHEMA_TYPES = new Set(['metric', 'event']);
@@ -159,7 +190,7 @@ export function EventsAttributesTab() {
     staleTime: 1000 * 60 * 5,
   });
 
-  /** Option A: taxonomy from real `tags[]` on canvases (no API shape change). */
+  /** Canvas tag taxonomy from Braze `braze_canvases.tags` on synced rows. */
   const { data: canvasTagRows = [], isLoading: canvasTagsLoading } = useQuery({
     queryKey: ['braze-canvas-tags-taxonomy', clientId],
     queryFn: async () => {
@@ -179,7 +210,6 @@ export function EventsAttributesTab() {
   const { data: brazeCampaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ['braze-campaigns-schema', clientId],
     queryFn: async () => {
-      // braze_campaigns is not in generated types — cast to bypass
       const { data, error } = await (supabase as unknown as { from: (t: string) => any })
         .from('braze_campaigns')
         .select('segment, name, channel')
@@ -389,6 +419,30 @@ export function EventsAttributesTab() {
     [platforms],
   );
 
+  /** Best-effort freshness from workspace tables (not real-time vendor APIs). */
+  const syncDetailText = useMemo(() => {
+    const connected = platforms.filter((p) => p.is_connected);
+    const platformTimes = connected
+      .map((p) => p.last_sync_at)
+      .filter((t): t is string => Boolean(t));
+    const latestPlatform =
+      platformTimes.length > 0 ? platformTimes.reduce((a, b) => (a > b ? a : b)) : null;
+
+    const schemaTimes = schemas.map((s) => s.last_seen_at).filter((t): t is string => Boolean(t));
+    const latestSchema =
+      schemaTimes.length > 0 ? schemaTimes.reduce((a, b) => (a > b ? a : b)) : null;
+
+    const canvasTimes = brazeCanvases.map((c) => c.synced_at).filter(Boolean);
+    const latestCanvas =
+      canvasTimes.length > 0 ? canvasTimes.reduce((a, b) => (a > b ? a : b)) : null;
+
+    const parts: string[] = [];
+    if (latestPlatform) parts.push(`Platforms last synced: ${formatLocalDateTime(latestPlatform)}`);
+    if (latestCanvas) parts.push(`Braze canvas snapshot: ${formatLocalDateTime(latestCanvas)}`);
+    if (latestSchema) parts.push(`Integration schema last seen: ${formatLocalDateTime(latestSchema)}`);
+    return parts.length > 0 ? parts.join(' · ') : null;
+  }, [platforms, schemas, brazeCanvases]);
+
   const filteredEvents = useMemo(
     () =>
       allEvents
@@ -442,31 +496,45 @@ export function EventsAttributesTab() {
 
   if (!hasPlatforms) {
     return (
-      <div className="text-center py-16 space-y-3">
-        <Database className="h-10 w-10 mx-auto text-muted-foreground/40" />
-        <p className="font-medium">No platforms connected</p>
-        <p className="text-sm text-muted-foreground">
-          Connect a platform in Settings to see real events and user attributes.
-        </p>
+      <div className="min-w-0 space-y-6">
+        <EventsWorkspaceDataBanner syncDetail={syncDetailText} />
+        <div className="text-center py-16 space-y-3 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4">
+          <Database className="h-10 w-10 mx-auto text-muted-foreground/40" />
+          <p className="font-medium text-foreground">No connected platforms</p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            This tab reads from your workspace after you connect Braze or another integration under{' '}
+            <span className="font-medium text-foreground">Settings → Platforms</span>. Until then, there is nothing to list — that
+            is expected, not missing placeholder content.
+          </p>
+        </div>
       </div>
     );
   }
 
   if (!hasData) {
     return (
-      <div className="text-center py-16 space-y-3">
-        <Database className="h-10 w-10 mx-auto text-muted-foreground/40" />
-        <p className="font-medium">No event, segment, or canvas tag data found</p>
-        <p className="text-sm text-muted-foreground">
-          Run a Braze sync from Settings &gt; Platforms to populate triggers, segments, and canvas tags. Canvas tags appear when your Braze canvases include a{' '}
-          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">tags</code> array on synced rows.
-        </p>
+      <div className="min-w-0 space-y-6">
+        <EventsWorkspaceDataBanner syncDetail={syncDetailText} />
+        <div className="text-center py-16 space-y-3 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4">
+          <Database className="h-10 w-10 mx-auto text-muted-foreground/40" />
+          <p className="font-medium text-foreground">No rows to display yet</p>
+          <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
+            You have connected platforms, but this view only shows data that has landed in{' '}
+            <span className="font-medium text-foreground">platform_schemas</span>,{' '}
+            <span className="font-medium text-foreground">braze_canvases</span>, and{' '}
+            <span className="font-medium text-foreground">braze_campaigns</span>. Run a Braze / platform sync so triggers,
+            segments, campaigns, and canvas <code className="rounded bg-muted px-1 py-0.5 text-[11px]">tags</code> sync into the
+            database — empty tables here mean “not synced yet,” not sample placeholder rows.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="min-w-0 space-y-6">
+      <EventsWorkspaceDataBanner syncDetail={syncDetailText} />
+
       {/* Summary stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Card>

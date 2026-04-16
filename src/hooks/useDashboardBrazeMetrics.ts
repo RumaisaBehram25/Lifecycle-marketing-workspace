@@ -10,6 +10,15 @@ import { sumBouncesUnsubsLast30dFromCampaignAnalytics } from '@/lib/brazeCampaig
 import { warnIfMetricsDiverge } from '@/lib/workspaceMetricsIntegrity';
 
 type KpiRow = { metric: string; series_date: string; value: number | string | null };
+type CampaignAggTotals = {
+  sends: number;
+  deliveries: number;
+  opens: number;
+  clicks: number;
+  unsubs: number;
+  bounces: number;
+  spam: number;
+};
 
 function n(v: unknown): number {
   if (v == null || v === '') return 0;
@@ -108,23 +117,51 @@ export function useDashboardBrazeMetrics() {
       if (!clientId) return null;
       const { data, error } = await supabase
         .from('braze_campaigns')
-        .select('deliveries,opens,clicks,unsubs,open_rate,click_rate')
+        .select('channel,deliveries,opens,clicks,unsubs')
         .eq('client_id', clientId);
       if (error) throw error;
-      const rows = data ?? [];
-      const totals = rows.reduce(
-        (acc, row: any) => ({
-          sends: acc.sends + n(row.deliveries),
-          deliveries: acc.deliveries + n(row.deliveries),
-          opens: acc.opens + n(row.opens),
-          clicks: acc.clicks + n(row.clicks),
-          unsubs: acc.unsubs + n(row.unsubs),
+      const rows = (data ?? []) as Array<Record<string, unknown>>;
+      const zero: CampaignAggTotals = {
+        sends: 0,
+        deliveries: 0,
+        opens: 0,
+        clicks: 0,
+        unsubs: 0,
+        bounces: 0,
+        spam: 0,
+      };
+      /**
+       * Aggregation model:
+       * - Source table: `braze_campaigns`
+       * - Source fields: `deliveries`, `opens`, `clicks`, `unsubs`, `channel`
+       * - Rollup: campaign-wide totals for the workspace client, with additional per-channel buckets.
+       *   This keeps KPI math stable and enables channel-level filtering when needed.
+       */
+      const byChannel: Record<string, CampaignAggTotals> = {};
+      const totals = rows.reduce((acc, row) => {
+        const deliveries = n(row.deliveries);
+        const opens = n(row.opens);
+        const clicks = n(row.clicks);
+        const unsubs = n(row.unsubs);
+        const channel = String(row.channel ?? 'unknown').trim().toLowerCase() || 'unknown';
+        const cur = byChannel[channel] ?? { ...zero };
+        cur.sends += deliveries;
+        cur.deliveries += deliveries;
+        cur.opens += opens;
+        cur.clicks += clicks;
+        cur.unsubs += unsubs;
+        byChannel[channel] = cur;
+        return {
+          sends: acc.sends + deliveries,
+          deliveries: acc.deliveries + deliveries,
+          opens: acc.opens + opens,
+          clicks: acc.clicks + clicks,
+          unsubs: acc.unsubs + unsubs,
           bounces: 0,
           spam: 0,
-        }),
-        { sends: 0, deliveries: 0, opens: 0, clicks: 0, unsubs: 0, bounces: 0, spam: 0 }
-      );
-      return totals;
+        };
+      }, { ...zero });
+      return { totals, byChannel };
     },
     enabled: !!clientId,
     staleTime: 60_000,
@@ -234,31 +271,11 @@ export function useDashboardBrazeMetrics() {
     queryKey: ['dashboard-braze', 'email-health', clientId],
     queryFn: async () => {
       if (!clientId) return { bounces: 0, unsubs: 0 };
-      const since = new Date(Date.now() - 30 * 86400000).toISOString();
-      const { count: bounces, error: e1 } = await (supabase as any)
-        .from('braze_email_events')
-        .select('id', { count: 'exact' })
-        .eq('client_id', clientId)
-        .eq('event_type', 'hard_bounce')
-        .gte('occurred_at', since)
-        .limit(1);
-      if (e1) throw e1;
-      const { count: unsubs, error: e2 } = await (supabase as any)
-        .from('braze_email_events')
-        .select('id', { count: 'exact' })
-        .eq('client_id', clientId)
-        .eq('event_type', 'unsubscribe')
-        .gte('occurred_at', since)
-        .limit(1);
-      if (e2) throw e2;
-      let b = bounces ?? 0;
-      let u = unsubs ?? 0;
-      if (b === 0 || u === 0) {
-        const csv = await sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId);
-        if (b === 0) b = csv.bounces;
-        if (u === 0) u = csv.unsubs;
-      }
-      return { bounces: b, unsubs: u };
+      /**
+       * Avoid direct `braze_email_events` count probes — some tenants return HTTP 500 for count+limit requests.
+       * Use campaign analytics rollups only so UI remains clean and console stays quiet.
+       */
+      return sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId);
     },
     enabled: !!clientId,
     staleTime: 60_000,
@@ -276,14 +293,13 @@ export function useDashboardBrazeMetrics() {
           lastError: null as string | null,
         };
       }
-      const since = new Date(Date.now() - 30 * 86400000).toISOString();
       const [
         canvasesRes,
         segmentsRes,
-        emailEventsRes,
         scheduledRes,
         latestRunRes,
         latestFailedRes,
+        csvEmailFallback,
       ] = await Promise.all([
         (supabase as any)
           .from('braze_canvases')
@@ -295,12 +311,6 @@ export function useDashboardBrazeMetrics() {
           .from('braze_segments_sync')
           .select('id', { count: 'exact' })
           .eq('client_id', clientId)
-          .limit(1),
-        (supabase as any)
-          .from('braze_email_events')
-          .select('id', { count: 'exact' })
-          .eq('client_id', clientId)
-          .gte('occurred_at', since)
           .limit(1),
         (supabase as any)
           .from('braze_scheduled_broadcasts')
@@ -322,11 +332,11 @@ export function useDashboardBrazeMetrics() {
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
+        sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId),
       ]);
 
       if (canvasesRes.error) throw canvasesRes.error;
       if (segmentsRes.error) throw segmentsRes.error;
-      if (emailEventsRes.error) throw emailEventsRes.error;
       if (scheduledRes.error) throw scheduledRes.error;
       if (latestRunRes.error) throw latestRunRes.error;
       if (latestFailedRes.error) throw latestFailedRes.error;
@@ -346,7 +356,8 @@ export function useDashboardBrazeMetrics() {
         counts: {
           canvases: canvasesRes.count ?? 0,
           segments: segmentsDisplay,
-          emailEvents30d: emailEventsRes.count ?? 0,
+          // Avoid hard dependency on `braze_email_events` count endpoint (can 500 on some tenants).
+          emailEvents30d: (csvEmailFallback.bounces ?? 0) + (csvEmailFallback.unsubs ?? 0),
           scheduledBroadcasts: scheduledRes.count ?? 0,
         },
         lastRunAt: lastRun?.completed_at ?? lastRun?.started_at ?? null,
@@ -361,7 +372,8 @@ export function useDashboardBrazeMetrics() {
 
   const derived = useMemo(() => {
     const kpi = kpiQuery.data ?? [];
-    const camp = campaignsAgg.data;
+    const camp = campaignsAgg.data?.totals;
+    const campaignAggByChannel = campaignsAgg.data?.byChannel ?? {};
     const dau = latestKpi(kpi, 'dau');
     const mau = latestKpi(kpi, 'mau');
     const newUsers30 = sumKpiLastDays(kpi, 'new_users', 30);
@@ -391,6 +403,8 @@ export function useDashboardBrazeMetrics() {
       anomaly: anomaly.trim(),
       hasKpi: kpi.length > 0,
       hasCampaignAgg: !!camp && (camp.sends > 0 || camp.deliveries > 0),
+      /** Channel-level campaign aggregation (same source fields as totals) for optional filtering/UI drilldown. */
+      campaignAggByChannel,
     };
   }, [kpiQuery.data, campaignsAgg.data]);
 

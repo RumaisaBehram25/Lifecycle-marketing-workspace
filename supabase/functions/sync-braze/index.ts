@@ -2108,6 +2108,62 @@ function normalizeStringArray(v: unknown): string[] {
   return [];
 }
 
+function finiteNonNegativeInt(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "string" ? Number(v.trim()) : Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.round(n));
+}
+
+/**
+ * Best-effort current segment size extraction from `segments/list` payload rows.
+ * Braze shape varies by workspace; we check common top-level and nested keys.
+ */
+function extractSegmentCurrentSize(seg: Record<string, unknown>): number | null {
+  const topKeys = [
+    "size",
+    "segment_size",
+    "approximate_size",
+    "estimated_size",
+    "audience_size",
+    "member_count",
+    "members",
+    "total_members",
+  ];
+  for (const k of topKeys) {
+    const n = finiteNonNegativeInt(seg[k]);
+    if (n != null) return n;
+  }
+  const nested = [
+    seg.analytics,
+    seg.analytics_stats,
+    seg.segment_stats,
+    seg.stats,
+    seg.data,
+    seg.raw,
+  ];
+  const nestedKeys = [
+    "size",
+    "segment_size",
+    "approximate_size",
+    "estimated_size",
+    "audience_size",
+    "member_count",
+    "members",
+    "total_members",
+    "total",
+  ];
+  for (const src of nested) {
+    if (!src || typeof src !== "object" || Array.isArray(src)) continue;
+    const obj = src as Record<string, unknown>;
+    for (const k of nestedKeys) {
+      const n = finiteNonNegativeInt(obj[k]);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
 function kpiNumericFromRow(
   row: Record<string, unknown>,
   metric: "dau" | "mau" | "new_users",
@@ -2624,6 +2680,7 @@ Deno.serve(async (req) => {
     let emailHardBounceRows = 0;
     let emailUnsubRows = 0;
     let emailEventsSynced = 0;
+    let segmentAnalyticsRowsUpserted = 0;
     const dbWriteErrors: string[] = [];
     const pushDbErr = (label: string, err: { message?: string } | null | undefined) => {
       const m = err?.message;
@@ -2633,6 +2690,7 @@ Deno.serve(async (req) => {
     let apiKpiPointsParsed = 0;
     let apiEmailRecordsSeen = 0;
     let apiSegmentsListed = 0;
+    let apiSegmentSizesParsed = 0;
     console.log("[Braze Sync] Wall time budget (ms):", maxWallMs, "max_canvas_detail:", MAX_CANVASES_TO_PROCESS);
     console.log(
       "[Braze Sync] Phase 3 drafts:",
@@ -2984,6 +3042,148 @@ Deno.serve(async (req) => {
     console.log(
       `[Braze Sync] Email events (early phase): hard_bounce_rows=${emailHardBounceRows} unsub_rows=${emailUnsubRows}`,
     );
+    }
+
+    /**
+     * Segment directory + daily size snapshot — runs **before** heavy canvas/campaign phases so partial
+     * syncs (Edge wall budget) still refresh `braze_segment_analytics` for Analytics subscriber mix.
+     */
+    if (!touchpointsOnly && !campaignsOnly) {
+      console.log("[SYNC] Starting: segments (early — before canvas Phase 3 / campaigns)");
+      console.log("[START] segments/list → braze_segments_sync + braze_segment_analytics snapshot");
+      try {
+        let segPage = 0;
+        const segmentAnalyticsByKeyEarly = new Map<string, Record<string, unknown>>();
+        const segmentSnapshotDayEarly = nowIso.slice(0, 10);
+        while (segPage < MAX_SEGMENT_PAGES) {
+          if (syncOverBudget() && segPage > 0) {
+            console.warn(
+              "[Braze Sync] Time budget: stopping early segments pagination (segment sizes may be incomplete)",
+            );
+            syncPartial = true;
+            syncStoppedReason = "time_budget";
+            break;
+          }
+          const segJson = (await brazeFetch(
+            `segments/list?page=${segPage}&sort_direction=desc&limit=100`,
+            apiKey,
+            brazeRestEndpoint,
+          )) as Record<string, unknown>;
+          const segs = getBrazeListArray(segJson, [
+            "segments",
+            "items",
+            "data",
+          ]) as Array<Record<string, unknown>>;
+          apiSegmentsListed += segs.length;
+          console.log(
+            `[API] segments (early) page ${segPage} segments.length:`,
+            segs.length,
+          );
+          if (segPage === 0) {
+            console.log(
+              "[Braze Sync] Segments page 0 raw (truncated, early):",
+              JSON.stringify(segJson).slice(0, 300),
+            );
+          }
+          if (segs.length === 0 && segPage === 0) {
+            console.warn("[Braze Sync] Segments page 0 empty (early); retrying from page 1");
+            segPage = 1;
+            continue;
+          }
+          if (segs.length === 0) break;
+
+          const rows = segs
+            .map((s) => {
+              const id = String(
+                s.id ??
+                  s.segment_id ??
+                  s.api_id ??
+                  s.segment_api_id ??
+                  "",
+              );
+              if (!id) return null;
+              return {
+                client_id: clientId,
+                braze_segment_id: id,
+                name: String(s.name ?? s.segment_name ?? s.title ?? "Segment"),
+                tags: normalizeStringArray(s.tags),
+                raw: s as Record<string, unknown>,
+                synced_at: nowIso,
+              };
+            })
+            .filter(Boolean) as Array<Record<string, unknown>>;
+
+          for (const s of segs) {
+            const id = String(
+              s.id ??
+                s.segment_id ??
+                s.api_id ??
+                s.segment_api_id ??
+                "",
+            ).trim();
+            if (!id) continue;
+            const size = extractSegmentCurrentSize(s);
+            if (size == null) continue;
+            const name = String(s.name ?? s.segment_name ?? s.title ?? "Segment");
+            apiSegmentSizesParsed += 1;
+            segmentAnalyticsByKeyEarly.set(`${clientId}::${id}::${segmentSnapshotDayEarly}`, {
+              client_id: clientId,
+              date: segmentSnapshotDayEarly,
+              segment_id: id,
+              segment_name: name,
+              size,
+            });
+          }
+
+          if (rows.length > 0) {
+            console.log(
+              "[DB WRITE] braze_segments_sync (early) attempting to write:",
+              rows.length,
+              "rows page=",
+              segPage,
+            );
+            const { error: segErr } = await supabase.from("braze_segments_sync").upsert(rows, {
+              onConflict: "client_id,braze_segment_id",
+            });
+            if (segErr) {
+              console.warn("braze_segments_sync upsert (early):", segErr.message);
+              pushDbErr("braze_segments_sync(early)", segErr);
+            } else {
+              segmentsSynced += rows.length;
+            }
+          }
+
+          segPage++;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+
+        if (segmentAnalyticsByKeyEarly.size > 0) {
+          const segmentAnalyticsRows = [...segmentAnalyticsByKeyEarly.values()];
+          const SEGMENT_ANALYTICS_CHUNK = 200;
+          for (let i = 0; i < segmentAnalyticsRows.length; i += SEGMENT_ANALYTICS_CHUNK) {
+            const chunk = segmentAnalyticsRows.slice(i, i + SEGMENT_ANALYTICS_CHUNK);
+            const { error: segAnalyticsErr } = await supabase
+              .from("braze_segment_analytics")
+              .upsert(chunk, { onConflict: "client_id,segment_id,date" });
+            if (segAnalyticsErr) {
+              console.warn("[Braze Sync] braze_segment_analytics upsert (early):", segAnalyticsErr.message);
+              pushDbErr("braze_segment_analytics(early)", segAnalyticsErr);
+            } else {
+              segmentAnalyticsRowsUpserted += chunk.length;
+            }
+          }
+          console.log(
+            `[Braze Sync] Segment analytics snapshot (early): upserted ${segmentAnalyticsRowsUpserted} row(s) for ${segmentSnapshotDayEarly}`,
+          );
+        } else {
+          console.log(
+            "[Braze Sync] Segment analytics snapshot (early): no parseable segment size fields in segments/list payload",
+          );
+        }
+      } catch (e) {
+        console.error("[Braze Sync] Early segment list sync failed:", e);
+      }
+      console.log(`[Braze Sync] Early segment sync complete: ${segmentsSynced} segment directory rows upserted`);
     }
 
     // === PHASE 2: Resolve forced canvases; score rest unless FORCE_CANVAS_FAST_PATH ===
@@ -4281,104 +4481,12 @@ Deno.serve(async (req) => {
     );
     }
 
-    // === PHASE 6: Segment directory → public.braze_segments_sync (not braze_segments) ===
+    // Segment directory + segment analytics are synced **early** (after KPI/email, before heavy canvas/campaign work)
+    // so partial syncs still refresh subscriber mix. Scheduled broadcasts remain here after campaigns.
     if (campaignsOnly) {
-      console.log('[Braze Sync] CAMPAIGNS_ONLY: skipping segments and scheduled broadcasts');
+      console.log('[Braze Sync] CAMPAIGNS_ONLY: skipping scheduled broadcasts');
     } else {
-    console.log("[SYNC] Starting: segments");
-    console.log('[START] segments/list → braze_segments_sync');
-    try {
-      let segPage = 0;
-      while (segPage < MAX_SEGMENT_PAGES) {
-        // Always attempt at least one segment page, even near time limit.
-        // Segment sync is lightweight and this avoids persistent 0 segments
-        // when earlier heavy phases consume most of the wall budget.
-        if (syncOverBudget() && segPage > 0) {
-          console.warn(
-            "[Braze Sync] Time budget: stopping segments pagination early",
-          );
-          syncPartial = true;
-          syncStoppedReason = "time_budget";
-          break;
-        }
-        const segJson = (await brazeFetch(
-          `segments/list?page=${segPage}&sort_direction=desc&limit=100`,
-          apiKey,
-          brazeRestEndpoint,
-        )) as Record<string, unknown>;
-        const segs = getBrazeListArray(segJson, [
-          "segments",
-          "items",
-          "data",
-        ]) as Array<Record<string, unknown>>;
-        apiSegmentsListed += segs.length;
-        console.log(
-          `[API] segments page ${segPage} segments.length:`,
-          segs.length,
-        );
-        console.log(
-          '[Braze Sync] Segments page',
-          segPage,
-          '— count:',
-          segs.length,
-        );
-        if (segPage === 0) {
-          console.log('[Braze Sync] Segments page 0 raw (truncated):', JSON.stringify(segJson).slice(0, 300));
-        }
-        // Some Braze workspaces are 1-based for list pagination. If page 0 is
-        // empty, try page 1 once before concluding there are no segments.
-        if (segs.length === 0 && segPage === 0) {
-          console.warn("[Braze Sync] Segments page 0 empty; retrying from page 1");
-          segPage = 1;
-          continue;
-        }
-        if (segs.length === 0) break;
-        const rows = segs
-          .map((s) => {
-            const id = String(
-              s.id ??
-              s.segment_id ??
-              s.api_id ??
-              s.segment_api_id ??
-              '',
-            );
-            if (!id) return null;
-            return {
-              client_id: clientId,
-              braze_segment_id: id,
-              name: String(s.name ?? s.segment_name ?? s.title ?? 'Segment'),
-              tags: normalizeStringArray(s.tags),
-              raw: s as Record<string, unknown>,
-              synced_at: nowIso,
-            };
-          })
-          .filter(Boolean) as Array<Record<string, unknown>>;
-        if (rows.length > 0) {
-          console.log('[DB WRITE] braze_segments_sync attempting to write:', rows.length, 'rows page=', segPage);
-          const { error: segErr } = await supabase.from('braze_segments_sync').upsert(rows, {
-            onConflict: 'client_id,braze_segment_id',
-          });
-          console.log(
-            "[DB WRITE]",
-            "braze_segments_sync",
-            "error:",
-            segErr?.message ?? "none",
-            "rows:",
-            rows.length,
-          );
-          console.log('[DB RESULT] braze_segments_sync error:', segErr?.message ?? 'none');
-          if (segErr) {
-            console.warn('braze_segments_sync upsert:', segErr.message);
-            pushDbErr('braze_segments_sync', segErr);
-          } else segmentsSynced += rows.length;
-        }
-        segPage++;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    } catch (e) {
-      console.error('[Braze Sync] Segment list sync failed:', e);
-    }
-    console.log(`[Braze Sync] Segment sync complete: ${segmentsSynced} segment rows upserted`);
+    console.log("[Braze Sync] Segments: directory + analytics already synced early; continuing with scheduled broadcasts");
 
     // === PHASE 8: Upcoming scheduled campaigns & Canvases ===
     try {
@@ -4494,6 +4602,7 @@ Deno.serve(async (req) => {
       campaigns: schemaCacheCampaigns,
       kpi_series_points: kpiSeriesPoints,
       segments_synced: segmentsSynced,
+      segment_analytics_rows_upserted: segmentAnalyticsRowsUpserted,
       email_events_ingested: emailEventsSynced,
       scheduled_broadcasts: scheduledBroadcastsCount,
       last_sync: nowIso,
@@ -4548,6 +4657,7 @@ Deno.serve(async (req) => {
         campaigns_processed: campaignsProcessedCount,
         campaigns_found: allCampaignList.length,
         campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
+        segment_analytics_rows_upserted: segmentAnalyticsRowsUpserted,
         kpi_series_points_upserted: kpiSeriesPoints,
         scheduled_broadcasts_inserted: scheduledBroadcastsCount,
         segments_synced: segmentsSynced,
@@ -4560,6 +4670,7 @@ Deno.serve(async (req) => {
       kpiSeriesPoints > 0 ||
       canvasMinimalUpserted > 0 ||
       segmentsSynced > 0 ||
+      segmentAnalyticsRowsUpserted > 0 ||
       emailEventsSynced > 0 ||
       scheduledBroadcastsCount > 0 ||
       campaignsProcessedCount > 0 ||
@@ -4626,6 +4737,7 @@ Deno.serve(async (req) => {
             campaign_list: allCampaignList.length,
             email_records: apiEmailRecordsSeen,
             segment_rows: apiSegmentsListed,
+            segment_sizes: apiSegmentSizesParsed,
             scheduled_broadcasts: apiScheduledListed,
           },
           counts: {
@@ -4640,6 +4752,7 @@ Deno.serve(async (req) => {
             campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
             kpi_series_points: schemaCache.kpi_series_points,
             segments_synced: schemaCache.segments_synced,
+            segment_analytics_rows_upserted: schemaCache.segment_analytics_rows_upserted,
             email_events_ingested: schemaCache.email_events_ingested,
             scheduled_broadcasts: schemaCache.scheduled_broadcasts,
           },

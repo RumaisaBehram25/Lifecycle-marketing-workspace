@@ -27,6 +27,7 @@ import {
   generateConversationTitle,
 } from '@/hooks/useChatHistory';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
@@ -122,6 +123,8 @@ export function ClientChat({
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** True after we create a conversation mid-send; empty `savedMessages` is normal until DB + query catch up. */
+  const createdConversationInSessionRef = useRef(false);
   const { toast } = useToast();
   const { clientId: brazeAnalyticsClientId } = useBrazeDashboardClientId();
 
@@ -135,7 +138,10 @@ export function ClientChat({
 
   // Hooks for persistence
   const { data: conversations, isLoading: conversationsLoading } = useClientConversations(client.id);
-  const { data: savedMessages } = useConversationMessages(selectedConversationId || undefined);
+  const {
+    data: savedMessages,
+    isPending: conversationMessagesPending,
+  } = useConversationMessages(selectedConversationId || undefined);
   const createConversation = useCreateConversation();
   const deleteConversation = useDeleteConversation();
   const saveMessage = useSaveMessage();
@@ -183,14 +189,23 @@ export function ClientChat({
     }
   }, [initialConversationId]);
 
-  // Load saved messages when conversation is selected
+  // Hydrate from server when the user picks a thread — never clobber optimistic / streaming UI mid-request.
   useEffect(() => {
-    if (savedMessages && savedMessages.length > 0) {
-      setMessages(savedMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })));
-    } else if (selectedConversationId) {
-      setMessages([]);
+    if (!selectedConversationId) return;
+    if (conversationMessagesPending) return;
+
+    const rows = savedMessages ?? [];
+    if (rows.length > 0) {
+      createdConversationInSessionRef.current = false;
+      setMessages(rows.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })));
+      return;
     }
-  }, [savedMessages, selectedConversationId]);
+
+    if (isLoading) return;
+    if (createdConversationInSessionRef.current) return;
+
+    setMessages([]);
+  }, [savedMessages, selectedConversationId, conversationMessagesPending, isLoading]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -199,20 +214,24 @@ export function ClientChat({
   }, [messages]);
 
   const handleNewConversation = () => {
+    createdConversationInSessionRef.current = false;
     setSelectedConversationId(null);
     setMessages([]);
     setMobileHistoryOpen(false);
   };
 
   const handleSelectConversation = (id: string) => {
+    createdConversationInSessionRef.current = false;
     setSelectedConversationId(id);
     setMobileHistoryOpen(false);
+    setMessages([]);
   };
 
   const handleDeleteConversation = async (id: string) => {
     try {
       await deleteConversation.mutateAsync({ conversationId: id, clientId: client.id });
       if (selectedConversationId === id) {
+        createdConversationInSessionRef.current = false;
         setSelectedConversationId(null);
         setMessages([]);
       }
@@ -223,8 +242,9 @@ export function ClientChat({
   };
 
   const streamChat = async (userMessage: string) => {
-    const newMessages: Message[] = [...messages, { role: 'user', content: userMessage }];
-    setMessages(newMessages);
+    const userMessages: Message[] = [...messages, { role: 'user', content: userMessage }];
+    /** Show assistant row immediately so the thread never looks “stuck” while the Edge Function connects. */
+    setMessages([...userMessages, { role: 'assistant', content: '' }]);
     setIsLoading(true);
 
     let conversationId = selectedConversationId;
@@ -238,6 +258,7 @@ export function ClientChat({
           title: generateConversationTitle(userMessage),
         });
         conversationId = conv.id;
+        createdConversationInSessionRef.current = true;
         setSelectedConversationId(conv.id);
       } else if (messages.length === 0) {
         await updateTitle.mutateAsync({
@@ -271,7 +292,7 @@ export function ClientChat({
           Authorization: `Bearer ${session.access_token}`,
         },
         body: {
-          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+          messages: userMessages.map((m) => ({ role: m.role, content: m.content })),
           client: {
             id: client.id,
             name: client.name,
@@ -353,8 +374,6 @@ export function ClientChat({
       const decoder = new TextDecoder();
       let textBuffer = '';
 
-      setMessages([...newMessages, { role: 'assistant', content: '' }]);
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -383,7 +402,7 @@ export function ClientChat({
             }
             if (chunk) {
               assistantContent += chunk;
-              setMessages([...newMessages, { role: 'assistant', content: assistantContent }]);
+              setMessages([...userMessages, { role: 'assistant', content: assistantContent }]);
             }
           } catch {
             textBuffer = line + '\n' + textBuffer;
@@ -415,8 +434,8 @@ export function ClientChat({
       }
 
       if (assistantContent.trim()) {
-        setMessages([...newMessages, { role: 'assistant', content: assistantContent }]);
-        
+        setMessages([...userMessages, { role: 'assistant', content: assistantContent }]);
+
         await saveMessage.mutateAsync({
           conversationId: conversationId!,
           role: 'assistant',
@@ -428,14 +447,14 @@ export function ClientChat({
           description: 'The model streamed an empty message. Check Edge Function secret ANTHROPIC_API_KEY and redeploy ops-chat.',
           variant: 'destructive',
         });
-        setMessages(newMessages);
+        setMessages(userMessages);
       }
 
     } catch (error) {
       logger.error('Chat error:', error);
       const msg = formatUnknownError(error);
       if (msg === '__CHAT_HTTP_SHOWN__') {
-        setMessages(newMessages);
+        setMessages(userMessages);
         return;
       }
       if (msg !== 'Rate limited' && msg !== 'Payment required') {
@@ -445,13 +464,17 @@ export function ClientChat({
           variant: 'destructive',
         });
       }
-      setMessages(newMessages);
+      setMessages(userMessages);
     } finally {
       setIsLoading(false);
     }
   };
 
   const effectiveQuickPrompts = quickPromptsProp ?? (variant === 'embedded' ? EMBEDDED_QUICK_PROMPTS : QUICK_PROMPTS);
+
+  const showEmptyHero = messages.length === 0 && !selectedConversationId;
+  const showConversationLoading =
+    Boolean(selectedConversationId) && conversationMessagesPending && messages.length === 0;
 
   const historySidebar = showHistory && showSidebar && (
     <div className="hidden sm:flex w-[min(100%,18rem)] flex-shrink-0 flex-col min-h-0 border-r border-border/70 bg-sidebar/95 backdrop-blur-md shadow-[inset_-1px_0_0_0_hsl(var(--border)/0.5)] h-full">
@@ -594,7 +617,12 @@ export function ClientChat({
         {/* Messages */}
         <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
           <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-            {messages.length === 0 ? (
+            {showConversationLoading ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-16 sm:py-24 text-muted-foreground">
+                <LoadingSpinner />
+                <p className="text-sm">Loading conversation…</p>
+              </div>
+            ) : showEmptyHero ? (
               <div className={cn('text-center', variant === 'embedded' ? 'py-8' : 'py-12 sm:py-20')}>
                 <div
                   className={cn(
@@ -639,7 +667,7 @@ export function ClientChat({
               onSend={streamChat}
               isLoading={isLoading}
               placeholder={variant === 'embedded' ? 'Ask anything about your CRM…' : 'Message CRM Copilot...'}
-              quickPrompts={messages.length === 0 ? effectiveQuickPrompts : undefined}
+              quickPrompts={showEmptyHero ? effectiveQuickPrompts : undefined}
               platformData={platformData}
               hasPlatformConnections={hasPlatformConnections}
               onSyncPlatform={onSyncPlatform}

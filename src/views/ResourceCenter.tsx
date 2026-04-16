@@ -1,5 +1,12 @@
+/**
+ * Resource Center — `/resources`
+ *
+ * Tab query: `?tab=voice|design|rules|audience|events`. Unknown values fall back to Brand Voice.
+ * Legacy `?tab=journeys` redirects to Brand Voice (journeys live under Lifecycle).
+ * Sidebar deep links must stay in sync with `RESOURCE_TABS` and `AppSidebar` `resourceSubItems`.
+ */
 import { Link, useSearchParams } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useClientForChat } from '@/hooks/useClientForChat';
 import { Button } from '@/components/ui/button';
@@ -20,21 +27,35 @@ const RESOURCE_TABS = [
   { id: 'rules', label: 'Rules', icon: Ruler },
   { id: 'audience', label: 'Audience', icon: Users },
   { id: 'events', label: 'Events & Attributes', icon: Database },
-];
+] as const;
+
+const RESOURCE_TAB_IDS = new Set<string>(RESOURCE_TABS.map((t) => t.id));
+const LEGACY_RESOURCE_TAB_JOURNEYS = 'journeys';
 
 function ResourceCenterContent() {
   const queryClient = useQueryClient();
   const { client, isLoading: clientLoading, refetch } = useClientForChat();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tabFromUrl = searchParams.get('tab') || 'voice';
+  const rawTab = searchParams.get('tab');
+
+  const activeTab = useMemo(() => {
+    if (!rawTab || rawTab === LEGACY_RESOURCE_TAB_JOURNEYS || !RESOURCE_TAB_IDS.has(rawTab)) {
+      return 'voice';
+    }
+    return rawTab;
+  }, [rawTab]);
+
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
 
   useEffect(() => {
-    if (tabFromUrl === 'journeys') {
-      setSearchParams({ tab: 'audience' }, { replace: true });
+    if (
+      rawTab === LEGACY_RESOURCE_TAB_JOURNEYS ||
+      (rawTab && !RESOURCE_TAB_IDS.has(rawTab))
+    ) {
+      setSearchParams({ tab: 'voice' }, { replace: true });
     }
-  }, [tabFromUrl, setSearchParams]);
+  }, [rawTab, setSearchParams]);
 
   if (clientLoading) {
     return <LoadingPage />;
@@ -52,6 +73,7 @@ function ResourceCenterContent() {
     );
   }
 
+  /** Keeps Resource Center + AI Chat in sync: same React Query key as `useClientForChat` / Chat. CRM Copilot still reloads brand fields from DB on every `ops-chat` request. */
   const invalidateWorkspaceClient = () => {
     void refetch();
     queryClient.invalidateQueries({ queryKey: ['client-row-for-chat', client.id] });
@@ -64,7 +86,7 @@ function ResourceCenterContent() {
         <nav className="w-48 flex-shrink-0 border-r bg-muted/20 p-3 space-y-1 min-h-[calc(100vh-4rem)]">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold px-2 mb-2">Resources</p>
           {RESOURCE_TABS.map(tab => {
-            const isActive = tabFromUrl === tab.id;
+            const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
@@ -102,7 +124,7 @@ function ResourceCenterContent() {
           </Button>
         </div>
 
-        {tabFromUrl === 'voice' && (
+        {activeTab === 'voice' && (
           <BrandVoiceTab 
             clientId={client.id}
             onSaved={invalidateWorkspaceClient}
@@ -121,16 +143,16 @@ function ResourceCenterContent() {
           />
         )}
 
-        {tabFromUrl === 'design' && <DesignTab clientId={client.id} />}
-        {tabFromUrl === 'rules' && (
+        {activeTab === 'design' && <DesignTab clientId={client.id} />}
+        {activeTab === 'rules' && (
           <RulesTab
             clientId={client.id}
             initialCopyRules={client.copy_rules}
             onPersist={invalidateWorkspaceClient}
           />
         )}
-        {tabFromUrl === 'audience' && <AudienceTab />}
-        {tabFromUrl === 'events' && <EventsAttributesTab />}
+        {activeTab === 'audience' && <AudienceTab />}
+        {activeTab === 'events' && <EventsAttributesTab />}
       </div>
     </div>
   );

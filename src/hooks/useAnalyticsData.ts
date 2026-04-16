@@ -537,33 +537,11 @@ export function useAnalyticsData(period: string = 'default') {
     queryKey: ['analytics', 'braze_email_health_30d', clientId, periodStart],
     queryFn: async () => {
       if (!clientId) return { bounces: 0, unsubs: 0 };
-      const since = periodStart ? new Date(periodStart).toISOString() : new Date(Date.now() - 30 * 86400000).toISOString();
-      const [{ count: bounces, error: e1 }, { count: unsubs, error: e2 }] = await Promise.all([
-        (supabase as any)
-          .from('braze_email_events')
-          .select('id', { count: 'exact' })
-          .eq('client_id', clientId)
-          .eq('event_type', 'hard_bounce')
-          .gte('occurred_at', since)
-          .limit(1),
-        (supabase as any)
-          .from('braze_email_events')
-          .select('id', { count: 'exact' })
-          .eq('client_id', clientId)
-          .eq('event_type', 'unsubscribe')
-          .gte('occurred_at', since)
-          .limit(1),
-      ]);
-      if (e1) throw e1;
-      if (e2) throw e2;
-      let b = bounces ?? 0;
-      let u = unsubs ?? 0;
-      if (b === 0 || u === 0) {
-        const csv = await sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId);
-        if (b === 0) b = csv.bounces;
-        if (u === 0) u = csv.unsubs;
-      }
-      return { bounces: b, unsubs: u };
+      /**
+       * Avoid direct `braze_email_events` count probes — these can 500 for some tenants and spam console.
+       * Use campaign analytics rollups for a stable 30d health signal.
+       */
+      return sumBouncesUnsubsLast30dFromCampaignAnalytics(clientId);
     },
     enabled: !!clientId,
     staleTime: ANALYTICS_STALE_MS,
@@ -599,35 +577,21 @@ export function useAnalyticsData(period: string = 'default') {
   });
 
   /**
-   * Primary bundle: charts + KPI tiles. Secondary: segment sync rows, email samples, counts, hygiene directory.
-   * If primary is empty we still wait for secondary so we do not flash “no data” when only those tables have rows.
+   * Primary bundle: charts + KPI tiles (+ Customer.io campaigns for mixed workspaces).
+   * Secondary (segment sync, email event samples, hygiene directory, etc.) loads in the background —
+   * do not block the full-page spinner on it: empty Braze + slow `braze_campaigns`/email queries was
+   * adding many seconds before first paint.
    * Uses `isPending` so background refetches do not re-block the page.
    */
   const primaryPending =
     brazeCampaignAnalytics.isPending ||
+    customerioCampaigns.isPending ||
     segmentAnalytics.isPending ||
     usageAnalytics.isPending ||
     brazeCanvases.isPending ||
     brazeKpiSeries.isPending;
 
-  const secondaryPending =
-    segmentsSync.isPending ||
-    emailEvents.isPending ||
-    emailHealth30d.isPending ||
-    scheduledBroadcasts.isPending ||
-    campaignDirectory.isPending;
-
-  const primaryHasData =
-    !primaryPending &&
-    ((brazeCampaignAnalytics.data ?? []).length > 0 ||
-      (customerioCampaigns.data ?? []).length > 0 ||
-      (segmentAnalytics.data ?? []).length > 0 ||
-      (usageAnalytics.data ?? []).length > 0 ||
-      (brazeCanvases.data ?? []).length > 0 ||
-      (brazeKpiSeries.data ?? []).length > 0);
-
-  const isLoading =
-    isClientLoading || (!!clientId && (primaryPending || (!primaryHasData && secondaryPending)));
+  const isLoading = isClientLoading || (!!clientId && primaryPending);
 
   const error =
     brazeCampaignAnalytics.error ||

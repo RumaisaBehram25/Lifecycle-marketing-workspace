@@ -12,8 +12,8 @@ import { Input } from '@/components/ui/input';
 import {
   ArrowRight, CheckCircle2,
   Workflow, Clock, Zap, Sparkles, ChevronDown, ChevronRight,
-  FolderOpen, FileText, MessageSquare, Layers, Radio, Search,
-  TrendingUp, TrendingDown, Minus, MailWarning, UserMinus,
+  FolderOpen, FileText, MessageSquare, Layers, Search,
+  TrendingUp, TrendingDown, Minus, MailWarning,
   RefreshCw, Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -134,6 +134,10 @@ function ClientProminentMetric({
       </CardContent>
     </Card>
   );
+}
+
+function formatPercent(value: number): string {
+  return `${value.toFixed(2)}%`;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -443,7 +447,7 @@ export default function Dashboard() {
     segmentDirectorySource: brazeSegmentDirectorySource,
     scheduled: brazeScheduled,
     scheduledIsError: brazeScheduledIsError,
-    emailHealth: brazeEmail,
+    derived: brazeDerived,
     syncHealth: brazeSyncHealth,
   } = useDashboardBrazeMetrics();
   const { data: driveBriefs = [], isFetching: driveBriefsLoading } = useDriveBriefs(clientId);
@@ -610,27 +614,25 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             <ClientProminentMetric
               icon={MailWarning}
-              label="Hard bounces (30d)"
-              value={brazeEmail.bounces.toLocaleString()}
-              footnote="Braze email_events sync, or roll-up from campaign analytics CSV if events are empty"
+              label="Open Rate"
+              value={formatPercent(brazeDerived.openRate)}
+              footnote="Calculated as total opens / total delivered across synced campaigns (all channels)"
               railClass={dashRailWarning}
               accentClass={cn(dashIconChipWarning, 'h-10 w-10 rounded-xl')}
             />
             <ClientProminentMetric
-              icon={UserMinus}
-              label="Unsubscribes (30d)"
-              value={brazeEmail.unsubs.toLocaleString()}
-              footnote="Braze email_events sync, or roll-up from campaign analytics CSV if events are empty"
+              icon={TrendingUp}
+              label="Click Rate"
+              value={formatPercent(brazeDerived.clickRate)}
+              footnote="Calculated as total clicks / total delivered across synced campaigns (all channels)"
               railClass={dashRailDestructive}
               accentClass={cn(dashIconChipDestructive, 'h-10 w-10 rounded-xl')}
             />
             <ClientProminentMetric
-              icon={Radio}
-              label="Email events (30d)"
-              value={brazeSyncHealth.counts.emailEvents30d.toLocaleString()}
-              footnote={
-                'From Braze email_events sync'
-              }
+              icon={Minus}
+              label="Unsubscribe Rate"
+              value={formatPercent(brazeDerived.unsubRate)}
+              footnote="Calculated as total unsubscribes / total delivered across synced campaigns (all channels)"
               railClass={dashRailPrimary}
               accentClass={cn(dashIconChip, 'h-10 w-10 rounded-xl')}
             />

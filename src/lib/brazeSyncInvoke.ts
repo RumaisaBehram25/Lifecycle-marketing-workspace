@@ -24,8 +24,10 @@ type BrazeSyncCounts = {
   campaigns_found?: number;
   campaigns_processed?: number;
   campaigns_enabled?: number;
+  campaign_analytics_rows_upserted?: number;
   kpi_series_points?: number;
   segments_synced?: number;
+  segment_analytics_rows_upserted?: number;
   email_events_ingested?: number;
   scheduled_broadcasts?: number;
 };
@@ -125,6 +127,7 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
       campaign_list?: number;
       email_records?: number;
       segment_rows?: number;
+      segment_sizes?: number;
       scheduled_broadcasts?: number;
     };
     db_errors?: string[];
@@ -133,7 +136,7 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
   const ap = inner?.api_parsed;
   const counts = inner?.counts;
   const parsedSummary = ap
-    ? `Parsed: KPI ${ap.kpi_points ?? 0}, canvases ${ap.canvas_list ?? 0}, campaigns ${ap.campaign_list ?? 0}, email ${ap.email_records ?? 0}, segments ${ap.segment_rows ?? 0}, scheduled ${ap.scheduled_broadcasts ?? 0}.`
+    ? `Parsed: KPI ${ap.kpi_points ?? 0}, canvases ${ap.canvas_list ?? 0}, campaigns ${ap.campaign_list ?? 0}, email ${ap.email_records ?? 0}, segments ${ap.segment_rows ?? 0} (sizes ${ap.segment_sizes ?? 0}), scheduled ${ap.scheduled_broadcasts ?? 0}.`
     : undefined;
   if (ap && counts) {
     const parsedAny =
@@ -142,14 +145,17 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
       (ap.campaign_list ?? 0) > 0 ||
       (ap.email_records ?? 0) > 0 ||
       (ap.segment_rows ?? 0) > 0 ||
+      (ap.segment_sizes ?? 0) > 0 ||
       (ap.scheduled_broadcasts ?? 0) > 0;
     const storedAny =
       (counts.kpi_series_points ?? 0) > 0 ||
       (counts.canvases_minimal_upserted ?? 0) > 0 ||
       (counts.segments_synced ?? 0) > 0 ||
+      (counts.segment_analytics_rows_upserted ?? 0) > 0 ||
       (counts.email_events_ingested ?? 0) > 0 ||
       (counts.scheduled_broadcasts ?? 0) > 0 ||
-      (counts.campaigns_processed ?? 0) > 0;
+      (counts.campaigns_processed ?? 0) > 0 ||
+      (counts.campaign_analytics_rows_upserted ?? 0) > 0;
     if (parsedAny && !storedAny) {
       if (inner.db_errors && inner.db_errors.length > 0) {
         return `${parsedSummary ?? ''} Data was read from Braze but database writes failed: ${inner.db_errors.slice(0, 2).join(' · ')}`.trim();
@@ -164,6 +170,7 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
     (counts.campaigns_found ?? 0) === 0 &&
     (counts.kpi_series_points ?? 0) === 0 &&
     (counts.segments_synced ?? 0) === 0 &&
+    (counts.segment_analytics_rows_upserted ?? 0) === 0 &&
     (counts.email_events_ingested ?? 0) === 0 &&
     (counts.scheduled_broadcasts ?? 0) === 0;
   if (inferredNoData) {
@@ -171,6 +178,14 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
   }
 
   if (!data?.partial) return undefined;
+  if (
+    data.stopped_reason === 'time_budget' &&
+    (counts?.segment_analytics_rows_upserted ?? 0) === 0 &&
+    (ap?.segment_rows ?? 0) > 0 &&
+    (ap?.segment_sizes ?? 0) === 0
+  ) {
+    return `${parsedSummary ?? ''} Segment list synced, but Braze did not return parseable size fields for subscriber mix. Subscriber mix may stay on older CSV history until Braze exposes sizes or you import segment analytics.`.trim();
+  }
   if (data.stopped_reason === 'time_budget') {
     return 'Synced within the server time limit. Run sync again to refresh more data.';
   }

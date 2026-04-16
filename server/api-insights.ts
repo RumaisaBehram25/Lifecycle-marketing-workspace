@@ -86,8 +86,15 @@ Return ONLY valid JSON — an array of objects with these fields:
           if (!response.ok) {
             const errorText = await response.text();
             console.error('Anthropic error:', errorText);
+            let detail = 'AI generation failed';
+            try {
+              const j = JSON.parse(errorText) as { error?: { message?: string }; message?: string };
+              detail = j.error?.message ?? j.message ?? detail;
+            } catch {
+              if (errorText.trim()) detail = errorText.trim().slice(0, 280);
+            }
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'AI generation failed' }));
+            res.end(JSON.stringify({ error: detail }));
             return;
           }
 

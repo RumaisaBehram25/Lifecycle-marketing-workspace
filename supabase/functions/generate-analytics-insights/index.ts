@@ -6,11 +6,13 @@ import { logger } from '../_shared/logger.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  /** Required for browser preflight on `functions.invoke` (POST + custom headers). */
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { status: 200, headers: corsHeaders });
   }
 
   try {
@@ -107,7 +109,14 @@ Focus on: performance patterns, underperforming flows, engagement gaps, and grow
     if (!response.ok) {
       const errorText = await response.text();
       logger.error('Anthropic error:', errorText);
-      throw new Error('AI generation failed');
+      let detail = 'AI generation failed';
+      try {
+        const j = JSON.parse(errorText) as { error?: { message?: string }; message?: string };
+        detail = j.error?.message ?? j.message ?? detail;
+      } catch {
+        if (errorText.trim()) detail = errorText.trim().slice(0, 280);
+      }
+      throw new Error(detail);
     }
 
     const data = await response.json();
