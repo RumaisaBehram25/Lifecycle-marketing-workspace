@@ -11,8 +11,8 @@
  *   npx --yes tsx --tsconfig scripts/tsconfig.json scripts/braze-segment-track-stats-and-create.ts -- --dry-run
  *   npx --yes tsx --tsconfig scripts/tsconfig.json scripts/braze-segment-track-stats-and-create.ts -- --skip-create
  *
- * Targets (exact names): "All mailable users"; "Active Subscribers (opened in 90d)"; "Churned (no open in 180d)".
- * For each: POST /segments/update with analytics_tracking / analytics_tracking_enabled variants. If Active/Churned
+ * Targets (exact Braze segment titles): "all email subscriber"; "active subscriber"; "churned".
+ * For each: POST /segments/update with analytics_tracking / analytics_tracking_enabled variants. If active/churned
  * are missing, attempts POST /segments/create first, then update.
  *
  * Note: Public Braze docs list GET `/segments/list` and GET `/segments/details`; POST `/segments/update` and
@@ -23,6 +23,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
+import { BRAZE_SEGMENT_MIX_CORE_NAMES } from '../src/lib/brazeSegmentMixNames';
 
 function loadEnvFiles() {
   const root = process.cwd();
@@ -53,9 +54,7 @@ function loadEnvFiles() {
 loadEnvFiles();
 
 const DEFAULT_CLIENT_ID = 'e7aaaf66-b99c-422b-92fb-186a36c2a7c1';
-const MAILABLE_SEGMENT_NAME = 'All mailable users';
-const ACTIVE_NAME = 'Active Subscribers (opened in 90d)';
-const CHURNED_NAME = 'Churned (no open in 180d)';
+const [ALL_EMAIL_SUBSCRIBER_NAME, ACTIVE_SUBSCRIBER_NAME, CHURNED_NAME] = BRAZE_SEGMENT_MIX_CORE_NAMES;
 
 const FALLBACK_BRAZE_REST = 'https://rest.iad-06.braze.com';
 const MAX_SEGMENT_PAGES = 40;
@@ -404,8 +403,8 @@ async function main() {
   if (dryRun) console.log('--dry-run: no POST /segments/update or /segments/create');
 
   const targets: { name: string; allowCreate: boolean; filters?: () => unknown }[] = [
-    { name: MAILABLE_SEGMENT_NAME, allowCreate: false },
-    { name: ACTIVE_NAME, allowCreate: true, filters: filtersActive90d },
+    { name: ALL_EMAIL_SUBSCRIBER_NAME, allowCreate: false },
+    { name: ACTIVE_SUBSCRIBER_NAME, allowCreate: true, filters: filtersActive90d },
     { name: CHURNED_NAME, allowCreate: true, filters: filtersChurned180d },
   ];
 
@@ -507,7 +506,7 @@ async function main() {
 
   console.log('\n[Step 3] GET /segments/list — verify three segments + sizes…');
   rows = await fetchAllSegmentRows(restEndpoint, apiKey);
-  const want = new Set([MAILABLE_SEGMENT_NAME, ACTIVE_NAME, CHURNED_NAME]);
+  const want = new Set<string>([ALL_EMAIL_SUBSCRIBER_NAME, ACTIVE_SUBSCRIBER_NAME, CHURNED_NAME]);
   const byName = new Map<string, Record<string, unknown>>();
   for (const r of rows) {
     const n = segmentNameFromRow(r);
@@ -515,7 +514,7 @@ async function main() {
   }
 
   let allOk = true;
-  for (const name of [MAILABLE_SEGMENT_NAME, ACTIVE_NAME, CHURNED_NAME]) {
+  for (const name of [ALL_EMAIL_SUBSCRIBER_NAME, ACTIVE_SUBSCRIBER_NAME, CHURNED_NAME]) {
     const row = byName.get(name);
     if (!row) {
       console.log(`\n  name: ${name}\n  id: (missing)\n  size: (missing)\n  analytics_tracking_enabled: n/a`);

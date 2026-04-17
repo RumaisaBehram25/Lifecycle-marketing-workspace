@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow } from '@/hooks/useDoubleGoodClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 
 export function FeedbackWidget() {
   const { user } = useAuth();
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const queryClient = useQueryClient();
   
   const [open, setOpen] = useState(false);

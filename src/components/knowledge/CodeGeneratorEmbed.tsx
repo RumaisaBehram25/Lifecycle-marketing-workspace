@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -82,7 +82,7 @@ const COMMON_BRAZE_EVENTS = [
 ];
 
 export function CodeGeneratorEmbed() {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
 

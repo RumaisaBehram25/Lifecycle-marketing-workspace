@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -65,7 +65,7 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; icon: React.ReactNode; 
 };
 
 export function TasksSection() {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -320,7 +320,7 @@ function TaskModal({
   task: Task | null;
   onSuccess: () => void;
 }) {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { user } = useAuth();
   const { toast } = useToast();
 

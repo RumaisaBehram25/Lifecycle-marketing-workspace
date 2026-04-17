@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/page-header';
@@ -89,7 +89,7 @@ const COMMON_BRAZE_EVENTS = [
 ];
 
 export default function CodeGenerator() {
-  const { data: client, isLoading: clientLoading } = useDoubleGoodClient();
+  const { data: client, isLoading: clientLoading } = useActiveClientRow();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
 

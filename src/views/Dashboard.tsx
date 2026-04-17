@@ -17,7 +17,12 @@ import {
   RefreshCw, Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { invokeTouchpointsChunk } from '@/lib/touchpointsSyncClient';
+import {
+  startDashboardBrazeFullSyncDetached,
+  requestCancelDashboardBrazeFullSync,
+  clearImplicitDashboardBrazeSyncSuppress,
+} from '@/lib/brazeDashboardBackgroundSync';
+import { useDashboardBrazeSyncHud } from '@/components/braze/BrazeDashboardSyncHud';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
@@ -29,7 +34,6 @@ import {
   campaignCleanupSearchText,
   DASHBOARD_CAMPAIGN_HYGIENE_QK,
   fetchCampaignHygieneDirectory,
-  isCampaignCleanupFlagged,
 } from '@/lib/campaignHygiene';
 import {
   dashBadgeSoft,
@@ -355,88 +359,66 @@ export default function Dashboard() {
   const { clientId } = useResolvedClientId();
   const { clientId: brazeMetricsClientId } = useBrazeDashboardClientId();
   const { data: platforms } = useDoubleGoodPlatforms();
-  const brazePlatform = platforms?.find((p) => p.platform === 'braze' && p.is_connected);
+  const brazePlatform = platforms?.find((p) => p.platform === 'braze');
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const brazeSyncHud = useDashboardBrazeSyncHud();
   const [hygieneSearch, setHygieneSearch] = useState('');
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('');
 
   const handleSyncAll = useCallback(async () => {
     if (!clientId || !brazePlatform?.id) return;
-    setSyncing(true);
-
-    const invalidateAll = () => {
-      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
-      queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
-      queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
-    };
-
+    clearImplicitDashboardBrazeSyncSuppress(clientId, brazePlatform.id);
     try {
-      // Phase 1: Sync all campaigns (loops until all processed — skips recently synced ones)
-      setSyncStatus('Syncing campaigns…');
-      let campaignRound = 0;
-      let totalCampaignsProcessed = 0;
-      while (campaignRound < 30) {
-        campaignRound++;
-        console.log(`[Sync All] Campaigns round ${campaignRound}`);
-        const { data, error } = await supabase.functions.invoke('sync-braze', {
-          body: { clientId, platformId: brazePlatform.id, campaigns_only: true },
-        });
-        if (error) throw error;
-        const counts = (data?.data as any)?.counts;
-        const processed = counts?.campaigns_processed ?? 0;
-        totalCampaignsProcessed += processed;
-        console.log(`[Sync All] Campaigns round ${campaignRound}: processed=${processed}, total so far=${totalCampaignsProcessed}`);
-        setSyncStatus(`Campaigns: ${totalCampaignsProcessed} synced (round ${campaignRound})`);
-        if (processed === 0) break;
-      }
-      invalidateAll();
-
-      // Phase 2: Sync canvas touchpoints (chunked)
-      setSyncStatus('Syncing canvas touchpoints…');
-      let touchpointOffset: number | undefined = 0;
-      let touchpointRound = 0;
-      while (touchpointRound < 50) {
-        touchpointRound++;
-        console.log(`[Sync All] Touchpoints chunk ${touchpointRound}, offset=${touchpointOffset}`);
-        const { data: d, error } = await invokeTouchpointsChunk({
-          clientId,
-          platformId: brazePlatform.id,
-          canvasOffset: touchpointOffset,
-        });
-        if (error) throw error;
-        if (!d?.success) break;
-        const done = d.done === true || (d.total && d.offset != null && d.offset >= d.total);
-        setSyncStatus(`Canvas touchpoints: ${d.offset ?? 0}/${d.total ?? '?'}`);
-        console.log(`[Sync All] Touchpoints: offset=${d.offset}, total=${d.total}, done=${done}`);
-        if (done) break;
-        if (d.offset === touchpointOffset) break; // stalled
-        touchpointOffset = d.offset ?? undefined;
-      }
-      invalidateAll();
-
-      // Phase 3: Full sync for KPI + canvas metrics
-      setSyncStatus('Syncing KPI & metrics…');
-      console.log('[Sync All] Full sync for KPI/metrics');
-      const { error: fullErr } = await supabase.functions.invoke('sync-braze', {
-        body: { clientId, platformId: brazePlatform.id },
+      const result = await startDashboardBrazeFullSyncDetached({
+        clientId,
+        platformId: brazePlatform.id,
+        queryClient,
       });
-      if (fullErr) throw fullErr;
-      invalidateAll();
-
-      setSyncStatus('');
-      toast({ title: 'Sync complete', description: `Campaigns (${campaignRound} rounds) + touchpoints (${touchpointRound} chunks) + KPI/metrics synced.` });
+      if (result.cancelled) {
+        toast({
+          title: 'Sync stopped',
+          description:
+            result.campaignRounds === 0 && result.touchpointChunks === 0
+              ? 'Stopped before the first sync step finished. The Dashboard will not auto-sync again until you use “Sync All from Braze”.'
+              : `Stopped between steps after ${result.campaignRounds} campaign round${result.campaignRounds === 1 ? '' : 's'} and ${result.touchpointChunks} touchpoint chunk${result.touchpointChunks === 1 ? '' : 's'} (KPI/metrics may be skipped). Reopening the Dashboard will not restart sync until you run “Sync All from Braze”.`,
+        });
+        return;
+      }
+      toast({
+        title: 'Sync complete',
+        description: `Campaigns (${result.campaignRounds} rounds) + touchpoints (${result.touchpointChunks} chunks) + KPI/metrics synced.`,
+      });
     } catch (err: unknown) {
       console.error('[Sync All] Error:', err);
       toast({ title: 'Sync failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
-    } finally {
-      setSyncing(false);
-      setSyncStatus('');
     }
   }, [clientId, brazePlatform?.id, queryClient, toast]);
+
+  const handleBrazeSyncButtonClick = useCallback(() => {
+    if (brazeSyncHud.running) {
+      requestCancelDashboardBrazeFullSync();
+      return;
+    }
+    void handleSyncAll();
+  }, [brazeSyncHud.running, handleSyncAll]);
+
+  // DISABLED: Re-entering the Dashboard no longer starts throttled background Braze sync.
+  // Sync only when the user clicks “Sync All from Braze”.
+  //
+  // Previous logic:
+  // useEffect(() => {
+  //   if (!clientId || !brazePlatform?.id) return;
+  //   const t = window.setTimeout(() => {
+  //     void tryStartImplicitDashboardBrazeSync({
+  //       clientId,
+  //       platformId: brazePlatform.id,
+  //       queryClient,
+  //       minIntervalMs: 25_000,
+  //     });
+  //   }, 800);
+  //   return () => window.clearTimeout(t);
+  // }, [clientId, brazePlatform?.id, queryClient]);
+
   const refreshBriefs = () => {
     queryClient.invalidateQueries({ queryKey: ['dashboard-briefs', clientId] });
     queryClient.invalidateQueries({ queryKey: ['brief-counts', clientId] });
@@ -529,9 +511,6 @@ export default function Dashboard() {
       return campaignCleanupSearchText(r as Record<string, unknown>).toLowerCase().includes(hygieneQuery);
     })
     .slice(0, 200);
-  const hygieneFlaggedCount = campaignDirectoryRows.filter((r) =>
-    isCampaignCleanupFlagged(r as Record<string, unknown>)
-  ).length;
 
   useEffect(() => {
     if (import.meta.env.PROD || !clientId || !brazeMetricsClientId) return;
@@ -546,10 +525,18 @@ export default function Dashboard() {
     }
   }, [clientId, brazeMetricsClientId]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash !== '#braze-sync-all') return;
+    requestAnimationFrame(() => {
+      document.getElementById('braze-sync-all')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
-        {/* Brand Header */}
-        <Card className={dashboardSurfaceCardInteractive}>
+        {/* Brand Header — anchor for #braze-sync-all (Campaigns / Lifecycle / Analytics deep links) */}
+        <Card id="braze-sync-all" className={dashboardSurfaceCardInteractive}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardContent className={cn('p-6', dashWashBrand)}>
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -566,21 +553,23 @@ export default function Dashboard() {
               {brazePlatform && (
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <Button
-                    onClick={handleSyncAll}
-                    disabled={syncing}
-                    variant={syncing ? 'secondary' : 'outline'}
+                    type="button"
+                    onClick={handleBrazeSyncButtonClick}
+                    variant={brazeSyncHud.running ? 'secondary' : 'outline'}
                     size="sm"
+                    aria-label={brazeSyncHud.running ? 'Stop Braze sync' : 'Sync all from Braze'}
+                    title={brazeSyncHud.running ? 'Click to stop (finishes the current step first)' : undefined}
                   >
-                    {syncing ? (
+                    {brazeSyncHud.running ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     ) : (
                       <RefreshCw className="h-4 w-4 mr-2" />
                     )}
-                    {syncing ? 'Syncing…' : 'Sync All from Braze'}
+                    {brazeSyncHud.running ? 'Syncing…' : 'Sync All from Braze'}
                   </Button>
-                  {syncing && syncStatus && (
+                  {brazeSyncHud.running && brazeSyncHud.status && (
                     <p className="text-xs text-muted-foreground animate-pulse max-w-[250px] text-right">
-                      {syncStatus}
+                      {brazeSyncHud.status}
                     </p>
                   )}
                 </div>
@@ -687,24 +676,17 @@ export default function Dashboard() {
           <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
             <div className={dashboardTopAccentClass} aria-hidden />
             <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-2xl sm:text-3xl font-bold font-heading tracking-tight">
-                    <span className={cn(dashIconChipWarning, 'h-8 w-8 shrink-0 rounded-lg')}>
-                      <Workflow className="h-4 w-4" />
-                    </span>
-                    Campaign Hygiene
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Same workspace as Drive &amp; KPIs — Braze sync or campaign analytics CSV. Flags use name, id, tags,
-                    status, channel.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className={cn(dashPill, 'border-0')}>
-                    Flagged: {hygieneFlaggedCount.toLocaleString()}
-                  </Badge>
-                </div>
+              <div>
+                <CardTitle className="flex items-center gap-2 text-2xl sm:text-3xl font-bold font-heading tracking-tight">
+                  <span className={cn(dashIconChipWarning, 'h-8 w-8 shrink-0 rounded-lg')}>
+                    <Workflow className="h-4 w-4" />
+                  </span>
+                  Campaign Hygiene
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Same workspace as Drive &amp; KPIs — Braze sync or campaign analytics CSV. Search matches name, id,
+                  tags, status, channel.
+                </p>
               </div>
               <div className="relative mt-2 max-w-sm">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -725,39 +707,50 @@ export default function Dashboard() {
                         <th className="px-3 py-2">Name</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2">Last update</th>
-                        <th className="px-3 py-2">Flag</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredHygieneRows.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                          <td colSpan={3} className="px-3 py-8 text-center text-xs text-muted-foreground">
                             {campaignDirectoryRows.length === 0
                               ? 'No campaigns yet. Sync Braze or upload campaign analytics CSV for this workspace.'
                               : 'No campaigns match your search.'}
                           </td>
                         </tr>
                       ) : (
-                        filteredHygieneRows.map((row, i) => {
-                          const flagged = isCampaignCleanupFlagged(row as Record<string, unknown>);
-                          return (
-                            <tr key={`${String(row.name)}-${i}`} className="border-t border-border/60">
-                              <td className="px-3 py-2.5 text-sm font-medium">{String(row.name ?? 'Campaign')}</td>
-                              <td className="px-3 py-2.5 text-xs">{String(row.status ?? '—')}</td>
-                              <td className="px-3 py-2.5 text-xs">
-                                {row.updated_at ? format(new Date(String(row.updated_at)), 'MMM d, yyyy') : '—'}
-                              </td>
-                              <td className="px-3 py-2.5 text-xs">
-                                {flagged ? <Badge variant="secondary">🧹 Review</Badge> : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })
+                        filteredHygieneRows.map((row, i) => (
+                          <tr key={`${String(row.name)}-${i}`} className="border-t border-border/60">
+                            <td className="px-3 py-2.5 text-sm font-medium">{String(row.name ?? 'Campaign')}</td>
+                            <td className="px-3 py-2.5 text-xs">{String(row.status ?? '—')}</td>
+                            <td className="px-3 py-2.5 text-xs">
+                              {row.updated_at ? format(new Date(String(row.updated_at)), 'MMM d, yyyy') : '—'}
+                            </td>
+                          </tr>
+                        ))
                       )}
                     </tbody>
                   </table>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className={cn(dashboardSurfaceCard, 'shadow-sm')}>
+            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Lifecycle preview</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Braze canvases, Canvas tags, and per-canvas steps after sync — same analytics workspace as KPIs when
+                  Braze is connected.
+                </p>
+              </div>
+              <Button variant="secondary" size="sm" className="shrink-0" asChild>
+                <Link to="/lifecycle" className="inline-flex items-center gap-1.5">
+                  Open Lifecycle
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         </div>

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -110,7 +110,7 @@ const PROGRESS_STEPS = [
 ];
 
 export function BriefTab() {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -490,7 +490,7 @@ function CreateBriefDialog({
   segments: Segment[];
   onSuccess: () => void;
 }) {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { user } = useAuth();
   const { toast } = useToast();
 

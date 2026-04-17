@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { PageHeader } from '@/components/ui/page-header';
@@ -8,17 +7,19 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useAnalyticsData, type LifecycleFlowPerformanceRow } from '@/hooks/useAnalyticsData';
-import { useResolvedClientId, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
-import { useToast } from '@/hooks/use-toast';
-import { invokeFullBrazeSync } from '@/lib/touchpointsSyncClient';
 import {
-  brazeSyncPartialDescription,
-  formatBrazeSyncInvokeError,
-  type BrazeSyncInvokeBody,
-} from '@/lib/brazeSyncInvoke';
+  useResolvedClientId,
+  useDoubleGoodPlatforms,
+  useActiveClientRow,
+} from '@/hooks/useDoubleGoodClient';
+import { useToast } from '@/hooks/use-toast';
+import {
+  buildDefaultStarredSegmentMixNames,
+  compareSegmentMixRows,
+  migrateStarredSegmentMixNames,
+} from '@/lib/brazeSegmentMixNames';
 import { LoadingPage } from '@/components/ui/loading-spinner';
 import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
 import {
   Select,
   SelectContent,
@@ -54,7 +55,7 @@ import {
 } from 'recharts';
 import {
   Send, Workflow, UserPlus, Sparkles, DollarSign, ChevronDown, ChevronUp,
-  Eye, RefreshCw, BarChart2, UploadCloud, ArrowRight, MailWarning, Layers, Loader2, AlertCircle,
+  Eye, RefreshCw, BarChart2, UploadCloud, MailWarning, Layers, Loader2, AlertCircle,
   ChevronsUpDown, Check, Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -252,17 +253,16 @@ function parseIsoDayToUtcMs(day: string): number {
 }
 
 const STARRED_CORE_SEGMENTS_STORAGE_KEY = 'analytics:starred-core-segments:v1';
-/** First-time visitors: star the top N segments by size in Segment mix (localStorage unset only). */
+/** First-time visitors: star up to N segments (core trio first when present, then by size). */
 const DEFAULT_STARRED_SEGMENT_MIX_COUNT = 5;
 
 export default function Analytics() {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { clientId: workspaceClientId } = useResolvedClientId();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const brazeWorkspacePlatform = platforms?.find((p) => p.platform === 'braze' && p.is_connected);
-  const [canvasMetricsSyncing, setCanvasMetricsSyncing] = useState(false);
   const [period, setPeriod] = useState('default');
 
   const {
@@ -342,36 +342,6 @@ export default function Analytics() {
    * - Keyed by segment name because analytics dataset is name-keyed in this view.
    */
   const [starredCoreSegments, setStarredCoreSegments] = useState<string[]>([]);
-
-  const handleCanvasMetricsSync = async () => {
-    if (!workspaceClientId || !brazeWorkspacePlatform?.id) return;
-    setCanvasMetricsSyncing(true);
-    try {
-      const { data: syncData, error } = await invokeFullBrazeSync({
-        clientId: workspaceClientId,
-        platformId: brazeWorkspacePlatform.id,
-      });
-      if (error) throw error;
-      const partialDesc = brazeSyncPartialDescription(syncData as BrazeSyncInvokeBody);
-      toast({
-        title: (syncData as { partial?: boolean })?.partial ? 'Braze sync completed (partial)' : 'Braze sync completed',
-        description:
-          partialDesc ??
-          'Canvas metrics (entries, sends, revenue, conversions, opens, clicks) were written to braze_canvases where Braze returned data.',
-      });
-      await queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
-      await queryClient.invalidateQueries({ queryKey: ['analytics'] });
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
-    } catch (e: unknown) {
-      toast({
-        title: 'Sync failed',
-        description: await formatBrazeSyncInvokeError(e),
-        variant: 'destructive',
-      });
-    } finally {
-      setCanvasMetricsSyncing(false);
-    }
-  };
 
   const rawRows = rawCampaignRows ?? [];
   const canvasRowsList = canvasListRows ?? [];
@@ -749,8 +719,12 @@ export default function Analytics() {
       const raw = localStorage.getItem(STARRED_CORE_SEGMENTS_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setStarredCoreSegments(parsed.filter((v): v is string => typeof v === 'string'));
+      if (!Array.isArray(parsed)) return;
+      const filtered = parsed.filter((v): v is string => typeof v === 'string');
+      const migrated = migrateStarredSegmentMixNames(filtered);
+      setStarredCoreSegments(migrated);
+      if (JSON.stringify(migrated) !== JSON.stringify(filtered)) {
+        localStorage.setItem(STARRED_CORE_SEGMENTS_STORAGE_KEY, JSON.stringify(migrated));
       }
     } catch {
       // Ignore invalid local storage payload and continue with empty starred set.
@@ -836,19 +810,16 @@ export default function Analytics() {
     ? (filteredSegmentSeries[0] as Record<string, string | number>)
     : null;
 
-  /** Top segments by latest snapshot size — used only to seed default stars when nothing is stored yet. */
-  const segmentMixDefaultStarNames = useMemo(() => {
-    if (!segmentSummaryRow || segmentNames.length === 0) return [];
-    return segmentNames
-      .map((name) => ({
-        name,
-        value: Number((segmentSummaryRow as Record<string, unknown>)[name] ?? 0),
-      }))
-      .filter((r) => Number.isFinite(r.value) && r.value >= 0)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, DEFAULT_STARRED_SEGMENT_MIX_COUNT)
-      .map((r) => r.name);
-  }, [segmentNames, segmentSummaryRow]);
+  /** Default stars when localStorage is unset: core trio first (if present), then largest other segments. */
+  const segmentMixDefaultStarNames = useMemo(
+    () =>
+      buildDefaultStarredSegmentMixNames(
+        segmentNames,
+        segmentSummaryRow as Record<string, unknown> | null,
+        DEFAULT_STARRED_SEGMENT_MIX_COUNT,
+      ),
+    [segmentNames, segmentSummaryRow],
+  );
 
   /** First visit: no storage key → star top segments so Segment Size Over Time is populated without extra clicks. */
   useEffect(() => {
@@ -875,7 +846,7 @@ export default function Analytics() {
           isStarred: starredCoreSegments.includes(name),
         }))
         .filter((r) => Number.isFinite(r.value) && r.value >= 0)
-        .sort((a, b) => b.value - a.value),
+        .sort(compareSegmentMixRows),
     [segmentNames, segmentSummaryRow, starredCoreSegments],
   );
 
@@ -935,15 +906,8 @@ export default function Analytics() {
             </div>
             <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
             <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-              Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
+              Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard <strong className="font-medium text-foreground">Sync All from Braze</strong> or check workspace setup.
             </p>
-            <Button asChild className="mt-6">
-              <Link to="/dashboard" className="inline-flex items-center gap-2">
-                <UploadCloud className="h-4 w-4" />
-                Go to Dashboard
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
           </CardContent>
         </Card>
       </div>
@@ -981,15 +945,8 @@ export default function Analytics() {
             </div>
             <h2 className={analyticsSectionHeadingClass}>No analytics data yet</h2>
             <p className="mt-2 text-sm text-muted-foreground max-w-sm leading-relaxed">
-              Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard to run a sync or check workspace setup.
+              Braze sync or imported campaign, segment, and usage data will appear here. Use Dashboard <strong className="font-medium text-foreground">Sync All from Braze</strong> or check workspace setup.
             </p>
-            <Button asChild className="mt-6">
-              <Link to="/dashboard" className="inline-flex items-center gap-2">
-                <UploadCloud className="h-4 w-4" />
-                Go to Dashboard
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
           </CardContent>
         </Card>
       </div>
@@ -1163,7 +1120,7 @@ export default function Analytics() {
                     </CardTitle>
                     <p className={analyticsSubtitleClass}>
                       Select a flow to filter metrics below. Bars use data already in this workspace—campaign analytics (CSV import) plus journey metrics from{' '}
-                      <code className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">braze_canvases</code> after a full Braze sync (button below)—not a live Braze call on each visit.
+                      <code className="rounded bg-muted px-1 py-0.5 text-[10px] font-mono">braze_canvases</code> after Dashboard <strong className="font-medium text-foreground">Sync All from Braze</strong>—not a live Braze call on each visit.
                     </p>
                     {brazeCanvasFlowMetricsError && brazeCanvasFlowMetricsErrorMessage && (
                       <Alert variant="destructive" className="mt-3 text-left">
@@ -1180,26 +1137,6 @@ export default function Analytics() {
                     )}
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-9 gap-1.5 border-primary/15 bg-card/80 shadow-sm"
-                      disabled={!workspaceClientId || !brazeWorkspacePlatform?.id || canvasMetricsSyncing}
-                      onClick={handleCanvasMetricsSync}
-                      title={
-                        !brazeWorkspacePlatform?.id
-                          ? 'Connect Braze on Platforms for this workspace first.'
-                          : 'Runs full sync-braze (canvas data_series metrics, KPI, campaigns). Can take several minutes.'
-                      }
-                    >
-                      {canvasMetricsSyncing ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      )}
-                      {canvasMetricsSyncing ? 'Syncing…' : 'Sync Braze metrics'}
-                    </Button>
                     <Select value={flowChartMetric} onValueChange={(v) => setFlowChartMetric(v as typeof flowChartMetric)}>
                       <SelectTrigger className="w-[210px] h-9 text-sm border-primary/15 bg-card/80 shadow-sm shrink-0">
                         <SelectValue />
@@ -1230,7 +1167,7 @@ export default function Analytics() {
                 ) : flowChartData.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
                     No flows with a positive value for this metric. Import campaign analytics (CSV), apply the braze_canvases migration if needed, then run{' '}
-                    <span className="font-medium">Sync Braze metrics</span> above to backfill canvas series (entries, revenue, conversions, opens, clicks).
+                    <span className="font-medium">Sync All from Braze</span> on the Dashboard to backfill canvas series (entries, revenue, conversions, opens, clicks).
                   </p>
                 ) : (
                 <div className={cn(analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')} style={{ height: chartHeight }}>
@@ -1364,7 +1301,7 @@ export default function Analytics() {
                         direction: 'flat',
                         value:
                           trackingSummary.total === 0
-                            ? 'Sync Braze segments/list or upload segment analytics CSV (Resources)'
+                            ? 'Dashboard Sync All from Braze (segments) or upload segment analytics CSV (Resources)'
                             : trackingSummary.source === 'csv'
                               ? `${trackingSummary.total.toLocaleString()} from segment CSV — shown as on (no per-segment API flags)`
                               : `${trackingSummary.total.toLocaleString()} in directory · ${trackingSummary.disabled.toLocaleString()} tracking off`,
@@ -1577,11 +1514,6 @@ export default function Analytics() {
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <UploadCloud className="h-8 w-8 text-muted-foreground/70" />
                 <p className="text-sm text-muted-foreground">Segment history appears after Braze sync or when data is available.</p>
-                <Button asChild variant="link" className="text-primary hover:text-primary/90">
-                  <Link to="/dashboard" className="inline-flex items-center gap-1.5">
-                    Go to Dashboard <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -2075,29 +2007,12 @@ export default function Analytics() {
             <Card id="analytics-segment-mix" className={cn(analyticsCardClass, 'min-w-0 w-full scroll-mt-24')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Segment mix</CardTitle>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[11px]"
-                    disabled={!workspaceClientId || !brazeWorkspacePlatform?.id || canvasMetricsSyncing}
-                    onClick={handleCanvasMetricsSync}
-                  >
-                    {canvasMetricsSyncing ? (
-                      <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {canvasMetricsSyncing ? 'Syncing…' : 'Sync now'}
-                  </Button>
-                </div>
+                <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Segment mix</CardTitle>
                 <p className={analyticsSubtitleClass}>
                   Share of audience from Braze segment analytics{segmentMixAsOfDate ? ` (${segmentMixAsOfDate})` : ''}. Star a row to plot it in <strong className="font-medium text-foreground/90">Segment Size Over Time</strong> (section above).
                   {segmentMixIsStale ? ` Data is ${segmentMixStaleDays} day${segmentMixStaleDays === 1 ? '' : 's'} old.` : ''}
                   {segmentMixIsStale
-                    ? ' Run a full Braze sync (latest sync-braze) to append today’s segment sizes when Braze includes them on segments/list; otherwise import segment analytics CSV.'
+                    ? ' Run Sync All from Braze on the Dashboard to append today’s segment sizes when Braze returns them; otherwise import segment analytics CSV.'
                     : ''}
                 </p>
               </CardHeader>

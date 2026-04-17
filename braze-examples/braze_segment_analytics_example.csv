@@ -1,22 +1,22 @@
 date,segment_id,segment_name,size
-2025-03-01,seg_001,All Email Subscribers,89200
-2025-03-02,seg_001,All Email Subscribers,89320
-2025-03-03,seg_001,All Email Subscribers,89410
-2025-03-04,seg_001,All Email Subscribers,89520
-2025-03-05,seg_001,All Email Subscribers,89680
-2025-03-06,seg_001,All Email Subscribers,89890
-2025-03-07,seg_001,All Email Subscribers,89950
-2025-03-01,seg_002,Active Subscribers (opened in 90d),62440
-2025-03-02,seg_002,Active Subscribers (opened in 90d),62524
-2025-03-03,seg_002,Active Subscribers (opened in 90d),62587
-2025-03-04,seg_002,Active Subscribers (opened in 90d),62664
-2025-03-05,seg_002,Active Subscribers (opened in 90d),62776
-2025-03-06,seg_002,Active Subscribers (opened in 90d),62923
-2025-03-07,seg_002,Active Subscribers (opened in 90d),62965
-2025-03-01,seg_003,Churned (no open in 180d),18760
-2025-03-02,seg_003,Churned (no open in 180d),18796
-2025-03-03,seg_003,Churned (no open in 180d),18823
-2025-03-04,seg_003,Churned (no open in 180d),18856
-2025-03-05,seg_003,Churned (no open in 180d),18904
-2025-03-06,seg_003,Churned (no open in 180d),18967
-2025-03-07,seg_003,Churned (no open in 180d),18985
+2025-03-01,seg_001,all email subscriber,89200
+2025-03-02,seg_001,all email subscriber,89320
+2025-03-03,seg_001,all email subscriber,89410
+2025-03-04,seg_001,all email subscriber,89520
+2025-03-05,seg_001,all email subscriber,89680
+2025-03-06,seg_001,all email subscriber,89890
+2025-03-07,seg_001,all email subscriber,89950
+2025-03-01,seg_002,active subscriber,62440
+2025-03-02,seg_002,active subscriber,62524
+2025-03-03,seg_002,active subscriber,62587
+2025-03-04,seg_002,active subscriber,62664
+2025-03-05,seg_002,active subscriber,62776
+2025-03-06,seg_002,active subscriber,62923
+2025-03-07,seg_002,active subscriber,62965
+2025-03-01,seg_003,churned,18760
+2025-03-02,seg_003,churned,18796
+2025-03-03,seg_003,churned,18823
+2025-03-04,seg_003,churned,18856
+2025-03-05,seg_003,churned,18904
+2025-03-06,seg_003,churned,18967
+2025-03-07,seg_003,churned,18985

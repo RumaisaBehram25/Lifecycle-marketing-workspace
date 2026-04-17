@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import type { SyntheticEvent } from 'react';
 import { plainTextPreviewFromBrazeMessageBody } from '@/lib/brazeMessagePreviewText';
-import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { sanitizeBrazeEmailHtmlForIframe } from '@/lib/sanitizeBrazeEmailIframe';
 import { prefetchLifecycleJourneyImageUrls, preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
 import { collectOrderedTouchpointImageUrls } from '@/lib/lifecycleCanvasImageUrls';
 import { resolveLifecycleMessageCardImageUrl } from '@/lib/campaignDisplay';
@@ -154,6 +155,19 @@ function pickBestMessage(step: CanvasStep) {
   return msgs[0];
 }
 
+type CanvasMessage = NonNullable<CanvasStep['messages']>[number];
+
+/** Prefer iframe HTML over hero `image_url` when both exist — hero is often logo-only. */
+function emailMessageHasRenderableHtml(message: CanvasMessage | undefined): boolean {
+  const html = message?.html_content;
+  return typeof html === 'string' && html.trim().length > 0;
+}
+
+/** Hide broken / blocked creatives quietly — container keeps a neutral background (S3/CDN hiccups). */
+function hideTouchpointImageOnError(e: SyntheticEvent<HTMLImageElement>) {
+  e.currentTarget.style.visibility = 'hidden';
+}
+
 // Render creative preview based on channel - LARGE SIZE for visibility
 function CreativePreview({ step }: { step: CanvasStep }) {
   const channel = normalizeChannel(step.channel);
@@ -179,8 +193,16 @@ function CreativePreview({ step }: { step: CanvasStep }) {
             </p>
           )}
         </div>
-        <div className="relative flex-1 overflow-hidden bg-background">
-          {resolvedCardImage ? (
+        <div className="relative flex-1 min-h-0 overflow-y-auto bg-muted/15">
+          {message && emailMessageHasRenderableHtml(message) ? (
+            <iframe
+              title={message?.subject || step.name}
+              className="absolute left-0 top-0 z-0 border-0 origin-top-left scale-[0.35] w-[286%] min-h-[900px]"
+              sandbox=""
+              loading="eager"
+              srcDoc={sanitizeBrazeEmailHtmlForIframe(message.html_content!)}
+            />
+          ) : resolvedCardImage ? (
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
@@ -189,15 +211,8 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               loading="eager"
               decoding="async"
               fetchpriority="high"
+              onError={hideTouchpointImageOnError}
               className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
-            />
-          ) : message?.html_content ? (
-            <iframe
-              title={message?.subject || step.name}
-              className="absolute inset-0 z-0 border-0 origin-top-left scale-[0.35] w-[286%] h-[286%]"
-              sandbox=""
-              loading="eager"
-              srcDoc={sanitizeHtml(message.html_content)}
             />
           ) : message?.body ? (
             <div className="p-2 text-sm text-foreground leading-relaxed">
@@ -270,6 +285,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
                 loading="eager"
                 decoding="async"
                 fetchpriority="high"
+                onError={hideTouchpointImageOnError}
                 className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
               />
             ) : (
@@ -278,7 +294,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
                 className="absolute inset-0 z-0 border-0 origin-top-left scale-[0.45] w-[222%] h-[222%]"
                 sandbox=""
                 loading="eager"
-                srcDoc={sanitizeHtml(bodyContent)}
+                srcDoc={sanitizeBrazeEmailHtmlForIframe(bodyContent)}
               />
             )}
           </div>
@@ -299,6 +315,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
               fetchpriority="high"
+              onError={hideTouchpointImageOnError}
               className="w-20 h-20 object-cover rounded-xl mx-auto mb-5"
             />
           ) : (
@@ -543,7 +560,9 @@ function StepCard({
 
   const warmImageUrl = (() => {
     const m = pickBestMessage(step);
-    return m ? resolveLifecycleMessageCardImageUrl(m) : undefined;
+    if (!m) return undefined;
+    if (normalizeChannel(step.channel) === 'email' && emailMessageHasRenderableHtml(m)) return undefined;
+    return resolveLifecycleMessageCardImageUrl(m);
   })();
   
   return (
@@ -739,15 +758,6 @@ function VariantRow({
     return result;
   }, [path]);
 
-  /** Path-ordered prefetch so the first visible cards hit cache before deeper scroll (S3 / CDN). */
-  useEffect(() => {
-    if (!isOpen) return;
-    const ordered = stepsWithMetadata.map((x) => x.step);
-    const urls = collectOrderedTouchpointImageUrls(ordered);
-    if (urls.length === 0) return;
-    prefetchLifecycleJourneyImageUrls(urls);
-  }, [isOpen, stepsWithMetadata, variant.first_step_id]);
-  
   const isControl = variant.name.toLowerCase().includes('control');
   
   const roundedPercentage = Math.round(variant.percentage);
@@ -853,13 +863,6 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
 
     if (hasSteps && entryFallback) {
       const reachable = buildAllReachableSteps(entryFallback, canvas.steps);
-      console.log('[FlowChart] No variants fallback:', {
-        totalSteps: Object.keys(canvas.steps).length,
-        entryStepId: entryFallback,
-        entryStep: canvas.steps[entryFallback],
-        reachableFromEntry: reachable.length,
-        firstFewReachable: reachable.slice(0, 5).map(s => ({ id: s.id?.slice(0, 8), name: s.name, type: s.type, channel: s.channel })),
-      });
       return [
         {
           name: 'Main Path',
@@ -878,7 +881,44 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
   useEffect(() => {
     setOpenVariants(new Set(effectiveVariants.map((_, i) => i)));
   }, [canvas.id, effectiveVariants.length]);
-  
+
+  useEffect(() => {
+    setSelectedSplit(null);
+    setPreviewStep(null);
+  }, [canvas.id]);
+
+  /** One pass for all variants so heroes hit HTTP cache before paint (background list prefetch + this). */
+  const touchpointWarmUrls = useMemo(() => {
+    if (!hasSteps || !canvas.steps) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const variant of effectiveVariants) {
+      const firstId = variant.first_step_id;
+      if (!firstId || !canvas.steps[firstId]) continue;
+      const path = buildAllReachableSteps(firstId, canvas.steps);
+      const messageSteps: CanvasStep[] = [];
+      for (const s of path) {
+        if (isDelayOnlyStep(s) || isBranchOnlyStep(s)) continue;
+        if (isNonMessagingStep(s)) continue;
+        messageSteps.push(s);
+      }
+      for (const raw of collectOrderedTouchpointImageUrls(messageSteps)) {
+        if (seen.has(raw)) continue;
+        seen.add(raw);
+        out.push(raw);
+      }
+    }
+    return out;
+  }, [canvas.id, canvas.steps, effectiveVariants, hasSteps]);
+
+  useLayoutEffect(() => {
+    if (touchpointWarmUrls.length === 0) return;
+    prefetchLifecycleJourneyImageUrls(touchpointWarmUrls, {
+      linkPreloadCount: Math.min(28, touchpointWarmUrls.length),
+      concurrency: 14,
+    });
+  }, [touchpointWarmUrls]);
+
   const toggleVariant = (idx: number) => {
     const newOpen = new Set(openVariants);
     if (newOpen.has(idx)) {
@@ -1205,8 +1245,17 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             </p>
           )}
         </div>
-        <div className="relative flex-1 min-h-[500px] bg-white">
-          {resolvedCardImage ? (
+        <div className="relative flex-1 min-h-[400px] max-h-[min(78vh,920px)] overflow-y-auto bg-white">
+          {message && emailMessageHasRenderableHtml(message) ? (
+            <iframe
+              title={message?.subject || step.name}
+              className="block w-full border-0"
+              style={{ minHeight: 560, height: 2000 }}
+              sandbox=""
+              loading="eager"
+              srcDoc={sanitizeBrazeEmailHtmlForIframe(message.html_content!)}
+            />
+          ) : resolvedCardImage ? (
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'detail') ?? resolvedCardImage}
               alt=""
@@ -1215,15 +1264,8 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
               loading="eager"
               decoding="async"
               fetchpriority="high"
-              className="h-full min-h-[500px] w-full object-contain object-top"
-            />
-          ) : message?.html_content ? (
-            <iframe
-              title={message?.subject || step.name}
-              className="h-[500px] w-full border-0"
-              sandbox=""
-              loading="eager"
-              srcDoc={sanitizeHtml(message.html_content)}
+              onError={hideTouchpointImageOnError}
+              className="h-full min-h-[500px] w-full object-contain object-top bg-muted/20"
             />
           ) : message?.body ? (
             <div className="p-4 text-foreground leading-relaxed">
@@ -1288,7 +1330,8 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
                 loading="eager"
                 decoding="async"
                 fetchpriority="high"
-                className="h-full min-h-[500px] w-full object-contain object-top"
+                onError={hideTouchpointImageOnError}
+                className="h-full min-h-[500px] w-full object-contain object-top bg-muted/20"
               />
             ) : (
               <iframe
@@ -1296,7 +1339,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
                 className="h-[500px] w-full border-0"
                 sandbox=""
                 loading="eager"
-                srcDoc={sanitizeHtml(bodyContent)}
+                srcDoc={sanitizeBrazeEmailHtmlForIframe(bodyContent)}
               />
             )}
           </div>
@@ -1312,6 +1355,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
               fetchpriority="high"
+              onError={hideTouchpointImageOnError}
               className="w-24 h-24 object-cover rounded-xl mx-auto mb-6"
             />
           ) : (

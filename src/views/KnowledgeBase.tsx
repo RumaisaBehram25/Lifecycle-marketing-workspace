@@ -30,7 +30,7 @@ import { SyncStatus } from '@/components/knowledge/SyncStatus';
 import { CodeGeneratorEmbed } from '@/components/knowledge/CodeGeneratorEmbed';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useDoubleGoodClient, useDoubleGoodPlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useDoubleGoodPlatforms, useConnectPlatform, useDisconnectPlatform } from '@/hooks/useDoubleGoodClient';
 import { 
   Database, 
   Plus, 
@@ -80,7 +80,7 @@ export default function KnowledgeBase() {
   const { toast } = useToast();
   
   // Platform connection hooks
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { data: platforms, refetch: refetchPlatforms } = useDoubleGoodPlatforms();
   const connectPlatform = useConnectPlatform();
   const disconnectPlatform = useDisconnectPlatform();

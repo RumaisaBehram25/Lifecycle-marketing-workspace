@@ -26,7 +26,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Search,
   Mail,
@@ -44,13 +43,14 @@ import {
   FilterX,
   ChevronLeft,
   ChevronRight,
-  Bug,
   Database,
   MessageSquare,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   format,
+  parse,
+  parseISO,
   subDays,
   startOfMonth,
   endOfMonth,
@@ -64,23 +64,21 @@ import {
   startOfYear,
 } from 'date-fns';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
-import { preloadCampaignImages, preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
+import {
+  cancelWarmCampaignListThumbnailImages,
+  preloadCampaignImages,
+  preloadHoveredCampaignImage,
+  warmCampaignListThumbnailImagesIdle,
+} from '@/lib/campaignImagePreload';
 import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import {
-  brazeSyncPartialDescription,
-  formatBrazeSyncInvokeError,
-  type BrazeSyncInvokeBody,
-} from '@/lib/brazeSyncInvoke';
 import { useMinDurationLoading } from '@/hooks/useMinDurationLoading';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/lib/logger';
 import {
   buildCampaignSearchIndex,
-  extractPreviewImageUrl,
-  extractPermissiveCardPreviewImageUrl,
   formatCampaignRate,
   getCampaignPreviewLine,
   getCampaignSecondaryLine,
@@ -89,6 +87,7 @@ import {
   resolveEmailModalPreview,
   getModalOptimizedImageUrl,
   isRawDetailsEmpty,
+  resolveCampaignCardEmailIframeHtml,
   sanitizeCampaignDisplayText,
   sanitizeCampaignDisplayWithMeta,
   type CampaignChannelUi,
@@ -102,6 +101,7 @@ import {
   commitCreativeToCaches,
   loadBrazeCreativeSessionCache,
   warmSessionCacheImagesIdle,
+  type CachedCreativePayload,
 } from '@/lib/brazeCreativeSessionCache';
 
 interface PlaceholderCampaign {
@@ -128,6 +128,8 @@ interface PlaceholderCampaign {
   /** Resolved preview line (always safe to render). */
   creative_preview?: string;
   preview_image_url?: string;
+  /** Braze email HTML for a sandboxed card iframe when no hero image URL is available. */
+  email_card_iframe_html?: string;
 }
 
 type CampaignViewModel = PlaceholderCampaign & {
@@ -229,6 +231,47 @@ function pickBetterBrazeCampaignDuplicate(
 }
 
 const now = new Date();
+
+/**
+ * `new Date('yyyy-MM-dd')` is UTC midnight → wrong local calendar day in US timezones.
+ * ISO timestamps from Supabase/Braze are parsed with `parseISO` (instant → local `format` is fine).
+ */
+function parseCampaignCalendarDay(value: string | null | undefined, refDate: Date): Date | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = parse(s, 'yyyy-MM-dd', refDate);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const iso = parseISO(s);
+  if (!Number.isNaN(iso.getTime())) return iso;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function sentTimestampSource(
+  row: BrazeCampaignRow,
+  rawDetails: Record<string, unknown>,
+): string | number | Date | null | undefined {
+  if (row.sent_date != null && String(row.sent_date).trim() !== '') return row.sent_date;
+  const ls = rawDetails.last_sent;
+  if (typeof ls === 'string' && ls.trim()) return ls.trim();
+  const fs = rawDetails.first_sent;
+  if (typeof fs === 'string' && fs.trim()) return fs.trim();
+  const sch = rawDetails.scheduled_at;
+  if (typeof sch === 'string' && sch.trim()) return sch.trim();
+  if (row.updated_at != null && String(row.updated_at).trim() !== '') return row.updated_at;
+  if (row.created_at != null && String(row.created_at).trim() !== '') return row.created_at;
+  return null;
+}
+
+function formatCampaignSentDateYmd(row: BrazeCampaignRow, rawDetails: Record<string, unknown>): string {
+  const src = sentTimestampSource(row, rawDetails);
+  if (src == null) return format(new Date(), 'yyyy-MM-dd');
+  const d = parseCampaignCalendarDay(typeof src === 'string' ? src : String(src), new Date());
+  return d ? format(d, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
+}
 
 const PLACEHOLDER_CAMPAIGNS: PlaceholderCampaign[] = [
   {
@@ -443,8 +486,8 @@ function schemaCacheRowToPlaceholder(raw: unknown): PlaceholderCampaign | null {
   let sent_date = format(new Date(), 'yyyy-MM-dd');
   let lastSentLabel: string | null = null;
   if (lastSent) {
-    const d = new Date(lastSent);
-    if (!Number.isNaN(d.getTime())) {
+    const d = parseCampaignCalendarDay(lastSent, new Date());
+    if (d) {
       sent_date = format(d, 'yyyy-MM-dd');
       lastSentLabel = format(d, 'MMM d, yyyy');
     }
@@ -472,10 +515,16 @@ function sortCampaigns(list: CampaignViewModel[], sortKey: CampaignSortKey): Cam
       case 'data_desc': {
         const byData = campaignDataRichnessScore(b) - campaignDataRichnessScore(a);
         if (byData !== 0) return byData;
-        return new Date(b.sent_date).getTime() - new Date(a.sent_date).getTime();
+        return (
+          (parseCampaignCalendarDay(b.sent_date, new Date())?.getTime() ?? 0) -
+          (parseCampaignCalendarDay(a.sent_date, new Date())?.getTime() ?? 0)
+        );
       }
       case 'sent_desc':
-        return new Date(b.sent_date).getTime() - new Date(a.sent_date).getTime();
+        return (
+          (parseCampaignCalendarDay(b.sent_date, new Date())?.getTime() ?? 0) -
+          (parseCampaignCalendarDay(a.sent_date, new Date())?.getTime() ?? 0)
+        );
       case 'updated_desc':
         return b.updatedAtMs - a.updatedAtMs;
       case 'created_desc':
@@ -516,14 +565,16 @@ function CalendarView({
   briefs: typeof BRIEF_CALENDAR_ITEMS;
   onSelectCampaign: (c: CampaignViewModel) => void;
 }) {
-  const start = startOfMonth(now);
-  const end = endOfMonth(now);
+  /** Fresh anchor each render so the grid matches “this month” and avoids module-load `now` drift. */
+  const calendarAnchor = new Date();
+  const start = startOfMonth(calendarAnchor);
+  const end = endOfMonth(calendarAnchor);
   const days = eachDayOfInterval({ start, end });
   const startDayOfWeek = getDay(start);
 
   return (
     <div>
-      <h3 className="mb-3 text-sm font-semibold">{format(now, 'MMMM yyyy')}</h3>
+      <h3 className="mb-3 text-sm font-semibold">{format(calendarAnchor, 'MMMM yyyy')}</h3>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-border">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
           <div key={d} className="bg-muted/50 p-2 text-center text-xs font-medium text-muted-foreground">
@@ -534,9 +585,15 @@ function CalendarView({
           <div key={`empty-${i}`} className="min-h-[80px] bg-card p-2" />
         ))}
         {days.map(day => {
-          const dayCampaigns = campaigns.filter(c => isSameDay(new Date(c.sent_date), day));
-          const dayBriefs = briefs.filter(b => isSameDay(new Date(b.date), day));
-          const isToday = isSameDay(day, now);
+          const dayCampaigns = campaigns.filter(c => {
+            const cd = parseCampaignCalendarDay(c.sent_date, day);
+            return cd != null && isSameDay(cd, day);
+          });
+          const dayBriefs = briefs.filter(b => {
+            const bd = parseCampaignCalendarDay(b.date, day);
+            return bd != null && isSameDay(bd, day);
+          });
+          const isToday = isSameDay(day, calendarAnchor);
           return (
             <div
               key={day.toISOString()}
@@ -612,11 +669,13 @@ export default function Campaigns() {
   const [dateFilter, setDateFilter] = useState('All Time');
   const [sortBy, setSortBy] = useState<CampaignSortKey>('data_desc');
   const [page, setPage] = useState(1);
-  const [syncing, setSyncing] = useState(false);
   /** preview_image_url from Braze creative fetches — supplements DB thumbnails for campaigns missing images in raw_details. */
   const [creativeThumbnailCache, setCreativeThumbnailCache] = useState<Map<string, string>>(() => new Map());
   const creativeThumbnailCacheLatestRef = useRef(creativeThumbnailCache);
   creativeThumbnailCacheLatestRef.current = creativeThumbnailCache;
+  const [creativeEmailIframeCache, setCreativeEmailIframeCache] = useState<Map<string, string>>(() => new Map());
+  const creativeEmailIframeCacheLatestRef = useRef(creativeEmailIframeCache);
+  creativeEmailIframeCacheLatestRef.current = creativeEmailIframeCache;
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -640,63 +699,9 @@ export default function Campaigns() {
     !platformsLoading &&
     !brazeConnected;
 
-  const handleSyncFromBraze = async () => {
-    if (!workspaceClientId || !brazePlatform?.id) return;
-    setSyncing(true);
-    try {
-      let round = 0;
-      let totalProcessed = 0;
-
-      while (round < 20) {
-        round++;
-        console.log(`[Campaign Sync] Starting round ${round}`);
-
-        const { data, error } = await supabase.functions.invoke('sync-braze', {
-          body: { clientId: workspaceClientId, platformId: brazePlatform.id, campaigns_only: true },
-        });
-
-        if (error) throw error;
-
-        const inner = data?.data as { counts?: Record<string, number> } | undefined;
-        const processed = inner?.counts?.campaigns_processed ?? 0;
-        totalProcessed += processed;
-
-        console.log(`[Campaign Sync] Round ${round}: processed=${processed}, total_found=${inner?.counts?.campaigns_found ?? 0}, partial=${data?.partial}`);
-
-        // Refresh UI between rounds
-        queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
-
-        // Stop if nothing new was processed (all campaigns enriched)
-        if (processed === 0) {
-          console.log(`[Campaign Sync] Done after ${round} round(s), total enriched=${totalProcessed}`);
-          break;
-        }
-      }
-
-      toast({
-        title: 'Campaigns synced from Braze',
-        description: `Enriched ${totalProcessed} campaigns in ${round} round(s).`,
-      });
-      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
-      queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    } catch (error: unknown) {
-      logger.error('Sync error:', error);
-      const description = await formatBrazeSyncInvokeError(error);
-      toast({
-        title: 'Failed to sync campaigns',
-        description,
-        variant: 'destructive',
-      });
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   const {
     data: dbCampaigns,
-    isLoading,
+    isPending: isCampaignsQueryPending,
     isError,
     error,
     refetch,
@@ -742,14 +747,17 @@ export default function Campaigns() {
         return Array.from(seen.values());
     },
     enabled: showLiveCampaigns,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    placeholderData: previousData => previousData,
   });
 
   const campaigns: CampaignViewModel[] = useMemo(() => {
     if (showLiveCampaigns) {
       // Only clear the list before the first successful fetch. During background refetch
-      // `isLoading` can be true while `dbCampaigns` still holds the previous page — returning []
-      // here made `totalPages` drop to 1 and the pagination effect forced the user back to page 1.
-      if (isLoading && dbCampaigns === undefined) return [];
+      // `isCampaignsQueryPending` is true only until the first successful fetch; with `placeholderData`
+      // we keep the prior list during background refetch so pagination does not reset.
+      if (isCampaignsQueryPending && dbCampaigns === undefined) return [];
 
       const dbRows = Array.isArray(dbCampaigns) ? dbCampaigns : [];
       if (dbRows.length > 0) {
@@ -765,6 +773,8 @@ export default function Campaigns() {
           rawDetails,
           imageUrlColumn: row.image_url,
         }) ?? '';
+      const email_card_iframe_html =
+        channel === 'email' ? resolveCampaignCardEmailIframeHtml(rawDetails) : undefined;
 
       const base: PlaceholderCampaign = {
         id: brazeCampaignListId(row),
@@ -775,7 +785,7 @@ export default function Campaigns() {
         push_title,
         push_body,
         description,
-        sent_date: row.sent_date ? format(new Date(row.sent_date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+        sent_date: formatCampaignSentDateYmd(row, rawDetails),
         status: (row.status ?? 'draft') as PlaceholderCampaign['status'],
         opens: row.opens ?? undefined,
         clicks: row.clicks ?? undefined,
@@ -787,6 +797,7 @@ export default function Campaigns() {
         unsubs: row.unsubs ?? undefined,
         creative_preview: row.creative_preview ?? undefined,
         preview_image_url,
+        email_card_iframe_html,
       };
 
       const previewFields: CampaignPreviewFields = {
@@ -843,24 +854,24 @@ export default function Campaigns() {
     dbCampaigns,
     showLiveCampaigns,
     showDemoCampaigns,
-    isLoading,
+    isCampaignsQueryPending,
     schemaCacheCampaignRows,
   ]);
 
   const showLoading =
     workspaceClientLoading ||
     (Boolean(workspaceClientId) && platformsLoading) ||
-    Boolean(showLiveCampaigns && isLoading);
+    Boolean(showLiveCampaigns && isCampaignsQueryPending);
   const showSampleBanner = showDemoCampaigns;
   const showSchemaSnapshotBanner =
     showLiveCampaigns &&
-    !isLoading &&
+    !isCampaignsQueryPending &&
     Array.isArray(dbCampaigns) &&
     dbCampaigns.length === 0 &&
     schemaCacheCampaignRows.length > 0;
   const isEmptyLive =
     showLiveCampaigns &&
-    !isLoading &&
+    !isCampaignsQueryPending &&
     !isError &&
     Array.isArray(dbCampaigns) &&
     dbCampaigns.length === 0 &&
@@ -878,8 +889,8 @@ export default function Campaigns() {
 
       let matchesDate = true;
       if (dateFilter !== 'All Time') {
-        const sentDate = new Date(c.sent_date);
         const today = new Date();
+        const sentDate = parseCampaignCalendarDay(c.sent_date, today) ?? new Date(0);
         switch (dateFilter) {
           case 'Last 7 Days':
             matchesDate = isAfter(sentDate, subDays(today, 7));
@@ -932,29 +943,15 @@ export default function Campaigns() {
     return sortedCampaigns.slice(start, start + PAGE_SIZE);
   }, [sortedCampaigns, page, totalPages]);
 
-  const devDataHealth = useMemo(() => {
-    if (!import.meta.env.DEV || !dbCampaigns?.length) return null;
-    let missingCreative = 0;
-    let missingImage = 0;
-    let missingPushCopy = 0;
-    for (const row of dbCampaigns as BrazeCampaignRow[]) {
-      if (!String(row.creative_preview ?? '').trim()) missingCreative++;
-      const raw = (row.raw_details ?? {}) as Record<string, unknown>;
-      if (!extractPreviewImageUrl(raw) && !extractPermissiveCardPreviewImageUrl(raw)) missingImage++;
-      const pt = typeof raw.push_title === 'string' ? raw.push_title : '';
-      const pb = typeof raw.push_body === 'string' ? raw.push_body : '';
-      const ch = normalizeCampaignChannel(row.channel);
-      if ((ch === 'push' || ch === 'inapp') && !pt.trim() && !pb.trim()) {
-        missingPushCopy++;
-      }
-    }
-    return {
-      total: dbCampaigns.length,
-      missingCreative,
-      missingImage,
-      missingPushCopy,
-    };
-  }, [dbCampaigns]);
+  /** Idle warm: **next page** only (visible page is handled by `preloadCampaignImages`) — avoids duplicate fetches. */
+  const campaignsForIdleThumbnailWarm = useMemo(() => {
+    if (sortedCampaigns.length === 0) return [];
+    const safePage = Math.min(page, totalPages);
+    const startNext = safePage * PAGE_SIZE;
+    if (startNext >= sortedCampaigns.length) return [];
+    const end = Math.min(sortedCampaigns.length, startNext + PAGE_SIZE);
+    return sortedCampaigns.slice(startNext, end);
+  }, [sortedCampaigns, page, totalPages]);
 
   const selectedRawRow = useMemo(() => {
     if (!selectedCampaign || !dbCampaigns) return null;
@@ -987,16 +984,22 @@ export default function Campaigns() {
   useEffect(() => {
     if (!workspaceClientId || !brazePlatform?.id) {
       creativePrefetchCacheRef.current = new Map();
+      setCreativeThumbnailCache(new Map());
+      setCreativeEmailIframeCache(new Map());
       return;
     }
     const loaded = loadBrazeCreativeSessionCache(workspaceClientId, brazePlatform.id);
     creativePrefetchCacheRef.current = loaded;
     warmSessionCacheImagesIdle(loaded);
     const thumbs = new Map<string, string>();
+    const iframes = new Map<string, string>();
     for (const [id, payload] of loaded.entries()) {
       if (payload.preview_image_url) thumbs.set(id, payload.preview_image_url);
+      const html = typeof payload.email_html_preview === 'string' ? payload.email_html_preview.trim() : '';
+      if (html) iframes.set(id, html);
     }
-    if (thumbs.size > 0) setCreativeThumbnailCache(thumbs);
+    setCreativeThumbnailCache(thumbs);
+    setCreativeEmailIframeCache(iframes);
   }, [workspaceClientId, brazePlatform?.id]);
 
   useEffect(() => {
@@ -1115,15 +1118,29 @@ export default function Campaigns() {
         logger.warn('[Campaigns] braze-campaign-creative invoke failed', error);
         return;
       }
-      const payload = {
-        preview_image_url: data?.preview_image_url ?? undefined,
-        email_html_preview: data?.email_html_preview ?? undefined,
+      const prev = creativePrefetchCacheRef.current.get(campaignId);
+      const payload: CachedCreativePayload = {
+        preview_image_url:
+          typeof data?.preview_image_url === 'string' && data.preview_image_url.trim()
+            ? data.preview_image_url.trim()
+            : prev?.preview_image_url,
+        email_html_preview:
+          typeof data?.email_html_preview === 'string' && data.email_html_preview.trim()
+            ? data.email_html_preview.trim()
+            : prev?.email_html_preview,
       };
       commitCreativeToCaches(creativePrefetchCacheRef.current, clientId, platformId, campaignId, payload);
       if (payload.preview_image_url) {
         setCreativeThumbnailCache(prev => {
           const next = new Map(prev);
           next.set(campaignId, payload.preview_image_url!);
+          return next;
+        });
+      }
+      if (payload.email_html_preview) {
+        setCreativeEmailIframeCache(prev => {
+          const next = new Map(prev);
+          next.set(campaignId, payload.email_html_preview!);
           return next;
         });
       }
@@ -1186,8 +1203,29 @@ export default function Campaigns() {
         : '');
     if (cardThumb) return;
 
+    const rowChannel = normalizeCampaignChannel(String(dbRow?.channel ?? ''));
+    if (rowChannel === 'email' && mergedForThumb && resolveCampaignCardEmailIframeHtml(mergedForThumb)?.trim()) {
+      return;
+    }
+
     const r = resolveEmailModalPreview(mergedForThumb);
-    if (r.previewType === 'hero' || r.previewType === 'imageUrl') return;
+    /** Modal may resolve a hero URL the card resolver skipped (different HTML pick / Linktree rules). */
+    if (!cardThumb && (r.previewType === 'hero' || r.previewType === 'imageUrl')) {
+      const heroUrl = (r.displayUrl ?? r.url ?? '').trim();
+      if (heroUrl && workspaceClientId && brazePlatform?.id) {
+        const prevPayload = creativePrefetchCacheRef.current.get(campaignId);
+        commitCreativeToCaches(creativePrefetchCacheRef.current, workspaceClientId, brazePlatform.id, campaignId, {
+          preview_image_url: heroUrl,
+          email_html_preview: prevPayload?.email_html_preview,
+        });
+        setCreativeThumbnailCache(prev => {
+          const next = new Map(prev);
+          next.set(campaignId, heroUrl);
+          return next;
+        });
+      }
+      return;
+    }
     creativePrefetchInFlightRef.current.add(campaignId);
     void runBrazeCampaignCreativeFetch(campaignId).finally(() => {
       creativePrefetchInFlightRef.current.delete(campaignId);
@@ -1196,17 +1234,33 @@ export default function Campaigns() {
 
   useEffect(() => {
     if (!showLiveCampaigns) return;
-    preloadCampaignImages(paginatedCampaigns);
+    preloadCampaignImages(paginatedCampaigns, { imageConcurrency: 4 });
   }, [paginatedCampaigns, showLiveCampaigns]);
+
+  /** Background decode: bounded slice + sequential batches — does not compete with visible `<img>` rows. */
+  useEffect(() => {
+    if (!showLiveCampaigns) return;
+    warmCampaignListThumbnailImagesIdle(campaignsForIdleThumbnailWarm, {
+      maxUrls: 24,
+      concurrency: 3,
+      batchPauseMs: 140,
+    });
+    return () => {
+      cancelWarmCampaignListThumbnailImages();
+    };
+  }, [campaignsForIdleThumbnailWarm, showLiveCampaigns]);
 
   /** Backfill `braze-campaign-creative` thumbnails for the current page when JSON still has no usable image. */
   useEffect(() => {
     if (!showLiveCampaigns || !workspaceClientId || !brazePlatform?.id) return;
-    const cache = creativeThumbnailCacheLatestRef.current;
+    const thumbCache = creativeThumbnailCacheLatestRef.current;
+    const iframeCache = creativeEmailIframeCacheLatestRef.current;
     const missing = paginatedCampaigns.filter(c => {
       const u = (c.preview_image_url || '').trim();
       if (u) return false;
-      if (cache.has(c.id)) return false;
+      if (thumbCache.has(c.id)) return false;
+      if ((c.email_card_iframe_html ?? '').trim()) return false;
+      if (iframeCache.has(c.id)) return false;
       return true;
     });
     if (missing.length === 0) return;
@@ -1222,7 +1276,13 @@ export default function Campaigns() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [brazePlatform?.id, paginatedCampaigns, prefetchCampaignCreative, showLiveCampaigns, workspaceClientId]);
+  }, [
+    brazePlatform?.id,
+    paginatedCampaigns,
+    prefetchCampaignCreative,
+    showLiveCampaigns,
+    workspaceClientId,
+  ]);
 
   useEffect(() => {
     const clientId = workspaceClientId;
@@ -1358,26 +1418,12 @@ export default function Campaigns() {
           title="Campaigns"
           description="Browse sent campaigns and one-off communications"
           actions={
-            <>
-              <Button
-                variant="outline"
-                onClick={handleSyncFromBraze}
-                disabled={syncing || !brazePlatform}
-              >
-                {syncing ? (
-                  <LoadingSpinner size="sm" className="mr-2" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Sync from Braze
-              </Button>
-              <Button asChild>
-                <Link to="/chat">
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Generate New
-                </Link>
-              </Button>
-            </>
+            <Button asChild>
+              <Link to="/chat">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate New
+              </Link>
+            </Button>
           }
         />
 
@@ -1459,29 +1505,12 @@ export default function Campaigns() {
           </div>
         </div>
 
-        {import.meta.env.DEV && devDataHealth && showLiveCampaigns && (
-          <Collapsible className="rounded-lg border border-dashed border-amber-500/40 bg-muted/30 px-3 py-2">
-            <CollapsibleTrigger className="flex w-full items-center gap-2 text-left text-sm font-medium text-amber-900 dark:text-amber-200">
-              <Bug className="h-4 w-4 shrink-0" aria-hidden />
-              Campaign data health (dev)
-              <span className="ml-auto text-xs font-normal text-muted-foreground">
-                {devDataHealth.total} rows · {devDataHealth.missingCreative} missing creative ·{' '}
-                {devDataHealth.missingImage} missing image · {devDataHealth.missingPushCopy} push/IAM without title/body
-              </span>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 text-xs text-muted-foreground">
-              Re-sync from Braze to backfill creative_preview, images, and push fields. Counts are from the latest query
-              (max 2000 rows).
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
         {showSchemaSnapshotBanner && (
           <Alert className="border-teal-200 bg-teal-50/80 dark:border-teal-900 dark:bg-teal-950/40">
             <Database className="h-4 w-4 text-teal-600 dark:text-teal-400" />
             <AlertDescription className="text-sm text-teal-900 dark:text-teal-100">
               Showing campaign names from your last Braze sync snapshot (same source as Settings). Detailed metrics and
-              creatives load from the <code className="rounded bg-teal-100/80 px-1 py-0.5 font-mono text-xs dark:bg-teal-900/60">braze_campaigns</code> table after a full sync writes rows for this workspace. If this list is empty after sync, check that campaigns are stored under your current client in the database.
+              creatives load from the <code className="rounded bg-teal-100/80 px-1 py-0.5 font-mono text-xs dark:bg-teal-900/60">braze_campaigns</code> table after Dashboard <strong className="font-medium text-foreground">Sync All from Braze</strong> writes rows for this workspace. If this list is empty after sync, check that campaigns are stored under your current client in the database.
             </AlertDescription>
           </Alert>
         )}
@@ -1543,13 +1572,9 @@ export default function Campaigns() {
               <div className="space-y-1">
                 <p className="font-medium">No campaigns yet</p>
                 <p className="max-w-md text-sm text-muted-foreground">
-                  Sync from Braze to pull your campaigns into this dashboard.
+                  Use <strong className="font-medium text-foreground">Sync All from Braze</strong> on the Dashboard to pull campaigns, journeys, and analytics into this workspace.
                 </p>
               </div>
-              <Button type="button" variant="default" disabled={!brazePlatform} onClick={handleSyncFromBraze}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Sync from Braze
-              </Button>
             </CardContent>
           </Card>
         ) : viewMode === 'calendar' ? (
@@ -1604,6 +1629,8 @@ export default function Campaigns() {
                 const previewLine =
                   campaign.creative_preview ?? getCampaignPreviewLine(toPreviewFields(campaign));
                 const thumbnailUrl = campaign.preview_image_url || creativeThumbnailCache.get(campaign.id);
+                const emailIframeHtml =
+                  campaign.email_card_iframe_html?.trim() || creativeEmailIframeCache.get(campaign.id);
                 return (
                 <Card
                   key={campaign.id}
@@ -1631,6 +1658,7 @@ export default function Campaigns() {
                       channel={campaign.channel}
                       previewText={previewLine}
                       previewImageUrl={thumbnailUrl}
+                      emailIframeHtml={emailIframeHtml}
                       campaignName={campaign.name}
                       variant="card"
                       listPageIndex={index}
@@ -1647,6 +1675,7 @@ export default function Campaigns() {
                         channel={campaign.channel}
                         previewText={previewLine}
                         previewImageUrl={thumbnailUrl}
+                        emailIframeHtml={emailIframeHtml}
                         campaignName={campaign.name}
                         variant="card"
                         listPageIndex={index}
@@ -1687,7 +1716,7 @@ export default function Campaigns() {
                       <div className="flex items-center gap-2">
                       <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
                         <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
-                        {format(new Date(campaign.sent_date), 'MMM d')}
+                        {format(parseCampaignCalendarDay(campaign.sent_date, new Date()) ?? new Date(), 'MMM d')}
                       </span>
                         {viewMode === 'grid' && (
                           <span className="font-medium text-primary" aria-hidden>
@@ -1768,7 +1797,11 @@ export default function Campaigns() {
                   </span>
                 </DialogTitle>
                 <DialogDescription>
-                  Sent {format(new Date(selectedCampaign.sent_date), 'MMMM d, yyyy')}
+                  Sent{' '}
+                  {format(
+                    parseCampaignCalendarDay(selectedCampaign.sent_date, new Date()) ?? new Date(),
+                    'MMMM d, yyyy',
+                  )}
                   {selectedCampaign.segment && (
                     <>
                       {' '}

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
@@ -54,7 +54,7 @@ export function TemplatePickerModal({
   contentType,
   channels,
 }: TemplatePickerModalProps) {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { data: platforms } = useDoubleGoodPlatforms();
   const [search, setSearch] = useState('');
   const [localSelected, setLocalSelected] = useState<string[]>(selectedIds);

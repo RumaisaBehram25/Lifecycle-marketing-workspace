@@ -1275,6 +1275,10 @@ export type Database = {
       }
     }
     Functions: {
+      ensure_doublegood_workspace_client: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
       ensure_personal_workspace_client: {
         Args: Record<PropertyKey, never>
         Returns: string

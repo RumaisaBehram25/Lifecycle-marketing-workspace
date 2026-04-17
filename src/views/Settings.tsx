@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { UserManagementPanel } from '@/components/settings/UserManagementPanel';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
@@ -36,12 +37,16 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  ClipboardList,
+  FolderOpen,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
+import { OnboardingTab } from '@/components/resource/OnboardingTab';
+import { GoogleDriveSettingsForm } from '@/components/settings/GoogleDriveSettingsForm';
 
 interface BrazeSchemaCache {
   campaigns?: Array<{ id: string; name: string; last_sent?: string; draft?: boolean }>;
@@ -62,6 +67,7 @@ type ClientRowBrief = { id: string; name: string; slug: string };
 
 export default function Settings() {
   const { profile, role, isAdmin } = useAuth();
+  const [searchParams] = useSearchParams();
   const { clientId: driveClientId, isClientLoading: driveClientResolving } = useResolvedClientId();
   const {
     clientId: brazeDashboardClientId,
@@ -75,6 +81,21 @@ export default function Settings() {
   const [canvasSearch, setCanvasSearch] = useState('');
   const [segmentSearch, setSegmentSearch] = useState('');
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+
+  const tabFromUrl = searchParams.get('tab');
+  useEffect(() => {
+    if (tabFromUrl === 'onboarding') {
+      setActiveTab('onboarding');
+      return;
+    }
+    if (tabFromUrl === 'data-visibility' && isAdmin) {
+      setActiveTab('data-visibility');
+      return;
+    }
+    if (tabFromUrl === 'integrations' && isAdmin) {
+      setActiveTab('integrations');
+    }
+  }, [tabFromUrl, isAdmin]);
 
   const profileWorkspaceClientIds = useMemo(() => {
     const s = new Set<string>();
@@ -286,7 +307,7 @@ export default function Settings() {
   }, [segmentsFromSync, segmentSearch, showStarredOnly, starredMap]);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 sm:space-y-8">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6 sm:space-y-8">
         <PageHeader
           title="Settings"
           description="Manage your account and data preferences."
@@ -310,6 +331,16 @@ export default function Settings() {
                 Data Visibility
               </TabsTrigger>
             )}
+            {isAdmin && (
+              <TabsTrigger value="integrations" className="gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Integrations
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="onboarding" className="gap-2">
+              <ClipboardList className="h-4 w-4" />
+              Onboarding
+            </TabsTrigger>
             {isAdmin && (
               <TabsTrigger value="feedback" className="gap-2">
                 <MessageSquarePlus className="h-4 w-4" />
@@ -604,6 +635,54 @@ export default function Settings() {
               </Card>
             </TabsContent>
           )}
+
+          {isAdmin && (
+            <TabsContent value="integrations" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FolderOpen className="h-5 w-5" />
+                    Google Drive
+                  </CardTitle>
+                  <CardDescription>
+                    Admin only. API key and folders are stored for this workspace; the dashboard only shows synced files.
+                    After saving, the API key is never shown in full again — only a masked hint.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {driveClientResolving ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                      <LoadingSpinner size="sm" className="shrink-0" />
+                      Resolving workspace…
+                    </div>
+                  ) : (
+                    <GoogleDriveSettingsForm clientId={driveClientId} />
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          <TabsContent value="onboarding" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5" />
+                  Onboarding
+                </CardTitle>
+                <CardDescription>
+                  Client profile, tech stack, Braze/Drive hooks, and analytics CSV imports. Uses your{' '}
+                  <span className="font-medium text-foreground">resolved workspace</span> (Drive, briefs, and onboarding storage). Admins: Braze list visibility stays in the{' '}
+                  <span className="font-medium text-foreground">Data Visibility</span> tab.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="min-w-0 w-full overflow-x-auto border border-border/50 rounded-lg bg-muted/5 p-3 sm:p-4">
+                  <OnboardingTab />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Feedback Tab - Admin Only */}
           {isAdmin && (

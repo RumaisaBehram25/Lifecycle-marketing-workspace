@@ -30,6 +30,11 @@ const queryClient = new QueryClient({
       /** Reuse server data when switching Dashboard ↔ Campaigns ↔ Analytics within this window — avoids a full network refetch on every navigation. Per-query `staleTime` still overrides. */
       staleTime: 60_000,
       gcTime: 10 * 60_000,
+      /** Keep background refetches/resolution running when the browser tab is inactive (TanStack default can pause). */
+      networkMode: 'always',
+    },
+    mutations: {
+      networkMode: 'always',
     },
   },
 });
@@ -62,8 +67,8 @@ function AppRoutes() {
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/lifecycle" element={<Lifecycle />} />
         <Route path="/resources" element={<ResourceCenter />} />
-        {/* Onboarding page hidden for now — keep route so old links land somewhere sensible */}
-        <Route path="/onboarding" element={<Navigate to="/dashboard" replace />} />
+        {/* Onboarding UI: Settings → Onboarding tab (after Data Visibility for admins) */}
+        <Route path="/onboarding" element={<Navigate to="/settings?tab=onboarding" replace />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/chat" element={<Chat />} />
         <Route path="/analytics" element={<Analytics />} />

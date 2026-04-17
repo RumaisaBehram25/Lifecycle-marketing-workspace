@@ -9,6 +9,10 @@ import {
 } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  clearBrazeLoginAutoSyncFlags,
+  clearBrazeLoginAutoSyncFlagForUser,
+} from '@/lib/brazeDashboardBackgroundSync';
 import type { Profile, UserRole, AppRole } from '@/lib/types';
 import { logger } from '@/lib/logger';
 
@@ -158,6 +162,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         const uid = session.user.id;
 
+        if (event === 'INITIAL_SESSION' && session.user.id) {
+          clearBrazeLoginAutoSyncFlagForUser(session.user.id);
+        }
+
         // Background JWT refresh — do not re-fetch profile behind the global spinner.
         if (event === 'TOKEN_REFRESHED') {
           return;
@@ -172,6 +180,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           fullProfileLoadInFlightRef.current == null
         ) {
           return;
+        }
+
+        if (event === 'SIGNED_IN' && session.user.id) {
+          clearBrazeLoginAutoSyncFlagForUser(session.user.id);
         }
 
         // Metadata / user row changed — refresh without blocking the app shell.
@@ -195,6 +207,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error) {
+      /** Allow post-login Braze auto-sync to run for this session (sessionStorage gate). */
+      clearBrazeLoginAutoSyncFlags();
+    }
     return { error: error as Error | null };
   }
 
@@ -213,6 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    clearBrazeLoginAutoSyncFlags();
     await supabase.auth.signOut();
     lastLoadedUserIdRef.current = null;
     fullProfileLoadCompletedForUserIdRef.current = null;

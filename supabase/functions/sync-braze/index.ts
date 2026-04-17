@@ -7,6 +7,11 @@ import {
 } from "../_shared/campaignPreviewImage.ts";
 import { migrateCampaignCreativesAfterCampaignUpsert } from "../_shared/campaignCreativeMigration.ts";
 import { logger } from '../_shared/logger.ts';
+import {
+  isS3BrazeSyncPayloadEnabled,
+  uploadBrazeSyncPayload,
+  type BrazeSyncS3PayloadKind,
+} from "../_shared/s3BrazeSyncPayload.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,6 +57,8 @@ const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 5000, 1
 /** Rolled-up daily row from campaigns/data_series (one row per campaign per day; merges with CSV by conflict key). */
 const BRAZE_SYNC_CAMPAIGN_ANALYTICS_VARIATION = "__braze_sync_aggregate__";
 const MAX_SEGMENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_PAGES", 40, 1, 200);
+/** When `segments/list` has no size (normal per Braze docs), call `/segments/data_series` for tracked segments. 0 = skip. */
+const MAX_SEGMENT_DATA_SERIES_LOOKUPS = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_DATA_SERIES", 120, 0, 500);
 const MAX_EMAIL_EVENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EMAIL_PAGES", 35, 1, 120);
 /** Per-client retention deletes at start of each sync (0 = disabled). Frees rows in braze_email_events / braze_sync_runs / braze_kpi_series. */
 const PRUNE_EMAIL_EVENTS_DAYS = clampIntEnv("BRAZE_SYNC_PRUNE_EMAIL_EVENTS_DAYS", 90, 0, 1095);
@@ -2164,6 +2171,44 @@ function extractSegmentCurrentSize(seg: Record<string, unknown>): number | null 
   return null;
 }
 
+function segmentAnalyticsTrackingEnabled(seg: Record<string, unknown>): boolean {
+  const v =
+    seg.analytics_tracking_enabled ??
+    seg.has_analytics_tracking ??
+    seg.analytics_tracking;
+  if (v === true || v === 1 || v === "true") return true;
+  return false;
+}
+
+/**
+ * Braze `/segments/list` does not document a current audience size; `/segments/data_series` does
+ * (requires `segments.data_series` on the API key and Segment analytics tracking in-dashboard).
+ */
+async function fetchSegmentSizeFromDataSeries(
+  segmentId: string,
+  apiKey: string,
+  brazeRestEndpoint: string,
+  endingAtIso: string,
+): Promise<number | null> {
+  const enc = encodeURIComponent(segmentId);
+  const path =
+    `segments/data_series?segment_id=${enc}&length=14&ending_at=${encodeURIComponent(endingAtIso)}`;
+  try {
+    const json = (await brazeFetch(path, apiKey, brazeRestEndpoint)) as Record<string, unknown>;
+    const data = json.data;
+    if (!Array.isArray(data) || data.length === 0) return null;
+    for (let i = data.length - 1; i >= 0; i--) {
+      const row = data[i] as Record<string, unknown>;
+      const n = finiteNonNegativeInt(row.size);
+      if (n != null) return n;
+    }
+    return null;
+  } catch (e) {
+    console.warn(`[Braze Sync] segments/data_series failed id=${segmentId}:`, e);
+    return null;
+  }
+}
+
 function kpiNumericFromRow(
   row: Record<string, unknown>,
   metric: "dau" | "mau" | "new_users",
@@ -2663,6 +2708,44 @@ Deno.serve(async (req) => {
     const syncRunId = syncRun?.id as string | undefined;
     const nowIso = new Date().toISOString();
 
+    let s3BrazePayloadUploads = 0;
+    const mirrorBrazeSyncPayloadToS3 = async (
+      kind: BrazeSyncS3PayloadKind,
+      brazeId: string,
+      payload: unknown,
+    ) => {
+      if (!isS3BrazeSyncPayloadEnabled()) return;
+      if (
+        payload == null ||
+        (typeof payload === "object" &&
+          !Array.isArray(payload) &&
+          Object.keys(payload as Record<string, unknown>).length === 0)
+      ) {
+        return;
+      }
+      const res = await uploadBrazeSyncPayload({
+        clientId: String(clientId),
+        kind,
+        brazeId,
+        payload,
+      });
+      if (res.ok) {
+        s3BrazePayloadUploads++;
+        if (s3BrazePayloadUploads <= 3 || s3BrazePayloadUploads % 40 === 0) {
+          console.log(
+            `[Braze Sync] S3 payload mirror ok (${kind} ${brazeId}): ${res.publicUrl.slice(0, 120)}`,
+          );
+        }
+      } else {
+        console.warn(`[Braze Sync] S3 payload mirror failed (${kind} ${brazeId}):`, res.message);
+      }
+    };
+    if (isS3BrazeSyncPayloadEnabled()) {
+      console.log(
+        "[Braze Sync] S3 payload mirror ON (BRAZE_SYNC_PAYLOADS_TO_S3) — writing braze-sync/{clientId}/{campaign|canvas_*}/… to S3 in parallel with Postgres",
+      );
+    }
+
     let canvasMinimalUpserted = 0;
     let campaignsProcessedCount = 0;
     let campaignsEnabledCount = 0;
@@ -3055,6 +3138,8 @@ Deno.serve(async (req) => {
         let segPage = 0;
         const segmentAnalyticsByKeyEarly = new Map<string, Record<string, unknown>>();
         const segmentSnapshotDayEarly = nowIso.slice(0, 10);
+        const segmentsForDataSeries: Array<{ id: string; name: string }> = [];
+        const queuedDataSeriesSegmentIds = new Set<string>();
         while (segPage < MAX_SEGMENT_PAGES) {
           if (syncOverBudget() && segPage > 0) {
             console.warn(
@@ -3122,17 +3207,25 @@ Deno.serve(async (req) => {
                 "",
             ).trim();
             if (!id) continue;
-            const size = extractSegmentCurrentSize(s);
-            if (size == null) continue;
             const name = String(s.name ?? s.segment_name ?? s.title ?? "Segment");
-            apiSegmentSizesParsed += 1;
-            segmentAnalyticsByKeyEarly.set(`${clientId}::${id}::${segmentSnapshotDayEarly}`, {
-              client_id: clientId,
-              date: segmentSnapshotDayEarly,
-              segment_id: id,
-              segment_name: name,
-              size,
-            });
+            const size = extractSegmentCurrentSize(s);
+            if (size != null) {
+              apiSegmentSizesParsed += 1;
+              segmentAnalyticsByKeyEarly.set(`${clientId}::${id}::${segmentSnapshotDayEarly}`, {
+                client_id: clientId,
+                date: segmentSnapshotDayEarly,
+                segment_id: id,
+                segment_name: name,
+                size,
+              });
+            } else if (
+              MAX_SEGMENT_DATA_SERIES_LOOKUPS > 0 &&
+              segmentAnalyticsTrackingEnabled(s as Record<string, unknown>) &&
+              !queuedDataSeriesSegmentIds.has(id)
+            ) {
+              queuedDataSeriesSegmentIds.add(id);
+              segmentsForDataSeries.push({ id, name });
+            }
           }
 
           if (rows.length > 0) {
@@ -3157,6 +3250,47 @@ Deno.serve(async (req) => {
           await new Promise((r) => setTimeout(r, 100));
         }
 
+        if (MAX_SEGMENT_DATA_SERIES_LOOKUPS > 0 && segmentsForDataSeries.length > 0) {
+          const seriesCap = Math.min(MAX_SEGMENT_DATA_SERIES_LOOKUPS, segmentsForDataSeries.length);
+          const endingAtForSeries = `${segmentSnapshotDayEarly}T23:59:59.000Z`;
+          let dataSeriesHits = 0;
+          console.log(
+            `[Braze Sync] segments/data_series fallback: up to ${seriesCap} segment(s) with analytics tracking (list payload had no size)`,
+          );
+          for (let i = 0; i < seriesCap; i++) {
+            if (syncOverBudget()) {
+              console.warn("[Braze Sync] Time budget: stopping segment data_series fallback early");
+              syncPartial = true;
+              syncStoppedReason = "time_budget";
+              break;
+            }
+            const { id, name } = segmentsForDataSeries[i];
+            const dsSize = await fetchSegmentSizeFromDataSeries(
+              id,
+              apiKey,
+              brazeRestEndpoint,
+              endingAtForSeries,
+            );
+            if (dsSize != null) {
+              dataSeriesHits++;
+              apiSegmentSizesParsed += 1;
+              segmentAnalyticsByKeyEarly.set(`${clientId}::${id}::${segmentSnapshotDayEarly}`, {
+                client_id: clientId,
+                date: segmentSnapshotDayEarly,
+                segment_id: id,
+                segment_name: name,
+                size: dsSize,
+              });
+            }
+            await new Promise((r) => setTimeout(r, 50));
+          }
+          if (dataSeriesHits > 0) {
+            console.log(
+              `[Braze Sync] segments/data_series fallback: wrote ${dataSeriesHits} size snapshot(s) for ${segmentSnapshotDayEarly}`,
+            );
+          }
+        }
+
         if (segmentAnalyticsByKeyEarly.size > 0) {
           const segmentAnalyticsRows = [...segmentAnalyticsByKeyEarly.values()];
           const SEGMENT_ANALYTICS_CHUNK = 200;
@@ -3177,7 +3311,7 @@ Deno.serve(async (req) => {
           );
         } else {
           console.log(
-            "[Braze Sync] Segment analytics snapshot (early): no parseable segment size fields in segments/list payload",
+            "[Braze Sync] Segment analytics snapshot (early): no segment sizes (list has none per Braze docs; data_series empty, tracking off, or missing `segments.data_series` permission)",
           );
         }
       } catch (e) {
@@ -3427,11 +3561,11 @@ Deno.serve(async (req) => {
             p_entry_type: entryMeta.entry_type ?? null,
             p_schedule_type: entryMeta.schedule_type ?? null,
           });
-          stepsObj = {} as Record<string, unknown>;
           if (!upsertErr) {
             processedCount++;
             phase3DbWritesWithRawSteps++;
             phase3CanvasesWithRawSteps++;
+            await mirrorBrazeSyncPayloadToS3("canvas_touchpoints", String(c.id), stepsObj);
             console.log(
               `[Sync] Canvas ${JSON.stringify(c.name ?? "Canvas")}: ${stepsFound} steps found, ${totalSteps} touchpoints upserted`,
             );
@@ -3442,6 +3576,7 @@ Deno.serve(async (req) => {
             );
             pushDbErr("braze_canvases(touchpoints)", upsertErr);
           }
+          stepsObj = {} as Record<string, unknown>;
         } catch (e) {
           console.warn(`[Braze Sync][Phase3][touchpoints] canvas id=${c.id} failed:`, e);
         }
@@ -3778,6 +3913,7 @@ Deno.serve(async (req) => {
             }
             if (hasIncomingSteps) {
               phase3DbWritesWithRawSteps++;
+              await mirrorBrazeSyncPayloadToS3("canvas_detail", String(c.id), stepsObj);
               console.log(
                 `[Braze Sync][Phase3] DB wrote raw_steps: id=${c.id} keys=${Object.keys(stepsObj).length} name=${JSON.stringify(c.name)}`,
               );
@@ -4437,6 +4573,11 @@ Deno.serve(async (req) => {
               const st = row.status as string;
               if (st === "sent" || st === "scheduled") campaignsEnabledCount++;
               brazeIdsForCreativeMigrate.push(String(row.braze_campaign_id));
+              await mirrorBrazeSyncPayloadToS3(
+                "campaign",
+                String(row.braze_campaign_id),
+                row.raw_details ?? {},
+              );
             }
           }
           if (brazeIdsForCreativeMigrate.length > 0) {
@@ -4452,6 +4593,15 @@ Deno.serve(async (req) => {
             supabase,
             clientId,
             rowsToUpsert.map((r) => String(r.braze_campaign_id)),
+          );
+          await Promise.allSettled(
+            rowsToUpsert.map((row) =>
+              mirrorBrazeSyncPayloadToS3(
+                "campaign",
+                String(row.braze_campaign_id),
+                row.raw_details ?? {},
+              ),
+            ),
           );
         }
       }
@@ -4676,7 +4826,8 @@ Deno.serve(async (req) => {
       campaignsProcessedCount > 0 ||
       processedCount > 0 ||
       canvasDataSeriesUpdatedTotal > 0 ||
-      campaignAnalyticsRowsUpserted > 0;
+      campaignAnalyticsRowsUpserted > 0 ||
+      s3BrazePayloadUploads > 0;
 
     const apiParsedAny =
       apiKpiPointsParsed > 0 ||
@@ -4755,6 +4906,7 @@ Deno.serve(async (req) => {
             segment_analytics_rows_upserted: schemaCache.segment_analytics_rows_upserted,
             email_events_ingested: schemaCache.email_events_ingested,
             scheduled_broadcasts: schemaCache.scheduled_broadcasts,
+            s3_braze_payload_uploads: s3BrazePayloadUploads,
           },
         },
       }),

@@ -1,7 +1,15 @@
-import { memo, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Mail, Bell, Smartphone, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
+import {
+  campaignEmailIframeSrcDocCacheKey,
+  isCampaignEmailIframeSrcDocLoaded,
+  isCampaignThumbnailDisplayUrlLoaded,
+  markCampaignEmailIframeSrcDocLoaded,
+  markCampaignThumbnailDisplayUrlLoaded,
+} from '@/lib/campaignImagePreload';
+import { sanitizeBrazeEmailHtmlForIframe } from '@/lib/sanitizeBrazeEmailIframe';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CampaignChannelUi } from '@/lib/campaignDisplay';
 
@@ -27,6 +35,17 @@ const creativeGradients: Record<CampaignChannelUi, string> = {
   inapp: 'from-purple-200/90 via-violet-100/80 to-slate-50 dark:from-purple-950/80 dark:via-violet-900/40 dark:to-slate-950',
   sms: 'from-emerald-200/90 via-teal-100/80 to-slate-50 dark:from-emerald-950/80 dark:via-teal-900/40 dark:to-slate-950',
 };
+
+/** Clip inner email chrome: no scrollbars; card iframe is a static preview only. */
+function wrapEmailCardSrcDocForThumbnail(inner: string): string {
+  const t = inner.trim();
+  if (!t) return '';
+  const noScroll = `<style data-campaign-thumb="1">html,body{margin:0!important;padding:0!important;height:100%!important;width:100%!important;overflow:hidden!important;overscroll-behavior:none;}*{scrollbar-width:none!important;}::-webkit-scrollbar{width:0!important;height:0!important;display:none!important;}</style>`;
+  if (/<\/head\s*>/i.test(t)) return t.replace(/<\/head\s*>/i, `${noScroll}</head>`);
+  if (/<head\b/i.test(t)) return t.replace(/<head\b[^>]*>/i, m => `${m}${noScroll}`);
+  if (/^\s*<html\b/i.test(t)) return t.replace(/<html[^>]*>/i, m => `${m}<head><meta charset="utf-8"/>${noScroll}</head>`);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/>${noScroll}</head><body>${t}</body></html>`;
+}
 
 const iconPlaceholderRing: Record<CampaignChannelUi, string> = {
   email: 'ring-blue-400/40 bg-gradient-to-br from-blue-100 to-blue-50 text-blue-800 dark:from-blue-900 dark:to-blue-950 dark:text-blue-100',
@@ -67,6 +86,11 @@ export interface CampaignCreativeHeroProps {
    * Omit when `preview_image_url` exists so the hero image can show (aligned with preload URLs).
    */
   gridThumbnail?: boolean;
+  /**
+   * Email campaigns: when no usable hero `<img>` URL (or image fails), show a sandboxed mini HTML preview
+   * (same pattern as client-facing campaign cards).
+   */
+  emailIframeHtml?: string | null;
 }
 
 /**
@@ -84,9 +108,11 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
     eagerImage = false,
     listPageIndex,
     gridThumbnail = false,
+    emailIframeHtml,
   } = props;
   const [imgFailed, setImgFailed] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [iframeReady, setIframeReady] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const isModal = variant === 'modal';
   const url =
@@ -103,16 +129,40 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
     );
   const showImg = Boolean(url && !imgFailed);
 
+  const { iframeWrappedSrcDoc, iframeWarmKey } = useMemo(() => {
+    if (channel !== 'email' || isModal) return { iframeWrappedSrcDoc: '', iframeWarmKey: '' };
+    const raw = typeof emailIframeHtml === 'string' ? emailIframeHtml : '';
+    const inner = sanitizeBrazeEmailHtmlForIframe(raw);
+    if (!inner.trim()) return { iframeWrappedSrcDoc: '', iframeWarmKey: '' };
+    const iframeWarmKey = campaignEmailIframeSrcDocCacheKey(inner);
+    return {
+      iframeWrappedSrcDoc: wrapEmailCardSrcDocForThumbnail(inner),
+      iframeWarmKey,
+    };
+  }, [channel, emailIframeHtml, isModal]);
+
+  const showIframe = Boolean(iframeWrappedSrcDoc.trim()) && !showImg;
+
   // If the image was preloaded and is already in the browser cache, img.complete is true
   // synchronously — skip the skeleton entirely by detecting this before the first paint.
   useLayoutEffect(() => {
     setImgFailed(false);
-    setImgLoaded(false);
+    if (imgSrc && isCampaignThumbnailDisplayUrlLoaded(imgSrc)) {
+      setImgLoaded(true);
+    } else {
+      setImgLoaded(false);
+    }
+    if (iframeWarmKey && isCampaignEmailIframeSrcDocLoaded(iframeWarmKey)) {
+      setIframeReady(true);
+    } else {
+      setIframeReady(false);
+    }
     const el = imgRef.current;
     if (el && el.complete && el.naturalWidth > 0) {
       setImgLoaded(true);
+      if (imgSrc) markCampaignThumbnailDisplayUrlLoaded(imgSrc);
     }
-  }, [imgSrc]);
+  }, [imgSrc, iframeWarmKey]);
 
   const gradient = journeyPlaceholder?.surfaceGradient ?? creativeGradients[channel];
   const iconSm = channelIconsSm[channel];
@@ -125,6 +175,10 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
   const modalShowPlaceholder = isModal && !showImg;
   /** Modal: image is resolving — keep skeleton, no overlaid text/icons. */
   const modalImageLoading = isModal && showImg && !imgLoaded && !imgFailed;
+
+  const iframeCreativeVisible = showIframe && iframeReady;
+
+  const cardThumbClipRounded = isModal ? 'rounded-xl' : gridThumbnail ? 'rounded-lg' : 'rounded-t-lg';
 
   /** Card (non-grid): dimming gradient + icon + caption over image. */
   const showCardStyleImageOverlay = showImg && !isModal && !gridThumbnail;
@@ -141,13 +195,13 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
   const showFooterOverlay =
     (!isModal || modalShowPlaceholder) &&
     !modalImageLoading &&
-    (!gridThumbnail || !showImg);
+    (!gridThumbnail || (!showImg && !iframeCreativeVisible));
 
   return (
     <div
       className={cn(
         'relative w-full overflow-hidden',
-        !isModal && showImg ? 'bg-white dark:bg-white/95' : 'bg-muted',
+        !isModal && (showImg || showIframe) ? 'bg-white dark:bg-white/95' : 'bg-muted',
         isModal ? 'aspect-video min-h-[220px] rounded-xl' : gridThumbnail ? 'h-[132px] min-h-[132px] rounded-t-lg' : 'aspect-video rounded-t-lg',
         className,
       )}
@@ -156,12 +210,23 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
       <div
         className={cn(
           'absolute inset-0 bg-gradient-to-br transition-opacity duration-500',
-          !showImg && gradient,
-          showImg && !imgLoaded && cn(gradient, 'opacity-70'),
-          showImg && imgLoaded && 'pointer-events-none opacity-0',
+          !(showIframe || showImg) && gradient,
+          showImg && !imgLoaded && !imgFailed && cn(gradient, 'opacity-70'),
+          ((showImg && imgLoaded) || iframeCreativeVisible) && 'pointer-events-none opacity-0',
         )}
         aria-hidden
       />
+      {showIframe && !iframeCreativeVisible && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 z-[1] overflow-hidden',
+            isModal ? 'rounded-xl' : 'rounded-t-lg',
+          )}
+          aria-hidden
+        >
+          <Skeleton className="absolute inset-0 rounded-none opacity-40 motion-safe:animate-pulse" />
+        </div>
+      )}
       {showImg && !imgLoaded && !imgFailed && (
         <div
           className={cn(
@@ -187,22 +252,50 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
           alt={campaignName}
           width={640}
           height={360}
+          referrerPolicy="no-referrer"
           loading={loadingAttr}
           decoding="async"
           fetchpriority={fetchpriorityAttr}
           className={cn(
-            'absolute inset-0 z-[2] h-full w-full object-cover transition-opacity duration-500 ease-out',
+            'absolute inset-0 z-[2] h-full w-full min-h-full min-w-full max-w-none object-cover transition-opacity duration-500 ease-out',
             isModal && !modalImageClean ? 'object-center' : 'object-top',
             isModal && modalImageClean && 'rounded-xl',
             imgLoaded ? 'opacity-100' : 'opacity-0',
           )}
-          onLoad={() => setImgLoaded(true)}
+          onLoad={() => {
+            if (imgSrc) markCampaignThumbnailDisplayUrlLoaded(imgSrc);
+            setImgLoaded(true);
+          }}
           onError={e => {
             e.currentTarget.style.display = 'none';
             setImgFailed(true);
             setImgLoaded(false);
           }}
         />
+      )}
+
+      {showIframe && iframeWrappedSrcDoc && (
+        <div
+          className={cn(
+            'pointer-events-none absolute inset-0 z-[2] overflow-hidden bg-white dark:bg-white/95',
+            cardThumbClipRounded,
+          )}
+        >
+          <iframe
+            title={`${campaignName} — email preview`}
+            srcDoc={iframeWrappedSrcDoc}
+            scrolling="no"
+            className={cn(
+              'pointer-events-none absolute left-1/2 top-0 z-[2] block max-w-none -translate-x-1/2 border-0 bg-white dark:bg-white/95',
+              'h-[220%] w-[220%] origin-top',
+              isModal ? 'scale-[0.454]' : gridThumbnail ? 'scale-[0.42]' : 'scale-[0.454]',
+            )}
+            onLoad={() => {
+              if (iframeWarmKey) markCampaignEmailIframeSrcDocLoaded(iframeWarmKey);
+              setIframeReady(true);
+            }}
+          />
+        </div>
       )}
 
       {showCardStyleImageOverlay && (

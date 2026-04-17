@@ -22,3 +22,7 @@ verify_jwt = false
 # Braze servers POST without a user JWT; optional BRAZE_WEBHOOK_SECRET verified in function.
 [functions.braze-webhook]
 verify_jwt = false
+
+# JWT verified in validateAuth (JWKS); supports anon/publishable Supabase keys from the browser.
+[functions.save-google-drive-settings]
+verify_jwt = false

@@ -188,11 +188,16 @@ export function useActiveClientRow() {
 
 // Hook to get or create the shared BRCG admin client (`slug = doublegood`; also used by useResolvedClientId for admins)
 export function useDoubleGoodClient() {
-  const { isLoading: authLoading, session } = useAuth();
+  const { isLoading: authLoading, session, isAdmin } = useAuth();
   return useQuery({
     queryKey: ['doublegood-client'],
-    /** Without a session, PostgREST uses `anon` — `clients` RLS only allows `authenticated`, → 403 spam on app load. */
-    enabled: !authLoading && Boolean(session?.user),
+    /**
+     * Members use `useActiveClientRow()` / `useResolvedClientId()` — they cannot SELECT or INSERT the shared
+     * `doublegood` row under workspace RLS (`42501` on insert if this hook ran for every user).
+     */
+    enabled: !authLoading && Boolean(session?.user) && isAdmin,
+    /** RLS/403 on a failed bootstrap should not hammer PostgREST with default retries. */
+    retry: false,
     queryFn: async () => {
       // Try to get existing shared BRCG client row
       const { data: existing, error: fetchError } = await supabase
@@ -217,15 +222,34 @@ export function useDoubleGoodClient() {
         return existing as Client;
       }
       
-      // Create shared BRCG client row if it doesn't exist
-      const { data: created, error: createError } = await supabase
+      /**
+       * Create minimal shared row via RPC (`ensure_doublegood_workspace_client` migration) so we do not rely
+       * on `clients` INSERT RLS from the browser (avoids repeated POST …/clients 403).
+       */
+      const { data: newId, error: rpcError } = await supabase.rpc('ensure_doublegood_workspace_client');
+      if (rpcError) throw rpcError;
+      const id = typeof newId === 'string' ? newId : null;
+      if (!id) throw new Error('ensure_doublegood_workspace_client returned no id');
+
+      const { data: created, error: loadError } = await supabase
         .from('clients')
-        .insert(DOUBLEGOOD_BRAND_DEFAULTS)
-        .select()
+        .select('*')
+        .eq('id', id)
         .single();
-      
-      if (createError) throw createError;
-      return created as Client;
+      if (loadError) throw loadError;
+
+      const row = created as Client;
+      if (!row.value_propositions || !row.target_audience) {
+        const { data: updated, error: patchError } = await supabase
+          .from('clients')
+          .update(DOUBLEGOOD_BRAND_DEFAULTS)
+          .eq('id', id)
+          .select()
+          .single();
+        if (patchError) throw patchError;
+        return (updated || row) as Client;
+      }
+      return row;
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
@@ -303,11 +327,26 @@ export function useConnectPlatform() {
       if (error) throw error;
       return data as ClientPlatform;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['doublegood-platforms'] });
       queryClient.invalidateQueries({ queryKey: ['braze-platform-client-id-for-resolved'] });
       queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
       toast({ title: 'Platform connected' });
+      // DISABLED: “New user” Braze API connect no longer kicks off automatic full sync.
+      // Sync only via Dashboard “Sync All from Braze”.
+      //
+      // Previous logic:
+      // const isBraze = String(data.platform ?? '').toLowerCase() === 'braze';
+      // if (isBraze && data.client_id && data.id) {
+      //   queueMicrotask(() => {
+      //     touchDashboardBrazeImplicitThrottle();
+      //     void startDashboardBrazeFullSyncDetached({
+      //       clientId: data.client_id,
+      //       platformId: data.id,
+      //       queryClient,
+      //     });
+      //   });
+      // }
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });

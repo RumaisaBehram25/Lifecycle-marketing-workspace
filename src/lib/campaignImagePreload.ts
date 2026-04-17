@@ -7,6 +7,42 @@ export type CampaignRowForImagePreload = {
 };
 
 /**
+ * Normalized display URLs that have fully decoded at least once — keeps grid thumbnails from
+ * replaying skeletons when the user pages away and back (HTTP cache is fast; React state was not).
+ */
+export const campaignThumbnailDisplayUrlLoaded = new Set<string>();
+
+export function markCampaignThumbnailDisplayUrlLoaded(url: string | null | undefined): void {
+  const u = typeof url === 'string' ? url.trim() : '';
+  if (u) campaignThumbnailDisplayUrlLoaded.add(u);
+}
+
+export function isCampaignThumbnailDisplayUrlLoaded(url: string | null | undefined): boolean {
+  const u = typeof url === 'string' ? url.trim() : '';
+  return u.length > 0 && campaignThumbnailDisplayUrlLoaded.has(u);
+}
+
+/** Fingerprint for sanitized email iframe `srcDoc` — marks iframe paint so paging skips skeleton. */
+export function campaignEmailIframeSrcDocCacheKey(srcDoc: string): string {
+  const s = srcDoc;
+  const n = s.length;
+  let h = 2166136261;
+  const step = Math.max(1, Math.floor(n / 4000));
+  for (let i = 0; i < n; i += step) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return `${n}:${h >>> 0}`;
+}
+
+export const campaignEmailIframeSrcDocLoadedKeys = new Set<string>();
+
+export function markCampaignEmailIframeSrcDocLoaded(cacheKey: string): void {
+  if (cacheKey) campaignEmailIframeSrcDocLoadedKeys.add(cacheKey);
+}
+
+export function isCampaignEmailIframeSrcDocLoaded(cacheKey: string): boolean {
+  return Boolean(cacheKey) && campaignEmailIframeSrcDocLoadedKeys.has(cacheKey);
+}
+
+/**
  * Tracks URLs for which a `<link rel="preload">` element has been injected by
  * {@link preloadHoveredCampaignImage}. Intentionally separate from {@link preloadedUrls}
  * (the batch-warm registry) — `preloadedUrls` marks URLs the moment `new Image()` starts,
@@ -60,7 +96,8 @@ export function preloadCampaignImages(
 ): void {
   if (typeof window === 'undefined') return;
 
-  const concurrency = options?.imageConcurrency ?? 8;
+  /** Default 4 — S3/render hosts stall when too many connections compete (browser ~6 per origin). */
+  const concurrency = options?.imageConcurrency ?? 4;
 
   const displayOrdered: string[] = [];
   const seen = new Set<string>();
@@ -70,6 +107,7 @@ export function preloadCampaignImages(
     if (!raw) continue;
     const display = campaignImageDisplayUrl(raw, 'default');
     if (!display) continue;
+    if (isCampaignThumbnailDisplayUrlLoaded(display)) continue;
     if (seen.has(display)) continue;
     seen.add(display);
     displayOrdered.push(display);
@@ -84,6 +122,10 @@ export function preloadCampaignImages(
         batch.map(
           url =>
             new Promise<void>(resolve => {
+              if (isCampaignThumbnailDisplayUrlLoaded(url)) {
+                resolve();
+                return;
+              }
               if (preloadedUrls.has(url)) {
                 resolve();
                 return;
@@ -91,7 +133,10 @@ export function preloadCampaignImages(
               preloadedUrls.add(url);
               const img = new Image();
               img.decoding = 'async';
-              img.onload = () => resolve();
+              img.onload = () => {
+                markCampaignThumbnailDisplayUrlLoaded(url);
+                resolve();
+              };
               img.onerror = () => resolve();
               img.src = url;
             }),
@@ -99,6 +144,114 @@ export function preloadCampaignImages(
       );
     }
   })();
+}
+
+let listWarmIdleHandle = 0;
+let listWarmToken = 0;
+
+/** Stop idle thumbnail warming (e.g. route away from Campaigns) so pending `Image()` work drains. */
+export function cancelWarmCampaignListThumbnailImages(): void {
+  listWarmToken += 1;
+  cancelListWarmIdle();
+}
+
+function cancelListWarmIdle(): void {
+  if (!listWarmIdleHandle) return;
+  if (typeof cancelIdleCallback === 'function') {
+    cancelIdleCallback(listWarmIdleHandle);
+  } else {
+    window.clearTimeout(listWarmIdleHandle);
+  }
+  listWarmIdleHandle = 0;
+}
+
+function scheduleIdle(fn: () => void, timeout: number): number {
+  if (typeof requestIdleCallback === 'function') {
+    return requestIdleCallback(fn, { timeout }) as unknown as number;
+  }
+  return window.setTimeout(fn, 1) as unknown as number;
+}
+
+export type WarmCampaignListThumbnailOptions = {
+  concurrency?: number;
+  /** Pause between completed batches so we do not stack hundreds of pending requests. */
+  batchPauseMs?: number;
+  /** Hard cap on distinct URLs per warm pass (large workspaces). */
+  maxUrls?: number;
+};
+
+/**
+ * Low-priority background warm for a **bounded** slice of campaigns (e.g. next page).
+ * Each batch **waits for onload** before starting the next — avoids browser connection-queue
+ * “pending” storms from the same-origin image render API.
+ */
+export function warmCampaignListThumbnailImagesIdle(
+  campaigns: ReadonlyArray<CampaignRowForImagePreload>,
+  options?: WarmCampaignListThumbnailOptions,
+): void {
+  if (typeof window === 'undefined') return;
+  const concurrency = Math.max(1, Math.min(6, options?.concurrency ?? 3));
+  const batchPauseMs = Math.max(40, options?.batchPauseMs ?? 120);
+  const maxUrls = Math.max(1, options?.maxUrls ?? 36);
+
+  const displayOrdered: string[] = [];
+  const seen = new Set<string>();
+  for (const c of campaigns) {
+    if (displayOrdered.length >= maxUrls) break;
+    const raw = c.preview_image_url?.trim();
+    if (!raw) continue;
+    const display = campaignImageDisplayUrl(raw, 'default');
+    if (!display) continue;
+    if (seen.has(display)) continue;
+    seen.add(display);
+    displayOrdered.push(display);
+  }
+
+  const token = ++listWarmToken;
+  cancelListWarmIdle();
+
+  if (displayOrdered.length === 0) return;
+
+  const loadOne = (url: string) =>
+    new Promise<void>(resolve => {
+      if (token !== listWarmToken) {
+        resolve();
+        return;
+      }
+      if (isCampaignThumbnailDisplayUrlLoaded(url)) {
+        resolve();
+        return;
+      }
+      if (preloadedUrls.has(url)) {
+        resolve();
+        return;
+      }
+      preloadedUrls.add(url);
+      const img = new Image();
+      img.decoding = 'async';
+      img.onload = () => {
+        markCampaignThumbnailDisplayUrlLoaded(url);
+        resolve();
+      };
+      img.onerror = () => resolve();
+      img.src = url;
+    });
+
+  const runAll = async () => {
+    for (let startIdx = 0; startIdx < displayOrdered.length; startIdx += concurrency) {
+      if (token !== listWarmToken) return;
+      const batch = displayOrdered.slice(startIdx, startIdx + concurrency);
+      await Promise.all(batch.map(loadOne));
+      if (startIdx + concurrency < displayOrdered.length) {
+        await new Promise<void>(r => window.setTimeout(r, batchPauseMs));
+        if (token !== listWarmToken) return;
+      }
+    }
+  };
+
+  listWarmIdleHandle = scheduleIdle(() => {
+    void runAll();
+  }, 800);
 }
 
 const MODAL_PRELOAD_LINK_ATTR = 'data-campaign-modal-preload';
@@ -160,8 +313,9 @@ export function prefetchLifecycleJourneyImageUrls(
 ): void {
   if (typeof window === 'undefined') return;
 
-  const linkPreloadCount = options?.linkPreloadCount ?? 6;
-  const concurrency = options?.concurrency ?? 8;
+  /** Lifecycle lists can surface many S3/Storage heroes — warm the first chunk with `<link rel="preload">` so opens feel instant. */
+  const linkPreloadCount = options?.linkPreloadCount ?? 18;
+  const concurrency = options?.concurrency ?? 12;
 
   const display: string[] = [];
   const seen = new Set<string>();

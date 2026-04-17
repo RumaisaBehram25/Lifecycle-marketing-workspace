@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import { AppLayout } from './AppLayout';
 import { LoadingRouteContent } from '@/components/ui/loading-spinner';
+import { BrazeWorkspaceAutoSync } from '@/components/braze/BrazeWorkspaceAutoSync';
 
 /**
  * Keeps sidebar + chrome mounted while lazy route chunks load.
@@ -11,6 +12,7 @@ import { LoadingRouteContent } from '@/components/ui/loading-spinner';
 export function MainAppShell() {
   return (
     <AppLayout>
+      <BrazeWorkspaceAutoSync />
       <Suspense fallback={<LoadingRouteContent />}>
         <Outlet />
       </Suspense>

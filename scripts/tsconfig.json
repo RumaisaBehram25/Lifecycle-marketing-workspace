@@ -12,5 +12,10 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["./**/*.ts", "../src/lib/campaignDisplay.ts", "../src/lib/campaignCreativeImageUrl.ts"]
+  "include": [
+    "./**/*.ts",
+    "../src/lib/brazeSegmentMixNames.ts",
+    "../src/lib/campaignDisplay.ts",
+    "../src/lib/campaignCreativeImageUrl.ts"
+  ]
 }

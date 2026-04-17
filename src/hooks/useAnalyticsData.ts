@@ -355,6 +355,38 @@ export function useAnalyticsData(period: string = 'default') {
   const { clientId, isLoading: isClientLoading } = useBrazeDashboardClientId();
   const periodStart = periodToStartDate(period);
 
+  /**
+   * Lifetime rollups on `braze_campaigns` from Braze sync (details + data_series aggregate).
+   * Used when `braze_campaign_analytics` has no `__braze_sync_aggregate__` rows yet — otherwise
+   * Performance Snapshot stays at zero despite a successful Dashboard sync (common for new workspaces).
+   */
+  const brazeCampaignsPerformanceFallback = useQuery({
+    queryKey: ['braze_campaigns', 'analytics-performance-fallback', clientId],
+    queryFn: async () => {
+      if (!clientId) return null;
+      const { data, error } = await supabase
+        .from('braze_campaigns')
+        .select('sends,deliveries,opens,clicks,bounces,unsubs')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      const rows = (data ?? []) as Array<Record<string, unknown>>;
+      return rows.reduce(
+        (acc, row) => ({
+          sent: acc.sent + num(row.sends),
+          delivered: acc.delivered + num(row.deliveries),
+          opens: acc.opens + num(row.opens),
+          clicks: acc.clicks + num(row.clicks),
+          bounces: acc.bounces + num(row.bounces),
+          unsubs: acc.unsubs + num(row.unsubs),
+        }),
+        { sent: 0, delivered: 0, opens: 0, clicks: 0, bounces: 0, unsubs: 0 },
+      );
+    },
+    enabled: !!clientId,
+    staleTime: ANALYTICS_STALE_MS,
+    retry: false,
+  });
+
   const brazeCampaignAnalytics = useQuery({
     queryKey: ['analytics', 'braze_campaign_analytics', clientId, periodStart],
     queryFn: async () => {
@@ -585,6 +617,7 @@ export function useAnalyticsData(period: string = 'default') {
    */
   const primaryPending =
     brazeCampaignAnalytics.isPending ||
+    brazeCampaignsPerformanceFallback.isPending ||
     customerioCampaigns.isPending ||
     segmentAnalytics.isPending ||
     usageAnalytics.isPending ||
@@ -595,12 +628,14 @@ export function useAnalyticsData(period: string = 'default') {
 
   const error =
     brazeCampaignAnalytics.error ||
+    brazeCampaignsPerformanceFallback.error ||
     customerioCampaigns.error ||
     emailEvents.error ||
     emailHealth30d.error;
 
   const refetch = () => {
     brazeCampaignAnalytics.refetch();
+    brazeCampaignsPerformanceFallback.refetch();
     customerioCampaigns.refetch();
     segmentAnalytics.refetch();
     usageAnalytics.refetch();
@@ -640,14 +675,30 @@ export function useAnalyticsData(period: string = 'default') {
     return bestVal;
   };
 
-  // Performance Snapshot uses only campaign analytics (date-filterable), not pre-aggregated canvas columns
-  const totalSent = canvases.reduce((sum, r) => sum + num(r.sent), 0);
-  const totalDelivered = canvases.reduce((sum, r) => sum + num(r.delivered), 0);
-  const totalOpens = canvases.reduce((sum, r) => sum + num(r.opens), 0);
-  const totalClicks = canvases.reduce((sum, r) => sum + num(r.clicks), 0);
-  const totalConversions = canvases.reduce((sum, r) => sum + num(r.conversions), 0);
-  const totalBounces = canvases.reduce((sum, r) => sum + num(r.bounces), 0);
-  const totalUnsubscribes = canvases.reduce((sum, r) => sum + num(r.unsubscribes), 0);
+  // Performance Snapshot: prefer date-scoped `braze_campaign_analytics` aggregate rows; fall back to
+  // `braze_campaigns` lifetime totals when no analytics rows (only for All Time — no periodStart).
+  const fromAgg = {
+    totalSent: canvases.reduce((sum, r) => sum + num(r.sent), 0),
+    totalDelivered: canvases.reduce((sum, r) => sum + num(r.delivered), 0),
+    totalOpens: canvases.reduce((sum, r) => sum + num(r.opens), 0),
+    totalClicks: canvases.reduce((sum, r) => sum + num(r.clicks), 0),
+    totalConversions: canvases.reduce((sum, r) => sum + num(r.conversions), 0),
+    totalBounces: canvases.reduce((sum, r) => sum + num(r.bounces), 0),
+    totalUnsubscribes: canvases.reduce((sum, r) => sum + num(r.unsubscribes), 0),
+  };
+  const fb = brazeCampaignsPerformanceFallback.data;
+  const usePerformanceSnapshotFallback =
+    !periodStart &&
+    canvases.length === 0 &&
+    fb != null &&
+    fb.sent + fb.delivered + fb.opens + fb.clicks + fb.bounces + fb.unsubs > 0;
+  const totalSent = usePerformanceSnapshotFallback ? fb.sent : fromAgg.totalSent;
+  const totalDelivered = usePerformanceSnapshotFallback ? fb.delivered : fromAgg.totalDelivered;
+  const totalOpens = usePerformanceSnapshotFallback ? fb.opens : fromAgg.totalOpens;
+  const totalClicks = usePerformanceSnapshotFallback ? fb.clicks : fromAgg.totalClicks;
+  const totalConversions = usePerformanceSnapshotFallback ? 0 : fromAgg.totalConversions;
+  const totalBounces = usePerformanceSnapshotFallback ? fb.bounces : fromAgg.totalBounces;
+  const totalUnsubscribes = usePerformanceSnapshotFallback ? fb.unsubs : fromAgg.totalUnsubscribes;
 
   const latestUsage = usageRows.length > 0 ? usageRows[0] : null;
   const dauFromUsage = num(latestUsage?.dau);

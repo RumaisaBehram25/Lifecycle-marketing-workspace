@@ -30,6 +30,8 @@ type BrazeSyncCounts = {
   segment_analytics_rows_upserted?: number;
   email_events_ingested?: number;
   scheduled_broadcasts?: number;
+  /** gzip JSON mirrors under braze-sync/{clientId}/… when BRAZE_SYNC_PAYLOADS_TO_S3 is enabled */
+  s3_braze_payload_uploads?: number;
 };
 
 function messageOf(error: unknown): string {
@@ -155,7 +157,8 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
       (counts.email_events_ingested ?? 0) > 0 ||
       (counts.scheduled_broadcasts ?? 0) > 0 ||
       (counts.campaigns_processed ?? 0) > 0 ||
-      (counts.campaign_analytics_rows_upserted ?? 0) > 0;
+      (counts.campaign_analytics_rows_upserted ?? 0) > 0 ||
+      (counts.s3_braze_payload_uploads ?? 0) > 0;
     if (parsedAny && !storedAny) {
       if (inner.db_errors && inner.db_errors.length > 0) {
         return `${parsedSummary ?? ''} Data was read from Braze but database writes failed: ${inner.db_errors.slice(0, 2).join(' · ')}`.trim();
@@ -184,7 +187,7 @@ export function brazeSyncPartialDescription(data: BrazeSyncInvokeBody): string |
     (ap?.segment_rows ?? 0) > 0 &&
     (ap?.segment_sizes ?? 0) === 0
   ) {
-    return `${parsedSummary ?? ''} Segment list synced, but Braze did not return parseable size fields for subscriber mix. Subscriber mix may stay on older CSV history until Braze exposes sizes or you import segment analytics.`.trim();
+    return `${parsedSummary ?? ''} Segment directory synced without sizes on segments/list (normal for Braze). Enable Segment analytics tracking on your mix segments, add the REST permission "segments.data_series" to this key, then re-sync—the sync will fill sizes via /segments/data_series. Otherwise import segment analytics CSV; mix labels stay on older data until new rows write.`.trim();
   }
   if (data.stopped_reason === 'time_budget') {
     return 'Synced within the server time limit. Run sync again to refresh more data.';

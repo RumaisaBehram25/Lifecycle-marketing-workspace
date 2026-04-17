@@ -158,8 +158,24 @@ function coerceStep(row: LifecycleCanvasStep): LifecycleCanvasStep {
   };
 }
 
-export function normalizeRawSteps(raw: unknown): Record<string, LifecycleCanvasStep> {
+const MAX_JSON_STRING_UNWRAP = 12;
+
+/**
+ * `raw_steps` is jsonb in Postgres; some pipelines or exports store it double-encoded as a JSON string.
+ * Unwrap string layers (bounded) then normalize the resulting object/array.
+ */
+export function normalizeRawSteps(raw: unknown, jsonUnwrapDepth = 0): Record<string, LifecycleCanvasStep> {
   if (raw == null) return {};
+  if (typeof raw === 'string') {
+    if (jsonUnwrapDepth > MAX_JSON_STRING_UNWRAP) return {};
+    const trimmed = raw.trim();
+    if (!trimmed) return {};
+    try {
+      return normalizeRawSteps(JSON.parse(trimmed) as unknown, jsonUnwrapDepth + 1);
+    } catch {
+      return {};
+    }
+  }
   if (Array.isArray(raw)) {
     const out: Record<string, LifecycleCanvasStep> = {};
     for (const item of raw) {

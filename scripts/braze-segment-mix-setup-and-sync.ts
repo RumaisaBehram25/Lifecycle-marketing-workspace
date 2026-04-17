@@ -29,8 +29,8 @@
  *   npx --yes tsx --tsconfig scripts/tsconfig.json scripts/braze-segment-mix-setup-and-sync.ts -- --strict-names
  *
  * If Braze uses different segment titles, map canonical → Braze (first `=` splits target title):
- *   -- --alias="All Email Subscribers=All mailable users"
- * Or set JSON in .env: BRAZE_SEGMENT_MIX_ALIASES={"All Email Subscribers":"All mailable users"}
+ *   -- --alias="all email subscriber=Different title in Braze"
+ * Or set JSON in .env: BRAZE_SEGMENT_MIX_ALIASES={"all email subscriber":"Different title in Braze"}
  *
  * Loads `.env` / `.env.local` like other scripts (see backfill-campaign-creatives.ts).
  */
@@ -38,6 +38,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
+import { BRAZE_SEGMENT_MIX_CORE_NAMES } from '../src/lib/brazeSegmentMixNames';
 
 function loadEnvFiles() {
   const root = process.cwd();
@@ -70,23 +71,19 @@ loadEnvFiles();
 const DEFAULT_CLIENT_ID = 'e7aaaf66-b99c-422b-92fb-186a36c2a7c1';
 const DEFAULT_SNAPSHOT_DATE = '2026-04-16';
 
-const TARGET_SEGMENTS: { name: string; dashboardHint: string }[] = [
-  {
-    name: 'All Email Subscribers',
-    dashboardHint:
-      'Use Segments → filter: **Email marketing subscription** (or subscription group) = **Subscribed** / opted in for marketing email. Exclude unsubscribed as needed for your workspace policy.',
-  },
-  {
-    name: 'Active Subscribers (opened in 90d)',
-    dashboardHint:
-      'Intersection: same email subscription = subscribed **AND** **Opened email** in the **last 90 days** (Braze: Email engagement → opened email, rolling 90 days).',
-  },
-  {
-    name: 'Churned (no open in 180d)',
-    dashboardHint:
-      'Intersection: email subscription = subscribed **AND** **Has not opened email** in the **last 180 days** (or **Last opened email** more than 180 days ago — match your team’s definition). Ensure this does not overlap Active if you need a partition.',
-  },
-];
+const SEGMENT_MIX_DASHBOARD_HINTS: Record<(typeof BRAZE_SEGMENT_MIX_CORE_NAMES)[number], string> = {
+  'all email subscriber':
+    'Braze segment **all email subscriber** — typically all opted-in / mailable email subscribers (match your workspace filters).',
+  'active subscriber':
+    'Braze segment **active subscriber** — usually opened or engaged within your team’s active window (e.g. last 90 days).',
+  churned:
+    'Braze segment **churned** — usually no open / disengaged for your churn window (e.g. 180 days). Align definitions with **active subscriber** if you need a partition.',
+};
+
+const TARGET_SEGMENTS: { name: string; dashboardHint: string }[] = BRAZE_SEGMENT_MIX_CORE_NAMES.map((name) => ({
+  name,
+  dashboardHint: SEGMENT_MIX_DASHBOARD_HINTS[name],
+}));
 
 const FALLBACK_BRAZE_REST = 'https://rest.iad-06.braze.com';
 const MAX_SEGMENT_PAGES = 40;

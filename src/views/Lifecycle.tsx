@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { plainTextPreviewFromBrazeMessageBody } from '@/lib/brazeMessagePreviewText';
-import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { sanitizeBrazeEmailHtmlForIframe } from '@/lib/sanitizeBrazeEmailIframe';
 import { BRAZE_CANVASES_LIST_SELECT } from '@/lib/brazeCanvasesListSelect';
 import { cn, scrollAppMainToTopAfterLayout } from '@/lib/utils';
 import { getJourneyVisuals } from '@/lib/lifecycleJourneyVisuals';
@@ -14,11 +14,10 @@ import { useDoubleGoodPlatforms, useResolvedClientId } from '@/hooks/useDoubleGo
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { LoadingPage, LoadingSpinner } from '@/components/ui/loading-spinner';
+import { LoadingPage } from '@/components/ui/loading-spinner';
 import {
   Tooltip,
   TooltipContent,
@@ -64,20 +63,15 @@ import {
   GitBranch,
   Filter,
   Star,
-  RefreshCw,
   TrendingUp,
   Eye,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
-import { campaignImageDisplayUrl } from '@/lib/campaignCreativeImageUrl';
-import { preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
-import { pickJourneyGridHeroPreviewUrl } from '@/lib/lifecycleCanvasImageUrls';
-import { useToast } from '@/hooks/use-toast';
+import { prefetchLifecycleJourneyImageUrls, preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
+import { collectLifecycleStepImageUrls, pickJourneyGridHeroPreviewUrl } from '@/lib/lifecycleCanvasImageUrls';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatBrazeSyncInvokeError } from '@/lib/brazeSyncInvoke';
-import { invokeTouchpointsChunk } from '@/lib/touchpointsSyncClient';
-import { logger } from '@/lib/logger';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import {
   computeLifecycleDisplayTouchpoints,
@@ -93,7 +87,6 @@ import { BRCGIcon } from '@/components/BRCGLogo';
 import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
 import {
   normalizeCampaignChannel,
-  resolveLifecycleMessageCardImageUrl,
   stripBrazeLiquidForDisplay,
   type CampaignChannelUi,
 } from '@/lib/campaignDisplay';
@@ -107,111 +100,43 @@ interface CanvasVariant {
   first_step_id: string | null;
 }
 
-/** Same display count as cards / metrics — used to order journeys by touchpoints (highest first). */
-function touchpointSortKey(row: {
-  raw_steps?: unknown;
-  total_steps?: number | null;
-}): number {
-  return computeLifecycleDisplayTouchpoints(
-    normalizeRawSteps(row.raw_steps),
-    typeof row.total_steps === 'number' && !Number.isNaN(row.total_steps) ? row.total_steps : null,
+/** First Braze canvas tag for sorting / display (case-insensitive). */
+function firstCanvasTagLower(tags: unknown): string {
+  if (!Array.isArray(tags) || tags.length === 0) return '';
+  const t = tags.find((x) => typeof x === 'string' && String(x).trim());
+  return typeof t === 'string' ? t.trim().toLowerCase() : '';
+}
+
+function sortJourneysByNameAsc<T extends { displayName?: string; name?: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) =>
+    String(a.displayName ?? a.name ?? '').localeCompare(String(b.displayName ?? b.name ?? ''), undefined, {
+      sensitivity: 'base',
+    }),
   );
 }
 
-/**
- * Primary: touchpoint count (desc). Then entries_last_60d, last_entry, name — in-app avoids fragile PostgREST ORDER BY.
- */
-function sortLifecycleCanvases<
-  T extends {
-    raw_steps?: unknown;
-    total_steps?: number | null;
-    entries_last_60d?: number | null;
-    last_entry?: string | null;
-    name?: string | null;
-  },
+function sortJourneysByFirstTagAsc<
+  T extends { tags?: string[]; displayName?: string; name?: string },
 >(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
-    const aTp = touchpointSortKey(a);
-    const bTp = touchpointSortKey(b);
-    if (bTp !== aTp) return bTp - aTp;
-
-    const aE =
-      typeof a.entries_last_60d === 'number' && !Number.isNaN(a.entries_last_60d)
-        ? a.entries_last_60d
-        : null;
-    const bE =
-      typeof b.entries_last_60d === 'number' && !Number.isNaN(b.entries_last_60d)
-        ? b.entries_last_60d
-        : null;
-    if (aE == null && bE == null) {
-      /* tie-break last_entry */
-    } else if (aE == null) return 1;
-    else if (bE == null) return -1;
-    else if (bE !== aE) return bE - aE;
-
-    const aMs = a.last_entry ? Date.parse(String(a.last_entry)) : NaN;
-    const bMs = b.last_entry ? Date.parse(String(b.last_entry)) : NaN;
-    const aNull = Number.isNaN(aMs);
-    const bNull = Number.isNaN(bMs);
-    if (aNull && bNull) {
-      /* tie-break name */
-    } else if (aNull && !bNull) return -1;
-    else if (!aNull && bNull) return 1;
-    else if ((bMs as number) !== (aMs as number)) return (bMs as number) - (aMs as number);
-
-    return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, {
+    const ta = firstCanvasTagLower(a.tags);
+    const tb = firstCanvasTagLower(b.tags);
+    if (ta !== tb) {
+      if (!ta) return 1;
+      if (!tb) return -1;
+      return ta.localeCompare(tb, undefined, { sensitivity: 'base' });
+    }
+    return String(a.displayName ?? a.name ?? '').localeCompare(String(b.displayName ?? b.name ?? ''), undefined, {
       sensitivity: 'base',
     });
   });
 }
 
-/**
- * Order journey **cards** 1 → N: most display touchpoints first (same metric as badges), then activity, recency, name.
- * Use after mapping DB rows to journey objects so order always matches `total_steps` on each card.
- */
-function sortJourneysByTouchpointsDesc<
-  T extends {
-    total_steps?: number;
-    entries_last_60d?: number;
-    last_entry?: string;
-    name?: string;
-  },
->(rows: T[]): T[] {
-  return [...rows].sort((a, b) => {
-    const aTp =
-      typeof a.total_steps === 'number' && !Number.isNaN(a.total_steps) ? a.total_steps : 0;
-    const bTp =
-      typeof b.total_steps === 'number' && !Number.isNaN(b.total_steps) ? b.total_steps : 0;
-    if (bTp !== aTp) return bTp - aTp;
-
-    const aE =
-      typeof a.entries_last_60d === 'number' && !Number.isNaN(a.entries_last_60d)
-        ? a.entries_last_60d
-        : null;
-    const bE =
-      typeof b.entries_last_60d === 'number' && !Number.isNaN(b.entries_last_60d)
-        ? b.entries_last_60d
-        : null;
-    if (aE == null && bE == null) {
-      /* tie-break last_entry */
-    } else if (aE == null) return 1;
-    else if (bE == null) return -1;
-    else if (bE !== aE) return bE - aE;
-
-    const aMs = a.last_entry ? Date.parse(String(a.last_entry)) : NaN;
-    const bMs = b.last_entry ? Date.parse(String(b.last_entry)) : NaN;
-    const aNull = Number.isNaN(aMs);
-    const bNull = Number.isNaN(bMs);
-    if (aNull && bNull) {
-      /* tie-break name */
-    } else if (aNull && !bNull) return 1;
-    else if (!aNull && bNull) return -1;
-    else if ((bMs as number) !== (aMs as number)) return (bMs as number) - (aMs as number);
-
-    return String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, {
-      sensitivity: 'base',
-    });
-  });
+/** Stable order for API rows (list query omits `raw_steps` — avoid touchpoint-based sort on empty JSON). */
+function sortCanvasRowsByName<T extends { name?: string | null }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) =>
+    String(a.name ?? '').localeCompare(String(b.name ?? ''), undefined, { sensitivity: 'base' }),
+  );
 }
 
 /** Elapsed ms since first entry (journey "running since"); null if unknown. */
@@ -250,6 +175,20 @@ function sortJourneysByTimeRunning<
       undefined,
       { sensitivity: 'base' },
     );
+  });
+}
+
+/** Highest `total_steps` first (same metric as cards: messaging → all steps → Braze DB count). */
+function sortJourneysByTouchpointsDesc<
+  T extends { total_steps?: number; displayName?: string; name?: string },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const ta = typeof a.total_steps === 'number' && !Number.isNaN(a.total_steps) ? a.total_steps : 0;
+    const tb = typeof b.total_steps === 'number' && !Number.isNaN(b.total_steps) ? b.total_steps : 0;
+    if (tb !== ta) return tb - ta;
+    return String(a.displayName ?? a.name ?? '').localeCompare(String(b.displayName ?? b.name ?? ''), undefined, {
+      sensitivity: 'base',
+    });
   });
 }
 
@@ -305,28 +244,35 @@ function LifecycleMetricTile({
   );
 }
 
-/** Warm the browser image cache for step creatives (hero from HTML when available, else non-logo image_url). */
+/**
+ * Warm touchpoint hero URLs (same transforms as flow-chart `<img>`) using batched `Image()` + link preload —
+ * matches {@link prefetchLifecycleJourneyImageUrls} so S3/Storage creatives hit HTTP cache before the user opens a journey.
+ */
 function preloadJourneyStepImages(rawSteps: unknown): void {
   if (!rawSteps || typeof rawSteps !== 'object') return;
-  const warmed = new Set<string>();
-  for (const step of Object.values(rawSteps as Record<string, unknown>)) {
-    if (!step || typeof step !== 'object') continue;
-    const s = step as Record<string, unknown>;
-    const messages = Array.isArray(s.messages) ? s.messages : [];
-    for (const msg of messages) {
-      if (!msg || typeof msg !== 'object') continue;
-      const resolved = resolveLifecycleMessageCardImageUrl(
-        msg as { html_content?: string; image_url?: string; body?: string },
-      );
-      if (!resolved) continue;
-      const src = campaignImageDisplayUrl(resolved, 'thumbnail') ?? resolved;
-      if (warmed.has(src)) continue;
-      warmed.add(src);
-      const img = new Image();
-      img.decoding = 'async';
-      img.src = src;
-    }
-  }
+  const urls = collectLifecycleStepImageUrls(
+    rawSteps as Record<string, { messages?: Array<{ image_url?: string; html_content?: string; body?: string }> }>,
+  );
+  if (urls.length === 0) return;
+  prefetchLifecycleJourneyImageUrls(urls, { linkPreloadCount: 28, concurrency: 14 });
+}
+
+const LIFECYCLE_CANVAS_DETAIL_STALE_MS = 60_000;
+
+/** Single source for canvas detail (used by prefetch, hover warm, click-open, and JourneyDetail). */
+async function fetchLifecycleBrazeCanvasDetail(
+  clientId: string,
+  journeyDbId: string,
+): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase
+    .from('braze_canvases')
+    .select('id,raw_steps,raw_variants,total_steps')
+    .eq('client_id', clientId)
+    .eq('id', journeyDbId)
+    .maybeSingle();
+  if (error) throw error;
+  preloadJourneyStepImages(data?.raw_steps);
+  return data as Record<string, unknown> | null;
 }
 
 export default function Lifecycle() {
@@ -334,12 +280,8 @@ export default function Lifecycle() {
   const { clientId: brazeReadClientId, isLoading: brazeDashboardClientLoading } =
     useBrazeDashboardClientId();
   const { data: platforms } = useDoubleGoodPlatforms();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [syncing, setSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
-  const [syncPausedAt, setSyncPausedAt] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState('All');
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
@@ -350,7 +292,7 @@ export default function Lifecycle() {
   /** After localStorage hydrate for this workspace — avoids save effect wiping LS before load. */
   const [lifecycleCanvasPrefsReady, setLifecycleCanvasPrefsReady] = useState(false);
   const [lifecycleSortMode, setLifecycleSortMode] = useState<
-    'touchpoints' | 'time_running_short' | 'time_running_long'
+    'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long'
   >('touchpoints');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
@@ -385,121 +327,6 @@ export default function Lifecycle() {
   const canViewLifecycleFromBraze =
     hasBrazeOnWorkspace || Boolean(dashboardBrazePlatform?.is_connected);
 
-  const handleSyncFromBraze = async () => {
-    const syncClientId = brazeReadClientId ?? workspaceClientId;
-    if (!syncClientId || !lifecycleSyncPlatform?.id) return;
-    setSyncing(true);
-    setSyncProgress(null);
-    const willResume = syncPausedAt !== null;
-    if (!willResume) setSyncPausedAt(null);
-    let lastCursor = 0;
-    let lastTotal = 0;
-    let total = 0;
-    let offset: number | undefined = willResume ? undefined : 0;
-    /** Offset sent (or omitted) on the request that failed — for error toasts. */
-    let lastAttemptedOffset: number | undefined;
-
-    const runChunk = async (): Promise<void> => {
-      lastAttemptedOffset = offset;
-      const { data: d, error } = await invokeTouchpointsChunk({
-        clientId: syncClientId,
-        platformId: lifecycleSyncPlatform.id,
-        canvasOffset: offset,
-      });
-      if (error) throw error;
-      if (!d?.success) throw new Error('Braze sync returned success: false');
-      console.log('[Lifecycle Sync] Chunk response:', {
-        offset: d.offset,
-        total: d.total,
-        processed: d.processed,
-        done: d.done,
-        canvases_detail_enriched: (d as Record<string, unknown>).counts ? ((d as Record<string, unknown>).counts as Record<string, unknown>)?.canvases_detail_enriched : undefined,
-      });
-
-      total = typeof d.total === 'number' && !Number.isNaN(d.total) ? d.total : total;
-      const nextOffset =
-        typeof d.offset === 'number' && !Number.isNaN(d.offset) ? d.offset : null;
-
-      if (nextOffset === null) {
-        throw new Error(
-          'Touchpoints sync response missing numeric offset — cannot continue. Check sync-braze / API proxy response.',
-        );
-      }
-
-      const done =
-        d.done === true ||
-        (typeof d.total === 'number' && d.total > 0 && nextOffset >= d.total) ||
-        (total > 0 && nextOffset >= total);
-
-      console.log('[Lifecycle] touchpoints batch response', {
-        requestedOffset: offset,
-        offset: d.offset,
-        done: d.done,
-        inferredDone: done,
-        processed: d.processed,
-        total: d.total,
-      });
-
-      lastTotal = total;
-      lastCursor = nextOffset;
-      setSyncProgress({ current: Math.min(nextOffset, total || nextOffset), total: total || nextOffset });
-
-      if (done) {
-        setSyncPausedAt(null);
-        toast({
-          title: 'Sync complete!',
-          description: `Synced ${total} journeys from Braze.`,
-        });
-        return;
-      }
-
-      if (
-        typeof lastAttemptedOffset === 'number' &&
-        nextOffset === lastAttemptedOffset
-      ) {
-        throw new Error(
-          `Touchpoints sync stalled: server returned offset ${nextOffset} again with done=false (same as requested canvas_offset).`,
-        );
-      }
-
-      offset = nextOffset;
-      // Brief pause between chunks avoids bursty invokes (relay/network flakes show up most often on the 2nd+ request after a long first chunk).
-      await new Promise((r) => setTimeout(r, 400));
-      await runChunk();
-    };
-
-    try {
-      await runChunk();
-      queryClient.invalidateQueries({ queryKey: ['braze_canvases'] });
-      queryClient.invalidateQueries({ queryKey: ['braze_campaigns'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-braze'] });
-      queryClient.invalidateQueries({ queryKey: ['braze_segments_sync'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics'] });
-    } catch (error: unknown) {
-      logger.error('Sync error:', error);
-      const description = await formatBrazeSyncInvokeError(error);
-      setSyncPausedAt(lastCursor);
-      const requestHint =
-        lastAttemptedOffset === undefined
-          ? 'Last request omitted canvas_offset (server resume).'
-          : `Last request used canvas_offset=${lastAttemptedOffset}.`;
-      const progressHint =
-        lastTotal > 0
-          ? ` Last successful cursor: ${lastCursor} of ${lastTotal}.`
-          : lastCursor > 0
-            ? ` Last successful cursor: ${lastCursor}.`
-            : '';
-      toast({
-        title: 'Sync paused',
-        description: `${requestHint}${progressHint} ${description} Click Sync from Braze to resume.`,
-        variant: 'destructive',
-      });
-    } finally {
-      setSyncing(false);
-      setSyncProgress(null);
-    }
-  };
-
   // Fetch canvases from normalized table (synced rows only — avoids flooding the tab with schema_cache dumps)
   const { data: normalizedCanvases, isLoading: canvasesLoading } = useQuery({
     queryKey: ['braze_canvases', brazeReadClientId],
@@ -513,7 +340,7 @@ export default function Lifecycle() {
         // Include draft canvases (often enabled=false in Braze) so journeys with synced step data are visible.
         .or('enabled.eq.true,draft.eq.true');
       if (error) throw error;
-      return sortLifecycleCanvases(data ?? []);
+      return sortCanvasRowsByName(data ?? []);
     },
     enabled: !!brazeReadClientId && canViewLifecycleFromBraze,
   });
@@ -548,7 +375,7 @@ export default function Lifecycle() {
 
     if (rawSource.length === 0) return [];
 
-    return sortJourneysByTouchpointsDesc(
+    return sortJourneysByNameAsc(
       rawSource.map((canvasRaw) => {
         const canvas = canvasRaw as Record<string, unknown>;
         const name = (canvas.name as string) ?? '';
@@ -631,23 +458,15 @@ export default function Lifecycle() {
     top.forEach((j, i) => {
       const journeyDbId = String(j.dbId ?? j.id ?? '');
       if (!journeyDbId) return;
+      // First batch in parallel so touchpoint images start warming immediately; light stagger for the rest.
+      const delay = i < 16 ? 0 : 80 + (i - 16) * 55;
       setTimeout(() => {
         void queryClient.prefetchQuery({
           queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
-          queryFn: async () => {
-            const { data, error } = await supabase
-              .from('braze_canvases')
-              .select('raw_steps,raw_variants')
-              .eq('client_id', clientId)
-              .eq('id', journeyDbId)
-              .maybeSingle();
-            if (error) throw error;
-            preloadJourneyStepImages(data?.raw_steps);
-            return data as Record<string, unknown> | null;
-          },
-          staleTime: 60_000,
+          queryFn: () => fetchLifecycleBrazeCanvasDetail(clientId, journeyDbId),
+          staleTime: LIFECYCLE_CANVAS_DETAIL_STALE_MS,
         });
-      }, i * 100);
+      }, delay);
     });
   }, [journeys, brazeReadClientId, workspaceClientId, queryClient]);
 
@@ -656,6 +475,33 @@ export default function Lifecycle() {
     if (explicitSetting !== undefined) return explicitSetting;
     return true;
   }, [visibilityMap]);
+
+  /**
+   * Open the modal immediately. Never `await` the detail fetch here — large `raw_steps` JSON can take many
+   * seconds and looked like “cards don’t open”. Detail still loads via the same query key + shared `queryFn`
+   * (often already warm from list prefetch / hover).
+   */
+  const prefetchCanvasDetailForJourney = useCallback(
+    (journey: { dbId?: string; id?: string }) => {
+      const clientId = brazeReadClientId ?? workspaceClientId;
+      const journeyDbId = String(journey.dbId ?? journey.id ?? '');
+      if (!clientId || !journeyDbId) return;
+      void queryClient.prefetchQuery({
+        queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
+        queryFn: () => fetchLifecycleBrazeCanvasDetail(clientId, journeyDbId),
+        staleTime: LIFECYCLE_CANVAS_DETAIL_STALE_MS,
+      });
+    },
+    [brazeReadClientId, workspaceClientId, queryClient],
+  );
+
+  const openJourneyDetail = useCallback(
+    (journey: (typeof journeys)[number]) => {
+      setSelectedJourney(journey);
+      prefetchCanvasDetailForJourney(journey);
+    },
+    [prefetchCanvasDetailForJourney],
+  );
 
   const pickableJourneys = useMemo(
     () =>
@@ -730,7 +576,7 @@ export default function Lifecycle() {
     }
   }, [brazeReadClientId, hiddenCanvasDbIds, lifecycleCanvasPrefsReady]);
 
-  // Filter journeys, then sort (touchpoints vs time running)
+  // Filter journeys, then sort (name / Canvas tag / time running)
   const filteredJourneys = useMemo(() => {
     const filtered = journeys.filter((journey) => {
       if (!isItemVisible(journey.id)) return false;
@@ -770,6 +616,8 @@ export default function Lifecycle() {
       return matchesSearch && matchesChannel && matchesLaunchDate;
     });
     if (lifecycleSortMode === 'touchpoints') return sortJourneysByTouchpointsDesc(filtered);
+    if (lifecycleSortMode === 'name') return sortJourneysByNameAsc(filtered);
+    if (lifecycleSortMode === 'tag') return sortJourneysByFirstTagAsc(filtered);
     if (lifecycleSortMode === 'time_running_short') return sortJourneysByTimeRunning(filtered, 'asc');
     return sortJourneysByTimeRunning(filtered, 'desc');
   }, [
@@ -846,52 +694,8 @@ export default function Lifecycle() {
             titleClassName="text-4xl sm:text-5xl text-black dark:text-white"
             description={
               canViewLifecycleFromBraze
-                ? 'Browse synced Braze canvases as journeys — same card layout as Campaigns.'
+                ? 'Preview synced Braze canvases as journeys (steps load per canvas from your workspace DB). Sort by Canvas tags from Braze; open a card for the full flow.'
                 : 'Connect Braze to sync multi-touch journeys into this workspace.'
-            }
-            actions={
-              lifecycleSyncPlatform?.is_connected ? (
-                <div className="flex flex-col items-end gap-2">
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={syncing || !lifecycleSyncPlatform}
-                      onClick={handleSyncFromBraze}
-                      className="border-teal-500/25 bg-background/80 shadow-sm hover:bg-teal-500/[0.06] dark:border-teal-400/20"
-                    >
-                      {syncing ? (
-                        <LoadingSpinner size="sm" className="mr-2" />
-                      ) : (
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                      )}
-                      Sync from Braze
-                    </Button>
-                    <Badge className="border border-teal-500/20 bg-teal-500/10 text-xs font-normal text-teal-800 dark:text-teal-200">
-                      Braze connected
-                    </Badge>
-                  </div>
-                  {syncProgress && syncProgress.total > 0 && (
-                    <div className="w-full min-w-[220px] max-w-sm">
-                      <p className="mb-1.5 text-xs text-muted-foreground">
-                        {`Syncing ${syncProgress.current} of ${syncProgress.total} canvases…`}
-                      </p>
-                      <Progress
-                        value={
-                          syncProgress.total > 0
-                            ? Math.min(100, (syncProgress.current / syncProgress.total) * 100)
-                            : 0
-                        }
-                      />
-                    </div>
-                  )}
-                  {syncPausedAt != null && !syncing && (
-                    <p className="max-w-sm text-right text-xs text-amber-800 dark:text-amber-200">
-                      Sync paused at {syncPausedAt} — click Sync from Braze to resume
-                    </p>
-                  )}
-                </div>
-              ) : undefined
             }
           />
         </div>
@@ -983,7 +787,9 @@ export default function Lifecycle() {
                 <Select
                   value={lifecycleSortMode}
                   onValueChange={(v) =>
-                    setLifecycleSortMode(v as 'touchpoints' | 'time_running_short' | 'time_running_long')
+                    setLifecycleSortMode(
+                      v as 'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long',
+                    )
                   }
                 >
                   <SelectTrigger className="w-[220px] border-border/70 bg-background/80">
@@ -991,6 +797,8 @@ export default function Lifecycle() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="touchpoints">Touchpoints (most first)</SelectItem>
+                    <SelectItem value="name">Name (A–Z)</SelectItem>
+                    <SelectItem value="tag">Canvas tag (A–Z)</SelectItem>
                     <SelectItem value="time_running_short">Time running · shortest first</SelectItem>
                     <SelectItem value="time_running_long">Time running · longest first</SelectItem>
                   </SelectContent>
@@ -1148,7 +956,7 @@ export default function Lifecycle() {
               />
               <LifecycleMetricTile
                 icon={GitBranch}
-                label="Steps (touchpoints + flow)"
+                label="Steps (messaging estimate)"
                 value={String(messagingStepsTotal)}
                 color="bg-amber-500/15 text-amber-800 dark:text-amber-300"
                 glowClass="from-amber-500/45"
@@ -1174,15 +982,9 @@ export default function Lifecycle() {
                     <Workflow className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
                     <p className="font-medium text-foreground">No journeys synced yet</p>
                     <p className="max-w-md text-sm text-muted-foreground">
-                      Run sync from Campaigns so rows appear in{' '}
+                      Run <strong className="font-medium text-foreground">Sync All from Braze</strong> on the Dashboard so rows appear in{' '}
                       <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">braze_canvases</code>.
                     </p>
-                    <Button variant="outline" size="sm" className="mt-2" asChild>
-                      <Link to="/campaigns" className="inline-flex items-center gap-2">
-                        Open Campaigns
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
-                    </Button>
                   </div>
                 ) : filteredJourneys.length === 0 ? (
                   <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
@@ -1199,27 +1001,9 @@ export default function Lifecycle() {
                       journey={journey}
                       viewMode={viewMode}
                       listPageIndex={viewMode === 'grid' ? journeyIdx : undefined}
-                      onClick={() => setSelectedJourney(journey)}
-                      onPointerEnter={() => {
-                        const journeyDbId = String(journey.dbId ?? journey.id ?? '');
-                        const clientId = brazeReadClientId ?? workspaceClientId;
-                        if (!clientId || !journeyDbId) return;
-                        void queryClient.prefetchQuery({
-                          queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
-                          queryFn: async () => {
-                            const { data, error } = await supabase
-                              .from('braze_canvases')
-                              .select('raw_steps,raw_variants')
-                              .eq('client_id', clientId)
-                              .eq('id', journeyDbId)
-                              .maybeSingle();
-                            if (error) throw error;
-                            preloadJourneyStepImages(data?.raw_steps);
-                            return data as Record<string, unknown> | null;
-                          },
-                          staleTime: 30_000,
-                        });
-                      }}
+                      onClick={() => openJourneyDetail(journey)}
+                      onPointerEnter={() => prefetchCanvasDetailForJourney(journey)}
+                      onPointerDown={() => prefetchCanvasDetailForJourney(journey)}
                     />
                   ))
                 )}
@@ -1403,7 +1187,9 @@ export default function Lifecycle() {
                     {(message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview) ? (
                       <div className="border rounded-lg overflow-hidden bg-white">
                         <iframe
-                          srcDoc={sanitizeHtml(message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview)}
+                          srcDoc={sanitizeBrazeEmailHtmlForIframe(
+                            message?.html_content || selectedTouchpoint.html_content || selectedTouchpoint.html_preview,
+                          )}
                           className="w-full h-[600px]"
                           title="Email Preview"
                           sandbox=""
@@ -1461,7 +1247,12 @@ export default function Lifecycle() {
                       if (isHtmlBody) {
                         return (
                           <div className="border rounded-lg overflow-hidden bg-white">
-                            <iframe srcDoc={sanitizeHtml(bodyContent)} className="w-full h-[600px]" title="In-App Message Preview" sandbox="" />
+                            <iframe
+                              srcDoc={sanitizeBrazeEmailHtmlForIframe(bodyContent)}
+                              className="w-full h-[600px]"
+                              title="In-App Message Preview"
+                              sandbox=""
+                            />
                           </div>
                         );
                       }
@@ -1599,6 +1390,40 @@ function journeyCardChannelPillList(channels: string[] | undefined): Array<{
     });
 }
 
+/** Fills the flow area while canvas detail loads — reads as “layout arriving”, not an error state. */
+function JourneyFlowPreviewSkeleton() {
+  return (
+    <div
+      className="space-y-4 rounded-xl border border-border/50 bg-gradient-to-b from-muted/30 via-muted/10 to-transparent p-4 shadow-inner"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Workflow className="h-4 w-4 shrink-0 text-muted-foreground/50" aria-hidden />
+          <div className="h-3 w-32 rounded-full bg-muted-foreground/12" />
+        </div>
+        <div className="h-5 w-24 rounded-md bg-muted-foreground/10" />
+      </div>
+      <div className="flex gap-3 overflow-hidden pb-1 pt-0.5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="w-[200px] shrink-0 space-y-2 rounded-lg border border-border/40 bg-card/90 p-2 shadow-sm"
+            style={{ animationDelay: `${i * 70}ms` }}
+          >
+            <div className="h-[120px] w-full animate-pulse rounded-md bg-gradient-to-br from-muted-foreground/[0.09] to-muted-foreground/[0.04]" />
+            <div className="h-2 w-[88%] animate-pulse rounded-full bg-muted-foreground/10" />
+            <div className="h-2 w-[55%] animate-pulse rounded-full bg-muted-foreground/10" />
+          </div>
+        ))}
+      </div>
+      <span className="sr-only">Journey path preview is preparing</span>
+    </div>
+  );
+}
+
 // Journey Card Component — Campaigns-style hero + touchpoints + per-channel pills + View journey
 function JourneyCard({
   journey,
@@ -1606,6 +1431,7 @@ function JourneyCard({
   listPageIndex,
   onClick,
   onPointerEnter,
+  onPointerDown,
 }: {
   journey: any;
   viewMode: 'grid' | 'list';
@@ -1613,6 +1439,8 @@ function JourneyCard({
   listPageIndex?: number;
   onClick: () => void;
   onPointerEnter?: () => void;
+  /** Warms canvas detail before click (pointer down fires before click — hides perceived lag). */
+  onPointerDown?: () => void;
 }) {
   const titleText = String(journey.displayName || journey.name || 'Journey');
   const titleForVisual = String(journey.name ?? journey.displayName ?? '');
@@ -1636,6 +1464,9 @@ function JourneyCard({
     (journey as { db_total_steps?: number }).db_total_steps,
   );
   const channelPills = journeyCardChannelPillList(channels);
+  const canvasTags = Array.isArray(journey.tags)
+    ? (journey.tags as unknown[]).filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, 8)
+    : [];
 
   const titleIconBadge = (
     <div
@@ -1663,7 +1494,7 @@ function JourneyCard({
           ? 'border-amber-500/35 bg-amber-500/[0.08] text-amber-900 dark:text-amber-200'
           : 'border-teal-500/25 bg-gradient-to-r from-teal-500/[0.08] to-emerald-500/[0.06] text-teal-800 dark:text-teal-200',
       )}
-      title={stepBadge.variant === 'db_only' ? 'Step JSON not loaded for this canvas yet — use Sync from Braze' : undefined}
+      title={stepBadge.variant === 'db_only' ? 'Step JSON not loaded for this canvas yet — run Sync All from Braze on the Dashboard' : undefined}
     >
       <GitBranch className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
       <span className="min-w-0 text-left leading-snug">{stepBadge.line}</span>
@@ -1700,6 +1531,22 @@ function JourneyCard({
     </div>
   );
 
+  const tagPillRow =
+    canvasTags.length > 0 ? (
+      <div className="flex flex-wrap gap-1.5">
+        {canvasTags.map((tag) => (
+          <Badge
+            key={tag}
+            variant="secondary"
+            className="max-w-[140px] truncate text-[10px] font-normal border-border/60 text-muted-foreground"
+            title={tag}
+          >
+            {tag}
+          </Badge>
+        ))}
+      </div>
+    ) : null;
+
   if (viewMode === 'list') {
     return (
       <Card
@@ -1711,6 +1558,10 @@ function JourneyCard({
         )}
         onPointerEnter={() => {
           onPointerEnter?.();
+          if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
+        }}
+        onPointerDown={() => {
+          onPointerDown?.();
           if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
         }}
         onClick={open}
@@ -1743,6 +1594,7 @@ function JourneyCard({
             {touchpointBadge}
             {statusBadges}
             {channelPillRow}
+            {tagPillRow}
           </div>
           <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
             <span className="flex items-center justify-end gap-1 text-xs tabular-nums text-muted-foreground sm:justify-start">
@@ -1769,6 +1621,10 @@ function JourneyCard({
       )}
       onPointerEnter={() => {
         onPointerEnter?.();
+        if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
+      }}
+      onPointerDown={() => {
+        onPointerDown?.();
         if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
       }}
       onClick={open}
@@ -1816,6 +1672,7 @@ function JourneyCard({
         {touchpointBadge}
         {statusBadges}
         {channelPillRow}
+        {tagPillRow}
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
           <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
             <Calendar className="h-3 w-3 shrink-0" aria-hidden />
@@ -1848,25 +1705,22 @@ function JourneyDetail({
 }) {
   const journeyDbId = String((journey as { dbId?: string }).dbId ?? journey.id ?? '');
 
-  const { data: detailRow } = useQuery({
+  const {
+    data: detailRow,
+    isError: detailIsError,
+    error: detailErrorObj,
+    isFetched: detailFetched,
+  } = useQuery({
     queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('braze_canvases')
-        .select('raw_steps,raw_variants')
-        .eq('client_id', clientId!)
-        .eq('id', journeyDbId)
-        .maybeSingle();
-      if (error) throw error;
-      preloadJourneyStepImages(data?.raw_steps);
-      return data as Record<string, unknown> | null;
-    },
+    queryFn: () => fetchLifecycleBrazeCanvasDetail(clientId!, journeyDbId),
     enabled: !!clientId && !!journeyDbId,
-    staleTime: 60_000,
+    staleTime: LIFECYCLE_CANVAS_DETAIL_STALE_MS,
   });
 
   const merged = useMemo(() => {
     if (!detailRow) return journey;
+    const rowId = detailRow.id != null ? String(detailRow.id).trim() : '';
+    if (rowId && rowId !== journeyDbId) return journey;
     const stepsRecord = normalizeRawSteps(detailRow.raw_steps);
     const variants = (detailRow.raw_variants ?? journey.variants) as CanvasVariant[];
     const priorSteps = normalizeRawSteps(journey.steps);
@@ -1899,6 +1753,11 @@ function JourneyDetail({
     };
   }, [journey, detailRow]);
 
+  const stepsRecord = useMemo(
+    () => normalizeRawSteps(merged.steps as Record<string, LifecycleCanvasStep> | undefined),
+    [merged.steps],
+  );
+
   const [editableDescription, setEditableDescription] = useState<string>(() => {
     const d = merged.description != null ? String(merged.description) : '';
     return d && d !== 'Automated lifecycle journey'
@@ -1923,17 +1782,43 @@ function JourneyDetail({
   
   const { Icon, gradient, shadow } = getJourneyVisuals(String(merged.name ?? ''));
 
-  const stepsRecord = normalizeRawSteps(merged.steps as Record<string, LifecycleCanvasStep> | undefined);
   const stepSummaryBadge = formatLifecycleStepBadge(
     stepsRecord,
     (merged as { db_total_steps?: number }).db_total_steps,
   );
-  const channelCounts = Object.values(stepsRecord).reduce((acc: Record<string, number>, step: LifecycleCanvasStep) => {
-    if (!isMessagingTouchpointStep(step)) return acc;
-    const ch = getLifecycleStepChannel(step) || 'email';
-    acc[ch] = (acc[ch] || 0) + 1;
-    return acc;
-  }, {});
+  const channelCounts = useMemo(
+    () =>
+      Object.values(stepsRecord).reduce((acc: Record<string, number>, step: LifecycleCanvasStep) => {
+        if (!isMessagingTouchpointStep(step)) return acc;
+        const ch = getLifecycleStepChannel(step) || 'email';
+        acc[ch] = (acc[ch] || 0) + 1;
+        return acc;
+      }, {}),
+    [stepsRecord],
+  );
+
+  const flowChartCanvas = useMemo(() => {
+    if (Object.keys(stepsRecord).length === 0) return null;
+    return {
+      id: String((merged as { dbId?: string }).dbId ?? merged.id),
+      name: String(merged.name ?? ''),
+      description: merged.description as string | undefined,
+      enabled: merged.enabled !== false,
+      draft: Boolean(merged.draft),
+      variants: (merged.variants as CanvasVariant[]) || [],
+      steps: stepsRecord as Record<string, CanvasStep>,
+      tags: merged.tags as string[] | undefined,
+      first_entry: merged.first_entry as string | undefined,
+      last_entry: merged.last_entry as string | undefined,
+    };
+  }, [merged, stepsRecord]);
+
+  const handleFlowViewStep = useCallback(
+    (step: CanvasStep) => {
+      onViewTouchpoint({ ...step, delay: step.delay_formatted });
+    },
+    [onViewTouchpoint],
+  );
 
   const getEntryType = (): string => {
     const sched = merged.schedule_type ? String(merged.schedule_type).toLowerCase() : '';
@@ -2126,24 +2011,46 @@ function JourneyDetail({
             )}
           </div>
 
-          {/* Flow Chart */}
-          {Object.keys(stepsRecord).length > 0 && (
-            <HorizontalFlowChart
-              canvas={{
-                id: String(merged.id),
-                name: String(merged.name ?? ''),
-                description: merged.description as string | undefined,
-                enabled: merged.enabled !== false,
-                draft: Boolean(merged.draft),
-                variants: (merged.variants as CanvasVariant[]) || [],
-                steps: stepsRecord as Record<string, CanvasStep>,
-                tags: merged.tags as string[] | undefined,
-                first_entry: merged.first_entry as string | undefined,
-                last_entry: merged.last_entry as string | undefined,
-              }}
-              onViewStep={(step) => onViewTouchpoint({ ...step, delay: step.delay_formatted })}
-            />
-          )}
+          {/* Flow chart: list rows omit raw_steps; click-open waits for cache so touchpoints render without a loading step. */}
+          {flowChartCanvas ? (
+            <HorizontalFlowChart canvas={flowChartCanvas} onViewStep={handleFlowViewStep} />
+          ) : inDialog && !detailFetched && !detailIsError ? (
+            <JourneyFlowPreviewSkeleton />
+          ) : detailIsError ? (
+            <Alert variant="destructive" className="border-destructive/40">
+              <AlertDescription>
+                Could not load step data for this canvas.{' '}
+                {detailErrorObj instanceof Error ? detailErrorObj.message : 'Try again in a moment.'}
+              </AlertDescription>
+            </Alert>
+          ) : detailFetched && detailRow === null ? (
+            <Alert className="border-amber-500/35 bg-amber-500/[0.06]">
+              <AlertDescription>
+                This canvas was not found for the current workspace (it may have been removed or the workspace
+                changed). Close the dialog and refresh the Lifecycle list.
+              </AlertDescription>
+            </Alert>
+          ) : Object.keys(stepsRecord).length === 0 &&
+            typeof (merged as { db_total_steps?: number }).db_total_steps === 'number' &&
+            ((merged as { db_total_steps?: number }).db_total_steps ?? 0) > 0 ? (
+            <Alert className="border-primary/25 bg-primary/[0.04]">
+              <AlertDescription className="text-muted-foreground">
+                Braze reports {(merged as { db_total_steps?: number }).db_total_steps} steps, but step definitions
+                are not stored in the database yet (empty <code className="rounded bg-muted px-1 py-0.5">raw_steps</code>
+                ). Run <strong className="font-medium text-foreground">Sync from Braze</strong> from the{' '}
+                <Link to="/dashboard" className="font-medium text-primary underline-offset-4 hover:underline">
+                  Dashboard
+                </Link>{' '}
+                so a full sync can load canvas details into this workspace.
+              </AlertDescription>
+            </Alert>
+          ) : Object.keys(stepsRecord).length === 0 ? (
+            <Alert>
+              <AlertDescription className="text-muted-foreground">
+                No journey steps are recorded for this canvas.
+              </AlertDescription>
+            </Alert>
+          ) : null}
         </CardContent>
       </Card>
     </div>

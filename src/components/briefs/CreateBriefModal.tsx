@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow } from '@/hooks/useDoubleGoodClient';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -53,7 +53,7 @@ const CHANNELS: { id: Channel; label: string; icon: React.ReactNode; description
 ];
 
 export function CreateBriefModal({ open, onOpenChange }: CreateBriefModalProps) {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();

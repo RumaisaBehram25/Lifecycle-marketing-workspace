@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sparkles, Send, ArrowRight, Loader2 } from 'lucide-react';
-import { useDoubleGoodClient, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow, useDoubleGoodPlatforms } from '@/hooks/useDoubleGoodClient';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
 import { useBrazeSegmentsDirectory } from '@/hooks/useBrazeSegmentsDirectory';
 import { useToast } from '@/hooks/use-toast';
@@ -26,7 +26,7 @@ export function EmbeddedChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const { data: platforms } = useDoubleGoodPlatforms();
   const { clientId: brazeAnalyticsClientId } = useBrazeDashboardClientId();
   const segmentClientId = brazeAnalyticsClientId ?? client?.id;

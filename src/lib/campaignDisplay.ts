@@ -41,7 +41,8 @@ export function containsBrazeLiquidSyntax(input: string | null | undefined): boo
   return /\{%/.test(input) || /\{\{/.test(input);
 }
 
-const LIQUID_TAG_RE = /\{%[\s\S]*?%\}/g;
+/** Liquid control tags: `{% … %}`, `{%- … %}`, `{%- … -%}`, etc. (aligned with `brazeMessagePreviewText` stripper). */
+const LIQUID_TAG_RE = /\{%-?[\s\S]*?-?%\}/g;
 
 /**
  * Find the index of the first `}` in the closing `}}` for a `{{ … }}` tag at `openIdx`,
@@ -131,7 +132,12 @@ function replaceBrazeLiquidVariableTagForPreview(fullTag: string): string {
  * (e.g. `{{custom_attribute.${username}}}`, `{{content_blocks.${Email-Footer-Global}}}`).
  */
 export function stripBrazeLiquidFromEmailHtmlForPreview(html: string): string {
-  let s = html.replace(LIQUID_TAG_RE, '');
+  let s = html;
+  for (let i = 0; i < 48; i++) {
+    const next = s.replace(LIQUID_TAG_RE, '');
+    if (next === s) break;
+    s = next;
+  }
   s = replaceLiquidDoubleBraceTags(s, replaceBrazeLiquidVariableTagForPreview);
   // Safety: if any legacy partial tag leaked "…}" next to an ellipsis, strip the stray brace
   s = s.replace(/\u2026\s*\}/g, '\u2026');
@@ -144,11 +150,15 @@ export function stripBrazeLiquidFromEmailHtmlForPreview(html: string): string {
  */
 export function stripBrazeLiquidForDisplay(input: string): string {
   let s = input;
-  const elseMatch = s.match(/\{%\s*else\s*%\}([\s\S]*?)\{%\s*endif\s*%\}/i);
+  const elseMatch = s.match(/\{%-?\s*else\s*-?%\}([\s\S]*?)\{%-?\s*endif\s*-?%\}/i);
   if (elseMatch) {
     s = elseMatch[1].trim();
   }
-  s = s.replace(LIQUID_TAG_RE, ' ');
+  for (let i = 0; i < 48; i++) {
+    const next = s.replace(LIQUID_TAG_RE, ' ');
+    if (next === s) break;
+    s = next;
+  }
   s = replaceLiquidDoubleBraceTags(s, () => ' ');
   s = s.replace(/\s+/g, ' ').trim();
   return s;
@@ -351,6 +361,24 @@ export function isLikelyNonHeroImageUrl(url: string): boolean {
     const parsed = new URL(abs);
     const host = parsed.hostname.toLowerCase();
     const full = (parsed.pathname + parsed.search).toLowerCase();
+    // Stripo-hosted emails: Linktree nav art often has UUID paths — use hostname + size hints.
+    if (isStripoEmailCdnHostname(raw)) {
+      const fq = `${parsed.hostname}${parsed.pathname}${parsed.search}`.toLowerCase();
+      if (
+        /linktr|linktree|\blt[-_/]|phonograph|wordmark|\/nav|masthead|header[-_]logo|brand[-_]lockup|email[-_]header/i.test(
+          fq,
+        )
+      ) {
+        return true;
+      }
+      const ow = parseInt(parsed.searchParams.get('ow') || parsed.searchParams.get('width') || '', 10);
+      const oh = parseInt(parsed.searchParams.get('oh') || parsed.searchParams.get('height') || '', 10);
+      if (ow > 0 && oh > 0) {
+        const r = ow / Math.max(oh, 1);
+        // Wide short strips = header wordmark / nav lockup (cropped “linktr”), not section heroes.
+        if (oh <= 72 && r >= 3.8 && ow <= 820 && ow * oh < 240_000) return true;
+      }
+    }
     // Wordmark file segments on any CDN (cropped “linktr” art often still named like this)
     if (
       /(^|[/._-])linktr(?:ee)?([/._-]|[.][a-z]{2,4}(\?|#|$))|linktree[-_]?(logo|wordmark|brand|header|nav)/i.test(
@@ -653,6 +681,35 @@ function pickLongestRelaxedEmailMarkupFragment(raw: Record<string, unknown> | nu
 }
 
 /**
+ * HTML for a small **campaign card** iframe when no hero image URL is available (Braze bodies often have
+ * layout/images that {@link extractHeroImageFromHtml} skips as logo-ish).
+ */
+export function resolveCampaignCardEmailIframeHtml(
+  raw: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const strict = pickBestEmailHtmlString(raw);
+  if (strict?.trim()) return strict;
+  const relaxed = pickLongestRelaxedEmailMarkupFragment(raw);
+  if (relaxed?.trim()) return relaxed;
+
+  const all = collectEmailHtmlSourceStrings(raw);
+  const markupish = all.filter(
+    (s) =>
+      s.trim().length >= 16 &&
+      (emailLooksLikeHtml(s) || /<img\b/i.test(s) || /<table/i.test(s) || /<div\b/i.test(s)),
+  );
+  if (markupish.length > 0) return [...markupish].sort((a, b) => b.length - a.length)[0];
+
+  const ep = raw.email_html_preview;
+  if (typeof ep === 'string') {
+    const t = ep.trim();
+    if (t.length >= 16) return t;
+  }
+  return undefined;
+}
+
+/**
  * Longest usable HTML blob for **grid** hero extraction: strict → relaxed → short `email_html_preview` with an `<img>`.
  */
 export function pickEmailHtmlForGridHeroExtraction(
@@ -757,49 +814,93 @@ export function extractStripocdnImgSrcFromHtml(html: string | null | undefined):
   return normalizeImageUrlString(raw) ?? null;
 }
 
+/** Every Stripo `<img src>` in document order — Linktree templates put the wordmark first; heroes follow. */
+function collectStripocdnImgSrcsFromHtmlInOrder(html: string | null | undefined): string[] {
+  if (!html || typeof html !== 'string') return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /<img[^>]+src=["']([^"']+stripocdn[^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const raw = m[1]?.trim();
+    const n = raw ? normalizeImageUrlString(raw) : '';
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * Direct link-in-bio hosts (linktr.ee, etc.): Braze often stores the nav wordmark as `preview_image_url`.
+ * Reject unless the path clearly looks like a hero/marketing image so the card can fall back to HTML iframe.
+ */
+function isBareLinktreeHostThumbnailUrl(url: string): boolean {
+  if (!isLinktreeHostname(url)) return false;
+  const u = url.toLowerCase();
+  if (
+    /(hero|banner|campaign|content|feature|story|photo|product|gallery|device|cta|og-image|social-share|email|header[-_]hero|main[-_]image)/i.test(
+      u,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Final gate for **listing** thumbnails — blocks header logos / Linktree marks / tracking art. */
+function acceptResolvedCampaignCardThumbnailUrl(candidate: string | undefined | null): string | undefined {
+  if (!candidate) return undefined;
+  const n = normalizeImageUrlString(candidate.trim());
+  if (!n) return undefined;
+  if (isLikelyLogo(n)) return undefined;
+  if (isLikelyNonHeroImageUrl(n)) return undefined;
+  if (isLikelyLogoHeaderOrBranding(n)) return undefined;
+  if (isBareLinktreeHostThumbnailUrl(n)) return undefined;
+  return n;
+}
+
 /**
  * Single source of truth for **campaign listing** card thumbnails (grid/list).
  *
- * Priority: (1) DB `image_url` column (S3 screenshot / upload), (2) `raw_details.preview_image_url`,
- * (3) Stripo `src` in `email_html_preview`, (4) Stripo `src` in `messages.*.body`, (5) full HTML hero
- * extraction, (6) other Braze fallbacks.
+ * Priority: (1) Stripo `<img>`s from `email_html_preview` + `messages.*` (first acceptable — skips Linktree wordmark),
+ * (2) scored HTML hero, (3) permissive / other Braze URL fields, (4) `raw_details.preview_image_url` (often = first `<img>`),
+ * (5) DB `image_url` (S3 screenshot — can be stale / header crop; kept last so HTML beats it when ambiguous).
  */
 export function resolveCampaignCardThumbnailUrl(input: {
   rawDetails: Record<string, unknown> | null | undefined;
   imageUrlColumn?: string | null;
 }): string | undefined {
   const raw = input.rawDetails;
+  const ordered: string[] = [];
+
+  const push = (u: string | undefined | null) => {
+    const n = typeof u === 'string' ? normalizeImageUrlString(u.trim()) : '';
+    if (n) ordered.push(n);
+  };
+
   const fromCol = typeof input.imageUrlColumn === 'string' ? input.imageUrlColumn.trim() : '';
-  const fromColumn =
-    fromCol && !isLikelyLogo(fromCol) ? normalizeImageUrlString(fromCol) || '' : '';
 
-  // 1) `braze_campaigns.image_url` — must win when present (deduped row with S3 screenshot)
-  if (fromColumn) return fromColumn;
+  if (!raw || typeof raw !== 'object') {
+    if (fromCol) push(fromCol);
+    for (const u of ordered) {
+      const ok = acceptResolvedCampaignCardThumbnailUrl(u);
+      if (ok) return ok;
+    }
+    return undefined;
+  }
 
-  if (!raw || typeof raw !== 'object') return undefined;
+  const emailPrev = typeof raw.email_html_preview === 'string' ? raw.email_html_preview : '';
+  for (const s of collectStripocdnImgSrcsFromHtmlInOrder(emailPrev)) push(s);
 
-  const rawPreview =
-    typeof raw.preview_image_url === 'string' ? raw.preview_image_url.trim() : '';
-  const fromPreview =
-    rawPreview && !isLikelyLogo(rawPreview) ? normalizeImageUrlString(rawPreview) || '' : '';
-  // 2) `raw_details.preview_image_url`
-  if (fromPreview) return fromPreview;
-
-  const emailPrev =
-    typeof raw.email_html_preview === 'string' ? raw.email_html_preview : '';
-  // 3) Stripo in `email_html_preview`
-  const stripoFromEmailPrev = extractStripocdnImgSrcFromHtml(emailPrev);
-  if (stripoFromEmailPrev) return stripoFromEmailPrev;
-
-  // 4) Stripo in `messages.{id}.body`
   const messages = raw.messages as Record<string, unknown> | undefined;
   if (messages && typeof messages === 'object' && !Array.isArray(messages)) {
     for (const msg of Object.values(messages)) {
       if (!msg || typeof msg !== 'object' || Array.isArray(msg)) continue;
       const body = (msg as Record<string, unknown>).body;
       if (typeof body === 'string' && body) {
-        const s = extractStripocdnImgSrcFromHtml(body);
-        if (s) return s;
+        for (const s of collectStripocdnImgSrcsFromHtmlInOrder(body)) push(s);
       }
     }
   }
@@ -809,13 +910,24 @@ export function resolveCampaignCardThumbnailUrl(input: {
   const heroFromHtml =
     (htmlLongest ? extractHeroImageFromHtml(htmlLongest) : null) ??
     (htmlGrid ? extractHeroImageFromHtml(htmlGrid) : null);
-  if (heroFromHtml) return heroFromHtml;
+  if (heroFromHtml) push(heroFromHtml);
 
-  return (
-    extractPermissiveCardPreviewImageUrl(raw) ||
-    extractPreviewImageUrl(raw) ||
-    undefined
-  );
+  const permissive = extractPermissiveCardPreviewImageUrl(raw);
+  if (permissive) push(permissive);
+  const preview = extractPreviewImageUrl(raw);
+  if (preview) push(preview);
+
+  if (typeof raw.preview_image_url === 'string' && raw.preview_image_url.trim()) {
+    push(raw.preview_image_url.trim());
+  }
+
+  if (fromCol) push(fromCol);
+
+  for (const u of ordered) {
+    const ok = acceptResolvedCampaignCardThumbnailUrl(u);
+    if (ok) return ok;
+  }
+  return undefined;
 }
 
 /** True when we can render `srcDoc` in the campaign modal iframe (strict or relaxed markup). */
@@ -1292,10 +1404,10 @@ export function pickBestImageUrlFromHtml(
       ) {
         continue;
       }
-      // Linktree marketing mail: first <img> is almost always the nav wordmark — skip even when it is the only <img>
-      // (hero is often a background `url()` or we show no thumbnail rather than the logo).
-      if (imgTagIndex === 0 && isLinktreeHostname(p.url)) continue;
-      // Stripo-hosted Linktree templates: same pattern, but only skip when another <img> exists (single-image emails may be the hero only).
+      // Linktree: first <img> is often the nav wordmark — skip only when a later <img> may be the real hero.
+      // If this is the only <img>, keep it so the grid shows a thumbnail instead of an empty placeholder.
+      if (hasMultipleImgTags && imgTagIndex === 0 && isLinktreeHostname(p.url)) continue;
+      // Stripo-hosted Linktree templates: same pattern when another <img> exists.
       if (hasMultipleImgTags && imgTagIndex === 0 && isStripoEmailCdnHostname(p.url)) continue;
       const meta: Partial<ImageTagMeta> = {
         widthHint: w,
@@ -1472,7 +1584,7 @@ export function extractPermissiveCardPreviewImageUrl(
       };
       if (isLikelyNonHeroImageUrl(n)) continue;
       if (isLikelyLogoHeaderOrBranding(n, meta)) continue;
-      if (imgTagIndex === 0 && isLinktreeHostname(n)) continue;
+      if (hasMultipleImgTags && imgTagIndex === 0 && isLinktreeHostname(n)) continue;
       if (hasMultipleImgTags && imgTagIndex === 0 && isStripoEmailCdnHostname(n)) continue;
       const score = contentImageMeritScore(n, meta);
       if (!bestCard || score > bestCard.score) bestCard = { url: n, score };
@@ -1489,7 +1601,6 @@ export function extractPermissiveCardPreviewImageUrl(
     bgIdx++;
     if (isLikelyNonHeroImageUrl(n)) continue;
     if (isLikelyLogoHeaderOrBranding(n, meta)) continue;
-    if (isLinktreeHostname(n)) continue;
     const score = contentImageMeritScore(n, meta);
     if (!bestCard || score > bestCard.score) bestCard = { url: n, score };
   }

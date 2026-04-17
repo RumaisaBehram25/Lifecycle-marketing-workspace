@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useDoubleGoodClient } from '@/hooks/useDoubleGoodClient';
+import { useActiveClientRow } from '@/hooks/useDoubleGoodClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; progress: nu
 };
 
 export function UpcomingBriefs() {
-  const { data: client } = useDoubleGoodClient();
+  const { data: client } = useActiveClientRow();
   const [selectedBrief, setSelectedBrief] = useState<DashboardBrief | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
 

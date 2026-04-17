@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { sanitizeHtml } from '@/lib/sanitizeHtml';
+import { sanitizeBrazeEmailHtmlForIframe } from '@/lib/sanitizeBrazeEmailIframe';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -586,7 +586,7 @@ export function EmailSection({ clientId, clientName, client }: EmailSectionProps
           <div className="flex-1 overflow-auto border rounded-lg bg-white min-h-[400px]">
             {previewEmail?.htmlContent ? (
               <iframe
-                srcDoc={sanitizeHtml(previewEmail.htmlContent)}
+                srcDoc={sanitizeBrazeEmailHtmlForIframe(previewEmail.htmlContent)}
                 className="w-full h-full min-h-[500px]"
                 title="Email Preview"
               />
@@ -621,7 +621,7 @@ function EmailCard({ email, onPreview }: { email: Email; onPreview: () => void }
           />
         ) : email.htmlContent ? (
           <iframe
-            srcDoc={sanitizeHtml(email.htmlContent)}
+            srcDoc={sanitizeBrazeEmailHtmlForIframe(email.htmlContent)}
             className="w-full h-full pointer-events-none scale-50 origin-top-left"
             style={{ width: '200%', height: '200%' }}
             title="Preview"
