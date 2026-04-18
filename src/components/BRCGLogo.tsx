@@ -1,29 +1,41 @@
-export function BRCGLogo({ className = "h-8 w-auto" }: { className?: string }) {
+import { cn } from '@/lib/utils';
+
+/** Served from `public/BRCG.png` (copy of project-root `BRCG.png`). */
+const BRCG_PNG_SRC = '/BRCG.png';
+
+const logoVisualBase =
+  'block h-auto w-auto max-w-full object-contain object-left [image-rendering:-webkit-optimize-contrast]';
+
+const iconVisualBase = 'block max-h-full max-w-full shrink-0 object-contain object-center';
+
+/** Full-width / header wordmark — same asset as icon, sized by `className`. */
+export function BRCGLogo({ className = 'h-8 w-auto', alt = 'BRCG' }: { className?: string; alt?: string }) {
   return (
-    <svg 
-      viewBox="0 0 160 40" 
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <text x="0" y="30" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" fontSize="28" fill="currentColor" letterSpacing="-0.5">
-        BRCG
-      </text>
-    </svg>
+    <img
+      src={BRCG_PNG_SRC}
+      alt={alt}
+      width={160}
+      height={40}
+      className={cn(
+        logoVisualBase,
+        'drop-shadow-sm dark:drop-shadow-[0_1px_3px_rgba(0,0,0,0.45)]',
+        className,
+      )}
+      decoding="async"
+    />
   );
 }
 
-export function BRCGIcon({ className = "h-6 w-6" }: { className?: string }) {
+/** Compact mark for sidebar, auth, chat — same PNG, constrained by `className` (often square wrapper). */
+export function BRCGIcon({ className = 'h-6 w-6', alt = 'BRCG' }: { className?: string; alt?: string }) {
   return (
-    <svg 
-      viewBox="0 0 24 24" 
-      className={className}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {/* Abstract mark - interlocking shapes */}
-      <path d="M4 6C4 4.89543 4.89543 4 6 4H11C12.1046 4 13 4.89543 13 6V11C13 12.1046 12.1046 13 11 13H6C4.89543 13 4 12.1046 4 11V6Z" fill="currentColor" opacity="0.9" />
-      <path d="M11 11C11 9.89543 11.8954 9 13 9H18C19.1046 9 20 9.89543 20 11V18C20 19.1046 19.1046 20 18 20H13C11.8954 20 11 19.1046 11 18V11Z" fill="currentColor" opacity="0.6" />
-      <path d="M11 4H13C14.1046 4 15 4.89543 15 6V8C15 8.55228 14.5523 9 14 9H11V4Z" fill="currentColor" opacity="0.75" />
-    </svg>
+    <img
+      src={BRCG_PNG_SRC}
+      alt={alt}
+      width={48}
+      height={48}
+      className={cn(iconVisualBase, 'drop-shadow-sm dark:drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]', className)}
+      decoding="async"
+    />
   );
 }

@@ -1,6 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="6" fill="#1e3a5f"/>
-  <path d="M7 9.5C7 8.11929 8.11929 7 9.5 7h6.5c1.3807 0 2.5 1.11929 2.5 2.5v6.5c0 1.3807-1.1193 2.5-2.5 2.5H9.5C8.11929 18.5 7 17.3807 7 16V9.5Z" fill="#60a5fa" opacity="0.95"/>
-  <path d="M16 16.5c0-1.3807 1.1193-2.5 2.5-2.5h6.5c1.3807 0 2.5 1.1193 2.5 2.5v6.5c0 1.3807-1.1193 2.5-2.5 2.5h-6.5c-1.3807 0-2.5-1.1193-2.5-2.5v-6.5Z" fill="#93c5fd" opacity="0.85"/>
-  <path d="M16 7h2.5c1.3807 0 2.5 1.11929 2.5 2.5V12c0 .5523-.4477 1-1 1H16V7Z" fill="#bfdbfe" opacity="0.9"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="BRCG">
+  <!-- White outer pad so the tab reads clean at 16–32px -->
+  <rect width="32" height="32" rx="9" fill="#ffffff"/>
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="none" stroke="#2563eb" stroke-opacity="0.35" stroke-width="1"/>
+  <!-- Brand blue tile -->
+  <rect x="5" y="5.5" width="22" height="21" rx="5" fill="#2563eb"/>
+  <text
+    x="16"
+    y="20.25"
+    text-anchor="middle"
+    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+    font-size="6.25"
+    font-weight="800"
+    fill="#ffffff"
+    letter-spacing="-0.02em"
+  >brcg.</text>
 </svg>

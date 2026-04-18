@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Mail, Lock, User } from 'lucide-react';
-import { BRCGIcon } from '@/components/BRCGLogo';
+import { BRCGLogo } from '@/components/BRCGLogo';
 
 export default function Auth() {
   const { user, isLoading, isApproved, signIn, signUp } = useAuth();
@@ -64,20 +64,16 @@ export default function Auth() {
   return (
     <div className="flex min-h-screen">
       {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-[#0a0a0a] items-center justify-center p-12">
-        <div className="max-w-md text-center">
-          <div className="mx-auto mb-8 inline-flex items-center justify-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary shadow-2xl shadow-primary/30">
-              <BRCGIcon className="h-12 w-12 text-primary-foreground" />
-            </div>
+      <div className="hidden items-center justify-center bg-gradient-to-br from-[#0a0a0a] via-[#0f0f0f] to-[#141414] p-10 lg:flex lg:w-1/2 lg:p-14">
+        <div className="w-full max-w-xl text-center">
+          <div className="mx-auto mb-10 flex flex-col items-center gap-5">
+            <BRCGLogo className="mx-auto h-14 w-auto max-w-[min(100%,22rem)] sm:h-16 md:h-[4.75rem] md:max-w-[min(100%,26rem)]" />
+            <h1 className="sr-only">BRCG — CRM Copilot</h1>
+            <p className="text-sm font-semibold uppercase tracking-[0.32em] text-white/60 sm:text-base sm:tracking-[0.36em] md:text-lg">
+              CRM Copilot
+            </p>
           </div>
-          <h1 className="font-bold text-5xl text-white mb-2 tracking-tight">
-            BRCG
-          </h1>
-          <p className="font-semibold text-sm uppercase tracking-widest text-white/50 mb-8">
-            CRM Copilot
-          </p>
-          <p className="text-lg text-white/70">
+          <p className="mx-auto max-w-md text-lg leading-relaxed text-white/70 sm:text-xl">
             AI-powered lifecycle marketing. Generate on-brand copy and template code for your email platform.
           </p>
         </div>
@@ -87,11 +83,11 @@ export default function Auth() {
       <div className="flex w-full lg:w-1/2 items-center justify-center p-4 sm:p-8 bg-background">
         <Card className="w-full max-w-md border-0 shadow-none lg:border lg:shadow-sm">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4 lg:hidden flex items-center justify-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary">
-                <BRCGIcon className="h-6 w-6 text-primary-foreground" />
-              </div>
-              <span className="font-bold text-xl">BRCG</span>
+            <div className="mx-auto mb-6 flex lg:hidden flex-col items-center gap-3">
+              <BRCGLogo className="h-11 w-auto max-w-[min(100%,15rem)] sm:h-12" />
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground sm:text-xs">
+                CRM Copilot
+              </p>
             </div>
             <CardTitle className="font-bold text-2xl">Welcome Back</CardTitle>
             <CardDescription>

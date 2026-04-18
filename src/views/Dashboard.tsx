@@ -28,7 +28,7 @@ import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
-import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
+import { BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
 import {
   campaignCleanupSearchText,
@@ -539,15 +539,14 @@ export default function Dashboard() {
         <Card id="braze-sync-all" className={dashboardSurfaceCardInteractive}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardContent className={cn('p-6', dashWashBrand)}>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="h-14 w-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25 ring-2 ring-primary/15">
-                <BRCGIcon className="h-8 w-8 text-primary-foreground" />
-              </div>
-              <div className="flex-1">
-                <BRCGLogo className="h-7 w-auto text-foreground" />
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+              <div className="min-w-0 flex-1">
+                <BRCGLogo className="h-12 w-auto max-w-[min(100%,24rem)] sm:h-14 md:h-16 md:max-w-[min(100%,28rem)]" />
+                <div className="mt-4 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   <span className={dashPill}>Live</span>
-                  <p className="text-sm text-muted-foreground">CRM Copilot — Lifecycle marketing command center</p>
+                  <p className="text-base font-medium text-muted-foreground sm:text-lg">
+                    CRM Copilot — Lifecycle marketing command center
+                  </p>
                 </div>
               </div>
               {brazePlatform && (

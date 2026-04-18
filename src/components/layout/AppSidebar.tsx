@@ -44,7 +44,7 @@ import {
   SidebarMenuSubButton,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { BRCGIcon } from '@/components/BRCGLogo';
+import { BRCGIcon, BRCGLogo } from '@/components/BRCGLogo';
 import { prefetchPageChunk } from '@/lib/prefetchRoutes';
 
 const resourceSubItems = [
@@ -83,22 +83,19 @@ export function AppSidebar() {
       <SidebarHeader className={`border-b border-sidebar-border ${isCollapsed ? 'p-1' : ''}`}>
         <Link
           to="/dashboard"
-          className={`flex items-center gap-3 ${isCollapsed ? 'justify-center p-1' : 'px-2 py-3'}`}
+          className={`group flex rounded-xl outline-none ring-primary/40 transition-opacity focus-visible:ring-2 hover:opacity-95 ${isCollapsed ? 'items-center justify-center px-1 py-2' : 'flex-col gap-2 px-2.5 py-3'}`}
           onMouseEnter={() => prefetchPageChunk('/dashboard')}
           onFocus={() => prefetchPageChunk('/dashboard')}
         >
-          <div className={`flex items-center justify-center rounded-xl bg-primary flex-shrink-0 transition-all ${isCollapsed ? 'h-9 w-9' : 'h-10 w-10'}`}>
-            <BRCGIcon className={`text-primary-foreground ${isCollapsed ? 'h-5 w-5' : 'h-6 w-6'}`} />
-          </div>
-          {!isCollapsed && (
-            <div className="flex flex-col">
-              <span className="text-xl font-bold text-sidebar-foreground tracking-tight">
-                BRCG
-              </span>
-              <span className="text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
+          {isCollapsed ? (
+            <BRCGIcon className="h-9 w-9 sm:h-10 sm:w-10" />
+          ) : (
+            <>
+              <BRCGLogo className="h-9 w-auto max-w-[min(100%,14rem)] sm:h-10 md:h-11" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sidebar-foreground/55 sm:text-xs sm:tracking-[0.26em]">
                 CRM Copilot
               </span>
-            </div>
+            </>
           )}
         </Link>
       </SidebarHeader>

@@ -90,9 +90,9 @@ export default function Chat() {
 
               <div className="flex-1 flex items-center justify-center p-6 sm:p-10 overflow-y-auto">
                 <div className="max-w-lg w-full text-center space-y-8">
-                  <div className="flex justify-center">
-                    <div className="h-24 w-24 rounded-3xl bg-gradient-to-br from-primary/20 to-violet-500/20 flex items-center justify-center ring-1 ring-border/60 shadow-inner">
-                      <BRCGIcon className="h-14 w-14 text-primary" />
+                  <div className="flex justify-center px-2">
+                    <div className="flex h-28 w-28 items-center justify-center rounded-[1.75rem] bg-gradient-to-br from-primary/25 via-violet-500/15 to-primary/10 p-4 shadow-inner ring-1 ring-border/50 ring-inset sm:h-32 sm:w-32 sm:rounded-[2rem] sm:p-5">
+                      <BRCGIcon className="h-[4.5rem] w-[4.5rem] max-h-[85%] max-w-[85%] sm:h-[5.25rem] sm:w-[5.25rem]" />
                     </div>
                   </div>
                   <div className="space-y-3">

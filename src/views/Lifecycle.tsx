@@ -1214,8 +1214,8 @@ export default function Lifecycle() {
                     <div className="max-w-sm mx-auto">
                       <div className="bg-card border rounded-2xl p-4 shadow-lg">
                         <div className="flex items-start gap-3">
-                          <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-                            <BRCGIcon className="h-5 w-5 text-primary-foreground" />
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl p-0.5">
+                            <BRCGIcon className="h-full w-full max-h-10 max-w-10 object-contain sm:max-h-11 sm:max-w-11" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs text-muted-foreground">BRCG • now</p>

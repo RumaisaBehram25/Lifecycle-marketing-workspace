@@ -17,7 +17,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { BRCGIcon } from '@/components/BRCGLogo';
+import { BRCGLogo } from '@/components/BRCGLogo';
 import { ClientChat } from '@/components/chat/ClientChat';
 import { useQueryClient } from '@tanstack/react-query';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -120,15 +120,11 @@ export default function Brand() {
           <div className="max-w-5xl mx-auto p-6 lg:p-10">
             
             {/* Header */}
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center">
-                  <BRCGIcon className="h-7 w-7 text-primary-foreground" />
-                </div>
-                <div>
-                  <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-snug pt-0.5 pb-0.5">BRCG</h1>
-                  <p className="text-sm text-muted-foreground">CRM Brand Guidelines</p>
-                </div>
+            <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-2 sm:gap-3">
+                <h1 className="sr-only">BRCG — CRM Brand Guidelines</h1>
+                <BRCGLogo className="h-11 w-auto max-w-[min(100%,16rem)] sm:h-12 md:h-14 md:max-w-[18rem]" />
+                <p className="text-base font-medium text-muted-foreground sm:text-lg">CRM Brand Guidelines</p>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
