@@ -17,6 +17,7 @@
     "backfill:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/backfill-campaign-creatives.ts",
     "migrate:campaign-creatives": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-creatives.ts",
     "sync:missing-raw-details": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/sync-missing-raw-details.ts",
+    "sync:lifecycle-touchpoints": "powershell -ExecutionPolicy Bypass -File scripts/sync-lifecycle-touchpoints.ps1",
     "migrate:campaign-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-campaign-images-to-s3.ts",
     "migrate:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/migrate-lifecycle-canvas-images-to-s3.ts",
     "patch:lifecycle-images-s3": "npx --yes tsx --tsconfig scripts/tsconfig.json scripts/patch-lifecycle-canvas-images-to-s3.ts",

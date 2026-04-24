@@ -8,12 +8,11 @@ import { useDashboardBrazeMetrics } from '@/hooks/useDashboardBrazeMetrics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
-  ArrowRight, CheckCircle2,
-  Workflow, Clock, Zap, Sparkles, ChevronDown, ChevronRight,
-  FolderOpen, FileText, MessageSquare, Layers, Search,
-  TrendingUp, TrendingDown, Minus, MailWarning,
+  ArrowRight, CheckCircle2, Mail,
+  Clock, Zap, Sparkles, ChevronDown, ChevronRight,
+  FolderOpen, FileText, MessageSquare, Layers,
+  TrendingUp, TrendingDown, Minus, MailWarning, Workflow,
   RefreshCw, Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -30,13 +29,8 @@ import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
 import { BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
+
 import {
-  campaignCleanupSearchText,
-  DASHBOARD_CAMPAIGN_HYGIENE_QK,
-  fetchCampaignHygieneDirectory,
-} from '@/lib/campaignHygiene';
-import {
-  dashBadgeSoft,
   dashIconChip,
   dashIconChipAccent,
   dashIconChipDestructive,
@@ -363,7 +357,7 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const brazeSyncHud = useDashboardBrazeSyncHud();
-  const [hygieneSearch, setHygieneSearch] = useState('');
+
 
   const handleSyncAll = useCallback(async () => {
     if (!clientId || !brazePlatform?.id) return;
@@ -424,7 +418,6 @@ export default function Dashboard() {
     queryClient.invalidateQueries({ queryKey: ['brief-counts', clientId] });
   };
   const {
-    canvasStats: brazeCanvas,
     segmentCount: brazeSegmentCount,
     segmentDirectorySource: brazeSegmentDirectorySource,
     scheduled: brazeScheduled,
@@ -469,48 +462,11 @@ export default function Dashboard() {
     enabled: !!clientId,
   });
 
-  const pillarItems = useMemo(() => {
-    const p = brazeCanvas.pillars;
-    if (!p || p === '—') return [];
-    return p.split(' · ').map((s) => s.trim()).filter(Boolean);
-  }, [brazeCanvas.pillars]);
 
-  const { data: lifecycleFlowsUpdated = 0 } = useQuery({
-    queryKey: ['dashboard-lifecycle-updated-30d', brazeMetricsClientId],
-    queryFn: async () => {
-      const cid = brazeMetricsClientId;
-      if (!cid) return 0;
-      const cutoffIso = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000)).toISOString();
-      const { count, error } = await supabase
-        .from('braze_canvases')
-        .select('id', { count: 'exact' })
-        .eq('client_id', cid)
-        .or('archived.is.null,archived.eq.false')
-        .gte('updated_at', cutoffIso)
-        .limit(1);
-      if (error) throw error;
-      return count ?? 0;
-    },
-    enabled: !!brazeMetricsClientId,
-  });
 
-  const { data: campaignDirectoryRows = [] } = useQuery({
-    queryKey: [DASHBOARD_CAMPAIGN_HYGIENE_QK, brazeMetricsClientId],
-    queryFn: async () => {
-      if (!brazeMetricsClientId) return [];
-      return fetchCampaignHygieneDirectory(brazeMetricsClientId);
-    },
-    enabled: !!brazeMetricsClientId,
-    staleTime: 30_000,
-  });
 
-  const hygieneQuery = hygieneSearch.trim().toLowerCase();
-  const filteredHygieneRows = campaignDirectoryRows
-    .filter((r) => {
-      if (!hygieneQuery) return true;
-      return campaignCleanupSearchText(r as Record<string, unknown>).toLowerCase().includes(hygieneQuery);
-    })
-    .slice(0, 200);
+
+
 
   useEffect(() => {
     if (import.meta.env.PROD || !clientId || !brazeMetricsClientId) return;
@@ -628,13 +584,13 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             <ClientProminentMetric
-              icon={Workflow}
-              label="Enabled canvases"
-              value={brazeCanvas.enabledInBraze.toLocaleString()}
-              footnote={`${brazeCanvas.syncedTotal.toLocaleString()} total synced (non-archived) · ${lifecycleFlowsUpdated} updated in last 30d`}
+              icon={Mail}
+              label="Emails Delivered"
+              value={brazeDerived.totalDeliveries.toLocaleString()}
+              footnote="Total emails delivered across all synced Braze campaigns"
               railClass={dashRailAccent}
               accentClass={cn(dashIconChipAccent, 'h-10 w-10 rounded-xl')}
-              warnZero={!!brazeMetricsClientId && brazeCanvas.enabledInBraze === 0 && brazeCanvas.syncedTotal > 0}
+              warnZero={!!brazeMetricsClientId && brazeDerived.totalDeliveries === 0 && brazeDerived.hasCampaignAgg}
             />
             <ClientProminentMetric
               icon={Layers}
@@ -671,88 +627,7 @@ export default function Dashboard() {
           isFetching={driveBriefsLoading}
         />
 
-        <div className="space-y-3">
-          <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
-            <div className={dashboardTopAccentClass} aria-hidden />
-            <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
-              <div>
-                <CardTitle className="flex items-center gap-2 text-2xl sm:text-3xl font-bold font-heading tracking-tight">
-                  <span className={cn(dashIconChipWarning, 'h-8 w-8 shrink-0 rounded-lg')}>
-                    <Workflow className="h-4 w-4" />
-                  </span>
-                  Campaign Hygiene
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Same workspace as Drive &amp; KPIs — Braze sync or campaign analytics CSV. Search matches name, id,
-                  tags, status, channel.
-                </p>
-              </div>
-              <div className="relative mt-2 max-w-sm">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={hygieneSearch}
-                  onChange={(e) => setHygieneSearch(e.target.value)}
-                  placeholder="Search name, id, tags, status…"
-                  className="h-8 pl-8 text-xs"
-                />
-              </div>
-            </CardHeader>
-            <CardContent className="pb-4 pt-3 bg-muted/10">
-              <div className="rounded-lg border border-border/60 bg-card overflow-hidden">
-                <div className="max-h-[360px] overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 z-10 bg-muted/70 backdrop-blur">
-                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="px-3 py-2">Name</th>
-                        <th className="px-3 py-2">Status</th>
-                        <th className="px-3 py-2">Last update</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredHygieneRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="px-3 py-8 text-center text-xs text-muted-foreground">
-                            {campaignDirectoryRows.length === 0
-                              ? 'No campaigns yet. Sync Braze or upload campaign analytics CSV for this workspace.'
-                              : 'No campaigns match your search.'}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredHygieneRows.map((row, i) => (
-                          <tr key={`${String(row.name)}-${i}`} className="border-t border-border/60">
-                            <td className="px-3 py-2.5 text-sm font-medium">{String(row.name ?? 'Campaign')}</td>
-                            <td className="px-3 py-2.5 text-xs">{String(row.status ?? '—')}</td>
-                            <td className="px-3 py-2.5 text-xs">
-                              {row.updated_at ? format(new Date(String(row.updated_at)), 'MMM d, yyyy') : '—'}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          <Card className={cn(dashboardSurfaceCard, 'shadow-sm')}>
-            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">Lifecycle preview</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Braze canvases, Canvas tags, and per-canvas steps after sync — same analytics workspace as KPIs when
-                  Braze is connected.
-                </p>
-              </div>
-              <Button variant="secondary" size="sm" className="shrink-0" asChild>
-                <Link to="/lifecycle" className="inline-flex items-center gap-1.5">
-                  Open Lifecycle
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
 
         {/* Closed Briefs — now grouped by type */}
         <ClosedBriefsSection

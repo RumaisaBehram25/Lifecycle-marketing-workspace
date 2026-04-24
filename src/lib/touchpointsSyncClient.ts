@@ -68,8 +68,10 @@ export async function invokeTouchpointsChunk(options: {
   clientId: string;
   platformId: string;
   canvasOffset?: number;
+  lifecycleOnly?: boolean;
+  lifecycleRecentDays?: number;
 }): Promise<{ data: TouchpointsSyncResponse | null; error: Error | null }> {
-  const { clientId, platformId, canvasOffset } = options;
+  const { clientId, platformId, canvasOffset, lifecycleOnly, lifecycleRecentDays } = options;
   const origin = (import.meta.env.VITE_NEXT_API_ORIGIN as string | undefined)?.trim();
 
   const body: Record<string, unknown> = {
@@ -79,6 +81,10 @@ export async function invokeTouchpointsChunk(options: {
   };
   if (typeof canvasOffset === 'number' && Number.isFinite(canvasOffset)) {
     body.canvas_offset = canvasOffset;
+  }
+  if (lifecycleOnly === true) body.lifecycle_only = true;
+  if (typeof lifecycleRecentDays === 'number' && Number.isFinite(lifecycleRecentDays)) {
+    body.lifecycle_recent_days = Math.max(30, Math.min(1095, Math.floor(lifecycleRecentDays)));
   }
 
   if (origin) {
@@ -100,6 +106,10 @@ export async function invokeTouchpointsChunk(options: {
         body: JSON.stringify({
           clientId,
           platformId,
+          ...(lifecycleOnly === true ? { lifecycle_only: true } : {}),
+          ...(typeof lifecycleRecentDays === 'number' && Number.isFinite(lifecycleRecentDays)
+            ? { lifecycle_recent_days: Math.max(30, Math.min(1095, Math.floor(lifecycleRecentDays))) }
+            : {}),
           ...(typeof canvasOffset === 'number' && Number.isFinite(canvasOffset)
             ? { canvas_offset: canvasOffset }
             : {}),

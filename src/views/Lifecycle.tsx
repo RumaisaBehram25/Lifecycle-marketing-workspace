@@ -192,57 +192,73 @@ function sortJourneysByTouchpointsDesc<
   });
 }
 
+function toDateMs(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === 'number' && Number.isFinite(v)) return v > 1e12 ? v : v * 1000;
+  if (typeof v === 'string' && v.trim()) {
+    const ms = Date.parse(v);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
+}
+
+function journeyRecencyMs(j: {
+  last_entry?: string;
+  first_entry?: string;
+  updated_in_braze?: string;
+  synced_at?: string;
+  updated_at?: string;
+  created_in_braze?: string;
+  created_at?: string;
+}): number | null {
+  return (
+    toDateMs(j.last_entry) ??
+    toDateMs(j.first_entry) ??
+    toDateMs(j.updated_in_braze) ??
+    toDateMs(j.synced_at) ??
+    toDateMs(j.updated_at) ??
+    toDateMs(j.created_in_braze) ??
+    toDateMs(j.created_at)
+  );
+}
+
+function sortJourneysByRecentDesc<
+  T extends {
+    last_entry?: string;
+    first_entry?: string;
+    updated_in_braze?: string;
+    synced_at?: string;
+    updated_at?: string;
+    created_in_braze?: string;
+    created_at?: string;
+    displayName?: string;
+    name?: string;
+  },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const am = journeyRecencyMs(a);
+    const bm = journeyRecencyMs(b);
+    if (am == null && bm == null) {
+      return String(a.displayName ?? a.name ?? '').localeCompare(String(b.displayName ?? b.name ?? ''), undefined, {
+        sensitivity: 'base',
+      });
+    }
+    if (am == null) return 1;
+    if (bm == null) return -1;
+    if (bm !== am) return bm - am;
+    return String(a.displayName ?? a.name ?? '').localeCompare(String(b.displayName ?? b.name ?? ''), undefined, {
+      sensitivity: 'base',
+    });
+  });
+}
+
 /** Journey cards per page — matches Campaigns grid (21 per page). */
 const JOURNEY_PAGE_SIZE = 21;
 
 /** localStorage key for Lifecycle “Canvases” hide list (per workspace client id). */
 const LIFECYCLE_HIDDEN_CANVAS_IDS_KEY = 'lifecycle:hidden_canvas_db_ids';
 
-function LifecycleMetricTile({
-  icon: Icon,
-  label,
-  value,
-  color,
-  glowClass,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  color: string;
-  /** Tailwind `from-*` (+ optional `to-*`) for soft corner glow */
-  glowClass?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'group relative overflow-hidden rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm backdrop-blur-sm',
-        'ring-1 ring-black/[0.03] transition-shadow hover:shadow-md dark:ring-white/[0.06]',
-      )}
-    >
-      <div
-        className={cn(
-          'pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br to-transparent opacity-[0.14] blur-2xl transition-opacity group-hover:opacity-[0.22]',
-          glowClass ?? 'from-primary/30',
-        )}
-        aria-hidden
-      />
-      <div className="relative">
-        <div className="mb-2 flex items-center gap-2">
-          <div
-            className={cn(
-              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-black/5 dark:ring-white/10',
-              color,
-            )}
-          >
-            <Icon className="h-4 w-4" />
-          </div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        </div>
-        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
-      </div>
-    </div>
-  );
-}
+
 
 /**
  * Warm touchpoint hero URLs (same transforms as flow-chart `<img>`) using batched `Image()` + link preload —
@@ -292,8 +308,8 @@ export default function Lifecycle() {
   /** After localStorage hydrate for this workspace — avoids save effect wiping LS before load. */
   const [lifecycleCanvasPrefsReady, setLifecycleCanvasPrefsReady] = useState(false);
   const [lifecycleSortMode, setLifecycleSortMode] = useState<
-    'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long'
-  >('touchpoints');
+    'recent' | 'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long'
+  >('recent');
   const [selectedJourney, setSelectedJourney] = useState<any>(null);
   const [selectedTouchpoint, setSelectedTouchpoint] = useState<any>(null);
 
@@ -328,17 +344,28 @@ export default function Lifecycle() {
     hasBrazeOnWorkspace || Boolean(dashboardBrazePlatform?.is_connected);
 
   // Fetch canvases from normalized table (synced rows only — avoids flooding the tab with schema_cache dumps)
+  // Filter to ONLY actively live canvases: enabled, not archived, not draft, and recent activity (last 60 days)
   const { data: normalizedCanvases, isLoading: canvasesLoading } = useQuery({
     queryKey: ['braze_canvases', brazeReadClientId],
     queryFn: async () => {
       if (!brazeReadClientId) return [];
+      const now = new Date();
+      const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      
       const { data, error } = await supabase
         .from('braze_canvases')
         .select(BRAZE_CANVASES_LIST_SELECT)
         .eq('client_id', brazeReadClientId)
+        // Active-only filters: enabled, not archived, not draft
         .eq('archived', false)
-        // Include draft canvases (often enabled=false in Braze) so journeys with synced step data are visible.
-        .or('enabled.eq.true,draft.eq.true');
+        .eq('draft', false)
+        .eq('enabled', true)
+        // Recent activity: entries in last 60 days OR last entry within 60 days
+        .or(`entries_last_60d.gt.0,last_entry.gte.${sixtyDaysAgo}`)
+        // Latest lifecycle cards: newest by activity/sync timestamps.
+        .order('last_entry', { ascending: false, nullsFirst: false })
+        .order('updated_in_braze', { ascending: false, nullsFirst: false })
+        .order('synced_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
       return sortCanvasRowsByName(data ?? []);
     },
@@ -429,6 +456,11 @@ export default function Lifecycle() {
           channels: inferredChannels,
           first_entry: canvas.first_entry as string | undefined,
           last_entry: canvas.last_entry as string | undefined,
+          created_at: canvas.created_at as string | undefined,
+          updated_at: canvas.updated_at as string | undefined,
+          synced_at: canvas.synced_at as string | undefined,
+          created_in_braze: canvas.created_in_braze as string | undefined,
+          updated_in_braze: canvas.updated_in_braze as string | undefined,
           taxonomy: { ...taxonomy, type: 'lifecycle' as const },
           variants: ((canvas.raw_variants ?? canvas.variants ?? []) as CanvasVariant[]),
           steps: stepsRecord,
@@ -602,19 +634,22 @@ export default function Lifecycle() {
 
       let matchesLaunchDate = true;
       if (launchDateFilter !== 'All') {
-        if (!journey.first_entry) {
+        const recencyMs = journeyRecencyMs(journey);
+        if (!recencyMs) {
           matchesLaunchDate = false;
         } else {
-          const launchDate = new Date(journey.first_entry);
-          const daysDiff = Math.floor((Date.now() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
+          const daysDiff = Math.floor((Date.now() - recencyMs) / (1000 * 60 * 60 * 24));
           if (launchDateFilter === '7days') matchesLaunchDate = daysDiff <= 7;
+          else if (launchDateFilter === '15days') matchesLaunchDate = daysDiff <= 15;
           else if (launchDateFilter === '30days') matchesLaunchDate = daysDiff <= 30;
           else if (launchDateFilter === '90days') matchesLaunchDate = daysDiff <= 90;
+          else if (launchDateFilter === 'year') matchesLaunchDate = daysDiff <= 365;
         }
       }
 
       return matchesSearch && matchesChannel && matchesLaunchDate;
     });
+    if (lifecycleSortMode === 'recent') return sortJourneysByRecentDesc(filtered);
     if (lifecycleSortMode === 'touchpoints') return sortJourneysByTouchpointsDesc(filtered);
     if (lifecycleSortMode === 'name') return sortJourneysByNameAsc(filtered);
     if (lifecycleSortMode === 'tag') return sortJourneysByFirstTagAsc(filtered);
@@ -661,22 +696,7 @@ export default function Lifecycle() {
       dashboardBrazePlatformFetching ||
       (!!brazeReadClientId && canvasesLoading));
 
-  const entries60dTotal = useMemo(
-    () =>
-      filteredJourneys.reduce(
-        (s, j) => s + (Number((j as { entries_last_60d?: number }).entries_last_60d) || 0),
-        0,
-      ),
-    [filteredJourneys],
-  );
 
-  const messagingStepsTotal = useMemo(() => {
-    return filteredJourneys.reduce((s, j) => {
-      const steps = normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined);
-      const db = (j as { db_total_steps?: number }).db_total_steps;
-      return s + computeLifecycleDisplayTouchpoints(steps, db);
-    }, 0);
-  }, [filteredJourneys]);
 
   return (
     <>
@@ -771,24 +791,12 @@ export default function Lifecycle() {
                     <SelectItem value="inapp">In-App</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={launchDateFilter} onValueChange={setLaunchDateFilter}>
-                  <SelectTrigger className="w-[150px] border-border/70 bg-background/80">
-                    <SelectValue placeholder="Date range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All">All Time</SelectItem>
-                    <SelectItem value="7days">Last 7 Days</SelectItem>
-                    <SelectItem value="15days">Last 15 Days</SelectItem>
-                    <SelectItem value="30days">Last 30 Days</SelectItem>
-                    <SelectItem value="90days">Last 90 Days</SelectItem>
-                    <SelectItem value="year">Last 12 Months</SelectItem>
-                  </SelectContent>
-                </Select>
+
                 <Select
                   value={lifecycleSortMode}
                   onValueChange={(v) =>
                     setLifecycleSortMode(
-                      v as 'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long',
+                      v as 'recent' | 'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long',
                     )
                   }
                 >
@@ -796,6 +804,7 @@ export default function Lifecycle() {
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="recent">Most recent activity</SelectItem>
                     <SelectItem value="touchpoints">Touchpoints (most first)</SelectItem>
                     <SelectItem value="name">Name (A–Z)</SelectItem>
                     <SelectItem value="tag">Canvas tag (A–Z)</SelectItem>
@@ -931,38 +940,7 @@ export default function Lifecycle() {
             </div>
           )}
 
-          {canViewLifecycleFromBraze && !listLoading && journeys.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <LifecycleMetricTile
-                icon={Workflow}
-                label="Synced journeys"
-                value={String(journeys.length)}
-                color="bg-teal-500/15 text-teal-700 dark:text-teal-300"
-                glowClass="from-teal-500/50"
-              />
-              <LifecycleMetricTile
-                icon={Filter}
-                label="Showing (filters)"
-                value={String(filteredJourneys.length)}
-                color="bg-violet-500/15 text-violet-700 dark:text-violet-300"
-                glowClass="from-violet-500/50"
-              />
-              <LifecycleMetricTile
-                icon={Users}
-                label="Entries (60d)"
-                value={entries60dTotal.toLocaleString()}
-                color="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                glowClass="from-emerald-500/50"
-              />
-              <LifecycleMetricTile
-                icon={GitBranch}
-                label="Steps (messaging estimate)"
-                value={String(messagingStepsTotal)}
-                color="bg-amber-500/15 text-amber-800 dark:text-amber-300"
-                glowClass="from-amber-500/45"
-              />
-            </div>
-          )}
+
 
           {!canViewLifecycleFromBraze ? null : listLoading ? (
             <div className="flex min-h-[45vh] flex-col items-center justify-center gap-4 p-6">
@@ -1334,12 +1312,18 @@ function journeyCardPrimaryUiChannel(channels: string[] | undefined): CampaignCh
   return normalizeCampaignChannel(channels[0]);
 }
 
-function journeyCardDateLabel(journey: { first_entry?: string; last_entry?: string }): string {
-  const raw = journey.first_entry || journey.last_entry;
-  if (!raw) return '—';
-  const dt = new Date(String(raw));
-  if (Number.isNaN(dt.getTime())) return '—';
-  return format(dt, 'MMM d');
+function journeyCardDateLabel(journey: {
+  first_entry?: string;
+  last_entry?: string;
+  updated_in_braze?: string;
+  synced_at?: string;
+  updated_at?: string;
+  created_in_braze?: string;
+  created_at?: string;
+}): string {
+  const ms = journeyRecencyMs(journey);
+  if (ms == null) return '—';
+  return format(new Date(ms), 'MMM d, yyyy');
 }
 
 /** One pill per channel: Push → Push, Email/SMS/In-App as before; unknown raw strings get a muted pill. */

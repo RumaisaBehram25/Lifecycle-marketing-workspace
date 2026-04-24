@@ -23,8 +23,8 @@ export function touchDashboardBrazeImplicitThrottle(): void {
   lastImplicitDashboardBrazeSyncAt = Date.now();
 }
 
-function syncKey(clientId: string, platformId: string) {
-  return `${clientId}\0${platformId}`;
+function syncKey(clientId: string, platformId: string, lifecycleOnly = false) {
+  return `${clientId}\0${platformId}\0${lifecycleOnly ? 'lifecycle' : 'full'}`;
 }
 
 // —— Global HUD (survives route changes) ——
@@ -58,8 +58,9 @@ export function startDashboardBrazeFullSyncDetached(options: {
   platformId: string;
   queryClient: QueryClient;
   onStatus?: (message: string) => void;
+  lifecycleOnly?: boolean;
 }): Promise<RunDashboardBrazeFullSyncResult> {
-  const key = syncKey(options.clientId, options.platformId);
+  const key = syncKey(options.clientId, options.platformId, options.lifecycleOnly === true);
   if (activePromise && activeKey === key) {
     return activePromise;
   }
@@ -74,6 +75,7 @@ export function startDashboardBrazeFullSyncDetached(options: {
     platformId: options.platformId,
     queryClient: options.queryClient,
     shouldAbort: () => cancelToken.cancelled,
+    lifecycleOnly: options.lifecycleOnly === true,
     onStatus: (msg) => {
       setHud({ status: msg });
       options.onStatus?.(msg);

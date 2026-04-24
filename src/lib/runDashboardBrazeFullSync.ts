@@ -87,6 +87,8 @@ export async function runDashboardBrazeFullSync(options: {
       clientId,
       platformId,
       canvasOffset: touchpointOffset,
+      lifecycleOnly: true,
+      lifecycleRecentDays: 365,
     });
     if (error) throw error;
     if (!d?.success) break;
@@ -105,7 +107,7 @@ export async function runDashboardBrazeFullSync(options: {
 
   onStatus('Syncing KPI & metrics…');
   const { error: fullErr } = await supabase.functions.invoke('sync-braze', {
-    body: { clientId, platformId },
+    body: { clientId, platformId, skip_canvas_sync: true },
   });
   if (fullErr) throw fullErr;
   bump();

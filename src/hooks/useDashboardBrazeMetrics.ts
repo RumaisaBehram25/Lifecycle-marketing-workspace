@@ -399,6 +399,7 @@ export function useDashboardBrazeMetrics() {
       bounceRate,
       unsubRate,
       deliveryRate,
+      totalDeliveries: camp?.deliveries ?? 0,
       spamReports: camp?.spam ?? 0,
       anomaly: anomaly.trim(),
       hasKpi: kpi.length > 0,

@@ -53,6 +53,15 @@ const MAX_CANVASES_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_DETAIL", 5000
 /** When true, skip Phase 3 detail fetch for draft canvases (legacy behavior). Default: drafts compete for the same detail cap as live canvases so `raw_steps` / touchpoints can populate. */
 const EXCLUDE_DRAFT_FROM_CANVAS_DETAIL =
   Deno.env.get("BRAZE_SYNC_EXCLUDE_DRAFT_CANVAS_DETAIL") === "true";
+/** Touchpoints-only: "actively live" = enabled + non-draft/non-archived + recent activity (default 60d). */
+const ACTIVE_CANVAS_RECENCY_DAYS = clampIntEnv("BRAZE_SYNC_ACTIVE_CANVAS_RECENCY_DAYS", 60, 7, 365);
+/** Touchpoints-only lifecycle mode default horizon (used when request omits lifecycle_recent_days). */
+const LIFECYCLE_TOUCHPOINTS_RECENT_DAYS_DEFAULT = clampIntEnv(
+  "BRAZE_SYNC_LIFECYCLE_RECENT_DAYS",
+  365,
+  30,
+  1095,
+);
 const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 5000, 1, 10000);
 /** Rolled-up daily row from campaigns/data_series (one row per campaign per day; merges with CSV by conflict key). */
 const BRAZE_SYNC_CAMPAIGN_ANALYTICS_VARIATION = "__braze_sync_aggregate__";
@@ -261,6 +270,54 @@ function inferCanvasEnabledFromListItem(c: CanvasListItem): boolean {
   if (st === "stopped" || st === "not_running" || st === "paused" || st === "draft") return false;
   // Non-draft, non-archived rows in the live list are treated as active unless status says otherwise.
   return true;
+}
+
+/** True for canvases likely still live: enabled + non-draft/non-archived + recent/explicit runtime signal. */
+function isCanvasActivelyLive(c: CanvasListItem, nowMs = Date.now()): boolean {
+  if (c.archived === true || c.draft === true) return false;
+  if (!inferCanvasEnabledFromListItem(c)) return false;
+
+  const st = String(c.status ?? "").trim().toLowerCase();
+  if (st === "stopped" || st === "not_running" || st === "paused") return false;
+
+  const lastEntryMs = toDateMs(c.last_entry);
+  if (lastEntryMs != null) {
+    const cutoff = nowMs - ACTIVE_CANVAS_RECENCY_DAYS * 24 * 60 * 60 * 1000;
+    return lastEntryMs >= cutoff;
+  }
+
+  // Some list payloads omit last_entry; keep explicit live/running statuses.
+  return st === "active" || st === "live" || st === "running" || st === "enabled";
+}
+
+/** Name/tag heuristic for lifecycle journeys so touchpoints mode can skip unrelated old campaigns. */
+function isLikelyLifecycleCanvas(c: CanvasListItem): boolean {
+  const n = String(c.name ?? "").toLowerCase();
+  const tags = normalizeStringArray(c.tags).map((t) => t.toLowerCase());
+  if (
+    n.includes("lifecycle") ||
+    n.includes("welcome") ||
+    n.includes("onboard") ||
+    n.includes("activation") ||
+    n.includes("retention") ||
+    n.includes("reactivation") ||
+    n.includes("winback") ||
+    n.includes("churn") ||
+    n.includes("abandon") ||
+    n.includes("post purchase") ||
+    n.includes("renewal")
+  ) {
+    return true;
+  }
+  return tags.some((t) =>
+    t.includes("lifecycle") ||
+    t.includes("journey") ||
+    t.includes("onboarding") ||
+    t.includes("retention") ||
+    t.includes("reactivation") ||
+    t.includes("winback") ||
+    t.includes("churn"),
+  );
 }
 
 const toDateMs = (v: unknown): number | null => {
@@ -2437,6 +2494,9 @@ Deno.serve(async (req) => {
       force_canvas_ids?: unknown;
       touchpoints_only?: unknown;
       campaigns_only?: unknown;
+      lifecycle_only?: unknown;
+      lifecycle_recent_days?: unknown;
+      skip_canvas_sync?: unknown;
       canvas_offset?: unknown;
       /** Test mode: parse a single canvas and return debug data without writing to DB. */
       mode?: string;
@@ -2466,6 +2526,12 @@ Deno.serve(async (req) => {
     const { clientId, platformId, restEndpoint } = body;
     const touchpointsOnly = body.touchpoints_only === true;
     const campaignsOnly = body.campaigns_only === true;
+    const lifecycleOnly = body.lifecycle_only === true;
+    const lifecycleRecentDays =
+      typeof body.lifecycle_recent_days === "number" && Number.isFinite(body.lifecycle_recent_days)
+        ? Math.max(30, Math.min(1095, Math.floor(body.lifecycle_recent_days)))
+        : LIFECYCLE_TOUCHPOINTS_RECENT_DAYS_DEFAULT;
+    const skipCanvasSync = body.skip_canvas_sync === true;
     const forceCanvasIds: string[] = Array.isArray(body.force_canvas_ids)
       ? body.force_canvas_ids.map((x) => String(x).trim()).filter(Boolean)
       : [];
@@ -2646,6 +2712,11 @@ Deno.serve(async (req) => {
       console.log(
         "[Braze Sync] TOUCHPOINTS_ONLY: canvas list + Phase 3 for ALL canvases (total_steps/raw_steps only); no cap, no time budget; skipping KPI, email, campaigns, segments, scheduled_broadcasts",
       );
+      if (lifecycleOnly) {
+        console.log(
+          `[Braze Sync] TOUCHPOINTS_ONLY lifecycle_only=true recent_days=${lifecycleRecentDays}`,
+        );
+      }
     }
     if (forceCanvasIds.length > 0) {
       console.log(
@@ -2894,8 +2965,12 @@ Deno.serve(async (req) => {
     const seenIds = new Set<string>();
     let canvasPage = 0;
 
-    if (campaignsOnly) {
-      console.log('[Braze Sync] CAMPAIGNS_ONLY: skipping canvas list fetch and all canvas phases');
+    if (campaignsOnly || skipCanvasSync) {
+      console.log(
+        campaignsOnly
+          ? '[Braze Sync] CAMPAIGNS_ONLY: skipping canvas list fetch and all canvas phases'
+          : '[Braze Sync] skip_canvas_sync=true: skipping canvas list fetch and all canvas phases',
+      );
     } else {
     console.log('[Braze Sync] Fetching canvas list (paginated, include_archived=false)...');
     while (canvasPage < 50) {
@@ -2953,7 +3028,7 @@ Deno.serve(async (req) => {
 
     // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
     // Runs even when FORCE_CANVAS_FAST_PATH (so canvas/data_series .update has rows to target).
-    if (!touchpointsOnly && !campaignsOnly) {
+    if (!touchpointsOnly && !campaignsOnly && !skipCanvasSync) {
     const minimalChunks: CanvasListItem[][] = [];
     for (let i = 0; i < allCanvasList.length; i += 40) {
       minimalChunks.push(allCanvasList.slice(i, i + 40));
@@ -3343,15 +3418,30 @@ Deno.serve(async (req) => {
 
     /** Start index into allCanvasList for this touchpoints_only chunk (incremental sync). */
     let touchpointsStartOffsetForChunk = 0;
+    let touchpointsTotalCanvasesForProgress = allCanvasList.length;
+    const touchpointsSyncKind = lifecycleOnly
+      ? "braze_touchpoints_lifecycle"
+      : "braze_touchpoints";
     let canvasesToProcess: CanvasListItem[];
 
     if (touchpointsOnly) {
+      const nowMs = Date.now();
+      const lifecycleCutoffMs = nowMs - lifecycleRecentDays * 24 * 60 * 60 * 1000;
+      const activeCanvasList = allCanvasList
+        .filter((c) => isCanvasActivelyLive(c, nowMs))
+        .filter((c) => {
+          if (!lifecycleOnly) return true;
+          if (!isLikelyLifecycleCanvas(c)) return false;
+          const lm = toDateMs(c.last_entry);
+          return lm == null ? true : lm >= lifecycleCutoffMs;
+        });
+      touchpointsTotalCanvasesForProgress = activeCanvasList.length;
       const { data: progressRow } = await supabase
         .from("client_sync_progress")
         .select("last_offset")
         .eq("client_id", clientId)
         .eq("platform_id", platformId)
-        .eq("sync_kind", "braze_touchpoints")
+        .eq("sync_kind", touchpointsSyncKind)
         .maybeSingle();
       const dbLast = typeof progressRow?.last_offset === "number" ? progressRow.last_offset : 0;
       const b = body as { canvas_offset?: unknown };
@@ -3360,20 +3450,20 @@ Deno.serve(async (req) => {
       const resolvedOffset = hasExplicitOffset
         ? Math.max(0, Math.floor(b.canvas_offset as number))
         : dbLast;
-      touchpointsStartOffsetForChunk = Math.min(resolvedOffset, allCanvasList.length);
-      if (allCanvasList.length > 0 && touchpointsStartOffsetForChunk >= allCanvasList.length) {
+      touchpointsStartOffsetForChunk = Math.min(resolvedOffset, activeCanvasList.length);
+      if (activeCanvasList.length > 0 && touchpointsStartOffsetForChunk >= activeCanvasList.length) {
         console.warn(
-          "[Braze Sync] TOUCHPOINTS_ONLY: stored offset >= canvas list length — resetting to 0 (complete a full cycle or clear client_sync_progress)",
+          "[Braze Sync] TOUCHPOINTS_ONLY: stored offset >= active canvas list length — resetting to 0 (complete a full cycle or clear client_sync_progress)",
         );
         touchpointsStartOffsetForChunk = 0;
       }
       const sliceEnd = Math.min(
         touchpointsStartOffsetForChunk + TOUCHPOINTS_CHUNK_SIZE,
-        allCanvasList.length,
+        activeCanvasList.length,
       );
-      canvasesToProcess = allCanvasList.slice(touchpointsStartOffsetForChunk, sliceEnd);
+      canvasesToProcess = activeCanvasList.slice(touchpointsStartOffsetForChunk, sliceEnd);
       console.log(
-        `[Braze Sync] TOUCHPOINTS_ONLY: offset=${touchpointsStartOffsetForChunk} chunk=${canvasesToProcess.length}/${allCanvasList.length} (max ${TOUCHPOINTS_CHUNK_SIZE} per request; omit canvas_offset to resume from client_sync_progress)`,
+        `[Braze Sync] TOUCHPOINTS_ONLY: active_canvases=${activeCanvasList.length}/${allCanvasList.length} lifecycle_only=${lifecycleOnly} offset=${touchpointsStartOffsetForChunk} chunk=${canvasesToProcess.length}/${activeCanvasList.length} (max ${TOUCHPOINTS_CHUNK_SIZE} per request; omit canvas_offset to resume from client_sync_progress)`,
       );
     } else if (FORCE_CANVAS_FAST_PATH) {
       canvasesToProcess = forcedCanvases;
@@ -3934,7 +4024,7 @@ Deno.serve(async (req) => {
     let canvasDataSeriesUpdatedTotal = 0;
     // canvas/data_series → braze_canvases activity columns (all non-archived list canvases).
     // Not gated on skipHeavySyncPhases so FORCE_CANVAS_FAST_PATH still gets metrics; excluded for touchpoints_only chunks.
-    if (!touchpointsOnly && allCanvasList.length > 0) {
+    if (!touchpointsOnly && !skipCanvasSync && allCanvasList.length > 0) {
       const seriesTargets = allCanvasList.filter((c) => !c.archived);
       let canvasDataSeriesUpdated = 0;
       let canvasDataSeriesRevenueSum = 0;
@@ -4009,14 +4099,14 @@ Deno.serve(async (req) => {
 
     if (touchpointsOnly) {
       const syncDurationTouch = Date.now() - syncStart;
-      const totalCanvases = allCanvasList.length;
+      const totalCanvases = touchpointsTotalCanvasesForProgress;
       const nextOffset = touchpointsStartOffsetForChunk + touchpointsHandledInSlice;
       const done = nextOffset >= totalCanvases;
       const { error: progErr } = await supabase.from("client_sync_progress").upsert(
         {
           client_id: clientId,
           platform_id: platformId,
-          sync_kind: "braze_touchpoints",
+          sync_kind: touchpointsSyncKind,
           last_offset: done ? 0 : nextOffset,
           total_canvases: totalCanvases,
           updated_at: nowIso,

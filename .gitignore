@@ -39,3 +39,4 @@ config.bat
 
 # Supabase CLI local state
 supabase/.temp/
+.aider*

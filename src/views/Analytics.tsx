@@ -1061,6 +1061,130 @@ export default function Analytics() {
           </div>
         </div>
 
+        {/* Performance Snapshot */}
+        <Card className={analyticsCardClass}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={analyticsCardHeaderClass}>
+            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
+              <span className={cn(dashIconChip, 'h-9 w-9 shrink-0')}>
+                <Send className="h-4 w-4" />
+              </span>
+              Performance Snapshot
+            </CardTitle>
+            <p className={analyticsSubtitleClass}>Delivery, engagement, list health, and campaign hygiene KPIs.</p>
+          </CardHeader>
+          <CardContent className="pt-2 pb-6 bg-muted/10 divide-y divide-border/40">
+            {selectedCanvasRow ? (
+              /* Canvas-level view */
+              <div className="py-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <StatCard icon={Send} label="Sends (30d)" value={n(selectedCanvasRow.sends_last_30d).toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
+                <StatCard icon={UserPlus} label="Entries (30d)" value={n(selectedCanvasRow.entries_last_30d).toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
+                <StatCard icon={Workflow} label="Schedule Type" value={String(selectedCanvasRow.schedule_type ?? '—')} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
+                <StatCard
+                  icon={Layers}
+                  label="Status"
+                  value={selectedCanvasRow.enabled ? 'Active' : 'Inactive'}
+                  color={selectedCanvasRow.enabled ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/12 text-rose-600 dark:text-rose-400'}
+                  accent={selectedCanvasRow.enabled ? 'emerald' : 'rose'}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">Volume</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    <StatCard icon={Send} label="Total Sent" value={activeMetrics.totalSent.toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
+                    <StatCard icon={Send} label="Total Delivered" value={activeMetrics.totalDelivered.toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
+                    <StatCard icon={Eye} label="Total Opens" value={activeMetrics.totalOpens.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
+                    <StatCard
+                      icon={Send}
+                      label="Total Clicks"
+                      value={activeMetrics.totalClicks.toLocaleString()}
+                      color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
+                      accent="cyan"
+                      trend={{ direction: 'flat', value: `${activeMetrics.totalConversions.toLocaleString()} conversions` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">List Health</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/12 text-rose-600 dark:text-rose-400" accent="rose" />
+                    <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/12 text-orange-600 dark:text-orange-400" accent="orange" />
+                    <StatCard
+                      icon={Layers}
+                      label="Segments tracking ON"
+                      value={trackingSummary.enabled.toLocaleString()}
+                      color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
+                      accent="emerald"
+                      trend={{
+                        direction: 'flat',
+                        value:
+                          trackingSummary.total === 0
+                            ? 'Dashboard Sync All from Braze (segments) or upload segment analytics CSV (Resources)'
+                            : trackingSummary.source === 'csv'
+                              ? `${trackingSummary.total.toLocaleString()} from segment CSV — shown as on (no per-segment API flags)`
+                              : `${trackingSummary.total.toLocaleString()} in directory · ${trackingSummary.disabled.toLocaleString()} tracking off`,
+                      }}
+                    />
+                    <StatCard
+                      icon={Workflow}
+                      label="Campaigns flagged"
+                      value={cleanupFlagged.toLocaleString()}
+                      color="bg-amber-500/12 text-amber-600 dark:text-amber-400"
+                      accent="amber"
+                      trend={{
+                        direction: cleanupFlagged > 0 ? 'down' : 'flat',
+                        value:
+                          cleanupFlagged > 0
+                            ? 'Name, tags, or status matched cleanup patterns'
+                            : campaignDirectoryRows.length === 0
+                              ? 'No campaign directory yet — sync Braze or upload campaign analytics CSV'
+                              : 'No campaigns matched patterns (test, IP warm, sandbox, staging, cleanup)',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">Engagement Rates</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                    <StatCard
+                      icon={Eye}
+                      label="Delivery Rate"
+                      value={formatPct(activeMetrics.deliveryRate)}
+                      color="bg-purple-500/12 text-purple-600 dark:text-purple-400"
+                      accent="purple"
+                      trend={{ direction: 'flat', value: `Bounce ${formatPct(activeMetrics.bounceRate)}` }}
+                    />
+                    <StatCard icon={Eye} label="Open Rate" value={formatPct(activeMetrics.openRate)} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
+                    <StatCard
+                      icon={Send}
+                      label="Click Rate"
+                      value={formatPct(activeMetrics.clickRate)}
+                      color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
+                      accent="cyan"
+                      trend={{ direction: 'flat', value: `Unsub ${formatPct(activeMetrics.unsubscribeRate)}` }}
+                    />
+                    <StatCard
+                      icon={DollarSign}
+                      label="Conversion Rate"
+                      value={formatPct(activeMetrics.conversionRate)}
+                      color="bg-rose-500/12 text-rose-600 dark:text-rose-400"
+                      accent="rose"
+                      trend={{
+                        direction: 'flat',
+                        value: `Scheduled active ${formatPct(activeMetrics.schedulingPerformanceRate)}`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Lifecycle Flow Performance — merged campaign analytics (CSV) + Braze canvas sync metrics */}
         {(lifecycleFlowPerformanceRows.length > 0 ||
           (brazeCanvasFlowMetricsIsLoading && campaignTableRows.length === 0)) &&
@@ -1240,129 +1364,6 @@ export default function Analytics() {
             </Card>
           );
         })()}
-
-        <Card className={analyticsCardClass}>
-          <div className={dashboardTopAccentClass} aria-hidden />
-          <CardHeader className={analyticsCardHeaderClass}>
-            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>
-              <span className={cn(dashIconChip, 'h-9 w-9 shrink-0')}>
-                <Send className="h-4 w-4" />
-              </span>
-              Performance Snapshot
-            </CardTitle>
-            <p className={analyticsSubtitleClass}>Delivery, engagement, list health, and campaign hygiene KPIs.</p>
-          </CardHeader>
-          <CardContent className="pt-2 pb-6 bg-muted/10 divide-y divide-border/40">
-            {selectedCanvasRow ? (
-              /* Canvas-level view */
-              <div className="py-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <StatCard icon={Send} label="Sends (30d)" value={n(selectedCanvasRow.sends_last_30d).toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
-                <StatCard icon={UserPlus} label="Entries (30d)" value={n(selectedCanvasRow.entries_last_30d).toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
-                <StatCard icon={Workflow} label="Schedule Type" value={String(selectedCanvasRow.schedule_type ?? '—')} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
-                <StatCard
-                  icon={Layers}
-                  label="Status"
-                  value={selectedCanvasRow.enabled ? 'Active' : 'Inactive'}
-                  color={selectedCanvasRow.enabled ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/12 text-rose-600 dark:text-rose-400'}
-                  accent={selectedCanvasRow.enabled ? 'emerald' : 'rose'}
-                />
-              </div>
-            ) : (
-              <>
-                <div className="py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">Volume</p>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                    <StatCard icon={Send} label="Total Sent" value={activeMetrics.totalSent.toLocaleString()} color="bg-primary/12 text-primary" accent="primary" />
-                    <StatCard icon={Send} label="Total Delivered" value={activeMetrics.totalDelivered.toLocaleString()} color="bg-blue-500/12 text-blue-600 dark:text-blue-400" accent="blue" />
-                    <StatCard icon={Eye} label="Total Opens" value={activeMetrics.totalOpens.toLocaleString()} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
-                    <StatCard
-                      icon={Send}
-                      label="Total Clicks"
-                      value={activeMetrics.totalClicks.toLocaleString()}
-                      color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
-                      accent="cyan"
-                      trend={{ direction: 'flat', value: `${activeMetrics.totalConversions.toLocaleString()} conversions` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">List Health</p>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                    <StatCard icon={MailWarning} label="Hard bounces (30d)" value={hardBounceCount.toLocaleString()} color="bg-rose-500/12 text-rose-600 dark:text-rose-400" accent="rose" />
-                    <StatCard icon={UserPlus} label="Unsubscribes (30d)" value={unsubCount30d.toLocaleString()} color="bg-orange-500/12 text-orange-600 dark:text-orange-400" accent="orange" />
-                    <StatCard
-                      icon={Layers}
-                      label="Segments tracking ON"
-                      value={trackingSummary.enabled.toLocaleString()}
-                      color="bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-                      accent="emerald"
-                      trend={{
-                        direction: 'flat',
-                        value:
-                          trackingSummary.total === 0
-                            ? 'Dashboard Sync All from Braze (segments) or upload segment analytics CSV (Resources)'
-                            : trackingSummary.source === 'csv'
-                              ? `${trackingSummary.total.toLocaleString()} from segment CSV — shown as on (no per-segment API flags)`
-                              : `${trackingSummary.total.toLocaleString()} in directory · ${trackingSummary.disabled.toLocaleString()} tracking off`,
-                      }}
-                    />
-                    <StatCard
-                      icon={Workflow}
-                      label="Campaigns flagged"
-                      value={cleanupFlagged.toLocaleString()}
-                      color="bg-amber-500/12 text-amber-600 dark:text-amber-400"
-                      accent="amber"
-                      trend={{
-                        direction: cleanupFlagged > 0 ? 'down' : 'flat',
-                        value:
-                          cleanupFlagged > 0
-                            ? 'Name, tags, or status matched cleanup patterns'
-                            : campaignDirectoryRows.length === 0
-                              ? 'No campaign directory yet — sync Braze or upload campaign analytics CSV'
-                              : 'No campaigns matched patterns (test, IP warm, sandbox, staging, cleanup)',
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">Engagement Rates</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                    <StatCard
-                      icon={Eye}
-                      label="Delivery Rate"
-                      value={formatPct(activeMetrics.deliveryRate)}
-                      color="bg-purple-500/12 text-purple-600 dark:text-purple-400"
-                      accent="purple"
-                      trend={{ direction: 'flat', value: `Bounce ${formatPct(activeMetrics.bounceRate)}` }}
-                    />
-                    <StatCard icon={Eye} label="Open Rate" value={formatPct(activeMetrics.openRate)} color="bg-amber-500/12 text-amber-600 dark:text-amber-400" accent="amber" />
-                    <StatCard
-                      icon={Send}
-                      label="Click Rate"
-                      value={formatPct(activeMetrics.clickRate)}
-                      color="bg-cyan-500/12 text-cyan-600 dark:text-cyan-400"
-                      accent="cyan"
-                      trend={{ direction: 'flat', value: `Unsub ${formatPct(activeMetrics.unsubscribeRate)}` }}
-                    />
-                    <StatCard
-                      icon={DollarSign}
-                      label="Conversion Rate"
-                      value={formatPct(activeMetrics.conversionRate)}
-                      color="bg-rose-500/12 text-rose-600 dark:text-rose-400"
-                      accent="rose"
-                      trend={{
-                        direction: 'flat',
-                        value: `Scheduled active ${formatPct(activeMetrics.schedulingPerformanceRate)}`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Core Benchmark: date-filtered campaign/canvas revenue vs benchmark */}
         <Card className={cn(analyticsCardClass, 'overflow-hidden')}>

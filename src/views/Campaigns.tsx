@@ -1451,19 +1451,7 @@ export default function Campaigns() {
                 <SelectItem value="sms">SMS</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Date Range" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All Time">All Time</SelectItem>
-                <SelectItem value="Last 7 Days">Last 7 Days</SelectItem>
-                <SelectItem value="Last 30 Days">Last 30 Days</SelectItem>
-                <SelectItem value="This Quarter">This Quarter</SelectItem>
-                <SelectItem value="Last Quarter">Last Quarter</SelectItem>
-                <SelectItem value="YTD">YTD</SelectItem>
-              </SelectContent>
-            </Select>
+
             <Select value={sortBy} onValueChange={v => setSortBy(v as CampaignSortKey)}>
               <SelectTrigger className="w-[180px]" aria-label="Sort campaigns">
                 <SelectValue placeholder="Sort" />
@@ -1819,61 +1807,8 @@ export default function Campaigns() {
                 aria-label="Campaign details"
               >
                 <div className="space-y-5">
-                {selectedCampaign.channel === 'email' ? (
-                  <div className="space-y-2">
-                    {selectedRawDetailsEmpty && showLiveCampaigns && brazePlatform && (
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                          variant="outline"
-                            size="sm"
-                          className="gap-1.5"
-                          disabled={creativeLoading || !workspaceClientId}
-                          onClick={() => void handleRefreshCampaignPreview()}
-                        >
-                          <RefreshCw
-                            className={cn('h-3.5 w-3.5', creativeLoading && 'animate-spin')}
-                            aria-hidden
-                          />
-                          Refresh preview
-                          </Button>
-                        </div>
-                    )}
-                    <EmailModalCreative
-                      key={selectedCampaign.id}
-                      imageUrl={emailModalPreview.url}
-                      displayImageUrl={emailModalPreview.displayUrl}
-                      htmlContent={emailModalPreview.html}
-                      previewMode={emailModalPreview.previewType}
-                      loading={creativeLoading && !emailModalPreviewReady}
-                    />
-                      </div>
-                ) : (
-                  <PushSmsModalHero
-                    key={selectedCampaign.id}
-                    channel={
-                      selectedCampaign.channel === 'sms'
-                        ? 'sms'
-                        : selectedCampaign.channel === 'inapp'
-                          ? 'inapp'
-                          : 'push'
-                    }
-                    title={
-                      selectedCampaignModalCopy.pushTitle.text.length > 0
-                        ? selectedCampaignModalCopy.pushTitle.text
-                        : '—'
-                    }
-                    body={
-                      selectedCampaignModalCopy.pushBody.text.length > 0
-                        ? selectedCampaignModalCopy.pushBody.text
-                        : ''
-                    }
-                    titlePersonalized={selectedCampaignModalCopy.pushTitle.hadLiquid}
-                    bodyPersonalized={selectedCampaignModalCopy.pushBody.hadLiquid}
-                    previewImageUrl={modalHeroImageUrl}
-                  />
-                )}
-
+                
+                {/* 1. Subject & Preheader */}
                 {selectedCampaign.channel === 'email' && (
                   <div className="space-y-5">
                     <div className="space-y-1.5">
@@ -1904,6 +1839,7 @@ export default function Campaigns() {
                   </div>
                 )}
 
+                {/* 2. Segment & Stats */}
                 {(selectedCampaign.segment || (modalStatRows && modalStatRows.rows.length > 0)) && (
                   <div className="space-y-3">
                   {selectedCampaign.segment && (
@@ -1919,9 +1855,9 @@ export default function Campaigns() {
                             <div key={row.id} className="rounded-lg bg-muted/50 p-3">
                               <p className="text-xs text-muted-foreground">{row.label}</p>
                               <p className="text-lg font-semibold tabular-nums">{row.value}</p>
-                    </div>
+                            </div>
                           ))}
-                    </div>
+                        </div>
                         {modalStatRows.showProcessingNote && (
                           <Alert className="border-amber-500/30 bg-amber-500/[0.06] dark:bg-amber-950/30">
                             <Info className="h-4 w-4 text-amber-700 dark:text-amber-400" aria-hidden />
@@ -1932,8 +1868,65 @@ export default function Campaigns() {
                         )}
                       </>
                     )}
-                    </div>
-                  )}
+                  </div>
+                )}
+
+                {/* 3. Creative Preview */}
+                {selectedCampaign.channel === 'email' ? (
+                  <div className="space-y-2">
+                    {selectedRawDetailsEmpty && showLiveCampaigns && brazePlatform && (
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                          variant="outline"
+                            size="sm"
+                          className="gap-1.5"
+                          disabled={creativeLoading || !workspaceClientId}
+                          onClick={() => void handleRefreshCampaignPreview()}
+                        >
+                          <RefreshCw
+                            className={cn('h-3.5 w-3.5', creativeLoading && 'animate-spin')}
+                            aria-hidden
+                          />
+                          Refresh preview
+                          </Button>
+                        </div>
+                    )}
+                    <EmailModalCreative
+                      key={selectedCampaign.id}
+                      imageUrl={emailModalPreview.url}
+                      displayImageUrl={emailModalPreview.displayUrl}
+                      htmlContent={emailModalPreview.html}
+                      previewMode={emailModalPreview.previewType}
+                      loading={creativeLoading && !emailModalPreviewReady}
+                    />
+                  </div>
+                ) : (
+                  <PushSmsModalHero
+                    key={selectedCampaign.id}
+                    channel={
+                      selectedCampaign.channel === 'sms'
+                        ? 'sms'
+                        : selectedCampaign.channel === 'inapp'
+                          ? 'inapp'
+                          : 'push'
+                    }
+                    title={
+                      selectedCampaignModalCopy.pushTitle.text.length > 0
+                        ? selectedCampaignModalCopy.pushTitle.text
+                        : '—'
+                    }
+                    body={
+                      selectedCampaignModalCopy.pushBody.text.length > 0
+                        ? selectedCampaignModalCopy.pushBody.text
+                        : ''
+                    }
+                    titlePersonalized={selectedCampaignModalCopy.pushTitle.hadLiquid}
+                    bodyPersonalized={selectedCampaignModalCopy.pushBody.hadLiquid}
+                    previewImageUrl={modalHeroImageUrl}
+                  />
+                )}
+
                 </div>
               </div>
             </>

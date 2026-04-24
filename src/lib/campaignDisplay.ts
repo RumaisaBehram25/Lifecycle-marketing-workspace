@@ -1771,7 +1771,7 @@ export function extractEmailHtmlPreview(raw: Record<string, unknown> | null | un
  * Default HTML zoom inside the iframe document. The modal may pass {@link WrapHtmlForIframePreviewOptions.htmlZoom}
  * (e.g. `1` when the UI already applies outer scale).
  */
-export const IFRAME_HTML_PREVIEW_ZOOM = 0.88;
+export const IFRAME_HTML_PREVIEW_ZOOM = 0.65;
 
 function iframePreviewZoomStyle(htmlZoom: number): string {
   return `html{zoom:${htmlZoom};overflow:visible}`;
