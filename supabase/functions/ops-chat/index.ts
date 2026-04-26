@@ -128,10 +128,17 @@ async function anthropicComplete(provider: ChatProvider, payload: Record<string,
 
 async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>, clientId: string): Promise<string> {
   try {
+    const clip = (value: unknown, max = 220): string => {
+      const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+      if (!text) return '';
+      if (text.length <= max) return text;
+      return `${text.slice(0, max - 1)}…`;
+    };
+
     const settled = await Promise.allSettled([
       supabase
         .from('briefs')
-        .select('name, status, content_type, deadline')
+        .select('name, status, content_type, deadline, about, ai_generated_copy')
         .eq('client_id', clientId)
         .order('updated_at', { ascending: false })
         .limit(12),
@@ -142,7 +149,7 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
         .limit(24),
       supabase
         .from('template_library')
-        .select('name, content_type')
+        .select('name, content_type, description, subject_line, preview_text, body_preview')
         .eq('client_id', clientId)
         .limit(8),
     ]);
@@ -169,8 +176,27 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
     if (briefs.length) {
       block += `\n### Briefs (recent)\n${briefs
         .map(
-          (b: { status?: string; name?: string; content_type?: string; deadline?: string }) =>
-            `- [${b.status ?? 'unknown'}] ${b.name ?? 'Untitled'} (${b.content_type ?? 'n/a'}${b.deadline ? `, deadline ${b.deadline}` : ''})`
+          (b: {
+            status?: string;
+            name?: string;
+            content_type?: string;
+            deadline?: string;
+            about?: string;
+            ai_generated_copy?: unknown;
+          }) => {
+            const aboutSnippet = clip(b.about, 260);
+            const copySnippet = clip(
+              b.ai_generated_copy != null ? JSON.stringify(b.ai_generated_copy) : '',
+              260,
+            );
+            return [
+              `- [${b.status ?? 'unknown'}] ${b.name ?? 'Untitled'} (${b.content_type ?? 'n/a'}${b.deadline ? `, deadline ${b.deadline}` : ''})`,
+              aboutSnippet ? `  about: ${aboutSnippet}` : '',
+              copySnippet ? `  generated_copy: ${copySnippet}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n');
+          }
         )
         .join('\n')}\n`;
     } else {
@@ -187,7 +213,28 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
 
     if (templates.length) {
       block += `\n### Template library\n${templates
-        .map((t: { name?: string; content_type?: string }) => `- ${t.name ?? 'Template'} (${t.content_type ?? 'n/a'})`)
+        .map(
+          (t: {
+            name?: string;
+            content_type?: string;
+            description?: string;
+            subject_line?: string;
+            preview_text?: string;
+            body_preview?: string;
+          }) => {
+            const description = clip(t.description, 180);
+            const subject = clip(t.subject_line, 140);
+            const preview = clip(t.preview_text || t.body_preview, 220);
+            return [
+              `- ${t.name ?? 'Template'} (${t.content_type ?? 'n/a'})`,
+              subject ? `  subject: ${subject}` : '',
+              description ? `  description: ${description}` : '',
+              preview ? `  preview: ${preview}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n');
+          },
+        )
         .join('\n')}\n`;
     }
 

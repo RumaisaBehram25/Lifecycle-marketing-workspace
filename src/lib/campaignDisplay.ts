@@ -1,4 +1,5 @@
 import { campaignImageDisplayUrl, isSupabaseStoragePublicObjectUrl } from '@/lib/campaignCreativeImageUrl';
+import { sanitizeHtml } from '@/lib/sanitizeHtml';
 
 /**
  * Normalize Braze `channel` strings for Campaigns UI (badges, gradients, icons).
@@ -1798,7 +1799,7 @@ export function wrapHtmlForIframePreview(html: string, options?: WrapHtmlForIfra
   const htmlZoom = options?.htmlZoom ?? IFRAME_HTML_PREVIEW_ZOOM;
   const IFRAME_PREVIEW_ZOOM_STYLE = iframePreviewZoomStyle(htmlZoom);
   const previewInjectStyles = `${IFRAME_PREVIEW_ZOOM_STYLE}${IFRAME_EMAIL_CONTENT_WIDTH_RESET}`;
-  const t = stripBrazeLiquidFromEmailHtmlForPreview(html).trim();
+  const t = sanitizeHtml(stripBrazeLiquidFromEmailHtmlForPreview(html)).trim();
   if (/^<!doctype/i.test(t) || /<html[\s>]/i.test(t)) {
     const zoomInject = `<style type="text/css" data-email-preview-zoom>${previewInjectStyles}</style>`;
     const headMatch = t.match(/<head[^>]*>/i);

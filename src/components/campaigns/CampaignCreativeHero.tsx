@@ -180,8 +180,8 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
 
   const cardThumbClipRounded = isModal ? 'rounded-xl' : gridThumbnail ? 'rounded-lg' : 'rounded-t-lg';
 
-  /** Card (non-grid): dimming gradient + icon + caption over image. */
-  const showCardStyleImageOverlay = showImg && !isModal && !gridThumbnail;
+  /** Keep cards clean: no dark overlay when a creative image is shown. */
+  const showCardStyleImageOverlay = false;
 
   /** Align with `headLinkPreloadUrls` (first five on page): eager decode + high priority. */
   const aboveFoldEager =
@@ -257,8 +257,12 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
           decoding="async"
           fetchpriority={fetchpriorityAttr}
           className={cn(
-            'absolute inset-0 z-[2] h-full w-full min-h-full min-w-full max-w-none object-cover transition-opacity duration-500 ease-out',
-            isModal && !modalImageClean ? 'object-center' : 'object-top',
+            'absolute inset-0 z-[2] h-full w-full min-h-full min-w-full max-w-none transition-opacity duration-500 ease-out',
+            isModal
+              ? modalImageClean
+                ? 'object-cover object-top'
+                : 'object-contain object-center'
+              : 'object-contain object-center p-1',
             isModal && modalImageClean && 'rounded-xl',
             imgLoaded ? 'opacity-100' : 'opacity-0',
           )}
@@ -342,7 +346,7 @@ export const CampaignCreativeHero = memo(function CampaignCreativeHero(props: Ca
             </div>
           )}
 
-          {!gridThumbnail && (
+          {isModal && (
             <p
               className={cn(
                 'line-clamp-3 w-full max-w-prose text-pretty text-xs leading-snug',

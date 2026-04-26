@@ -717,7 +717,9 @@ export default function Campaigns() {
       while (true) {
         let query = supabase
           .from('braze_campaigns')
-          .select('*');
+          .select(
+            'id, braze_campaign_id, name, channel, subject, preheader, status, sent_date, opens, clicks, deliveries, sends, open_rate, click_rate, unsubs, segment, creative_preview, raw_details, image_url, updated_at, created_at, synced_at',
+          );
         // Admins see all campaigns; non-admins only see their workspace
         if (!isAdmin) {
           query = query.eq('client_id', cid);
@@ -1193,6 +1195,7 @@ export default function Campaigns() {
     }
     const mergedForThumb = Object.keys(base).length ? base : null;
     const colThumb = typeof dbRow?.image_url === 'string' ? dbRow.image_url.trim() : '';
+    const rowChannel = normalizeCampaignChannel(String(dbRow?.channel ?? ''));
     const cardThumb =
       colThumb ||
       (mergedForThumb
@@ -1201,9 +1204,7 @@ export default function Campaigns() {
             imageUrlColumn: dbRow?.image_url ?? null,
           }) ?? ''
         : '');
-    if (cardThumb) return;
-
-    const rowChannel = normalizeCampaignChannel(String(dbRow?.channel ?? ''));
+    if (cardThumb && rowChannel !== 'email') return;
     if (rowChannel === 'email' && mergedForThumb && resolveCampaignCardEmailIframeHtml(mergedForThumb)?.trim()) {
       return;
     }
@@ -1256,6 +1257,12 @@ export default function Campaigns() {
     const thumbCache = creativeThumbnailCacheLatestRef.current;
     const iframeCache = creativeEmailIframeCacheLatestRef.current;
     const missing = paginatedCampaigns.filter(c => {
+      if (c.channel === 'email') {
+        const cachedHtml = (c.email_card_iframe_html ?? '').trim();
+        if (cachedHtml) return false;
+        if (iframeCache.has(c.id)) return false;
+        return true;
+      }
       const u = (c.preview_image_url || '').trim();
       if (u) return false;
       if (thumbCache.has(c.id)) return false;
@@ -1616,9 +1623,13 @@ export default function Campaigns() {
                 const titleText = campaign.name;
                 const previewLine =
                   campaign.creative_preview ?? getCampaignPreviewLine(toPreviewFields(campaign));
-                const thumbnailUrl = campaign.preview_image_url || creativeThumbnailCache.get(campaign.id);
+                const thumbnailUrl = campaign.channel === 'email'
+                  ? undefined
+                  : campaign.preview_image_url || creativeThumbnailCache.get(campaign.id);
                 const emailIframeHtml =
                   campaign.email_card_iframe_html?.trim() || creativeEmailIframeCache.get(campaign.id);
+                const emailThumbnailHtml = campaign.channel === 'email' ? emailIframeHtml : undefined;
+                const emailThumbnailUrl = campaign.channel === 'email' ? undefined : thumbnailUrl;
                 return (
                 <Card
                   key={campaign.id}
@@ -1630,7 +1641,7 @@ export default function Campaigns() {
                     viewMode === 'grid' && 'h-full min-h-0',
                   )}
                   onPointerEnter={() => {
-                    preloadHoveredCampaignImage(thumbnailUrl);
+                    if (thumbnailUrl) preloadHoveredCampaignImage(thumbnailUrl);
                     prefetchCampaignCreative(campaign.id);
                   }}
                   onClick={() => setSelectedCampaign(campaign)}
@@ -1645,8 +1656,8 @@ export default function Campaigns() {
                     <CampaignCreativeHero
                       channel={campaign.channel}
                       previewText={previewLine}
-                      previewImageUrl={thumbnailUrl}
-                      emailIframeHtml={emailIframeHtml}
+                      previewImageUrl={emailThumbnailUrl}
+                      emailIframeHtml={emailThumbnailHtml}
                       campaignName={campaign.name}
                       variant="card"
                       listPageIndex={index}
@@ -1662,8 +1673,8 @@ export default function Campaigns() {
                       <CampaignCreativeHero
                         channel={campaign.channel}
                         previewText={previewLine}
-                        previewImageUrl={thumbnailUrl}
-                        emailIframeHtml={emailIframeHtml}
+                        previewImageUrl={emailThumbnailUrl}
+                        emailIframeHtml={emailThumbnailHtml}
                         campaignName={campaign.name}
                         variant="card"
                         listPageIndex={index}

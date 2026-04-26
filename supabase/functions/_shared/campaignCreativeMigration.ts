@@ -62,13 +62,19 @@ async function maybeMigrateOneRow(
 ): Promise<void> {
   try {
     const existing = row.image_url != null ? String(row.image_url).trim() : "";
-    if (existing !== "") return;
+    // Already-stored Supabase/S3 assets are stable; keep them.
+    // External or hotlinked URLs often break later, so still migrate those into storage.
+    if (existing !== "" && isSupabaseStoragePublicObjectUrl(existing)) return;
 
     const raw = row.raw_details;
     if (raw == null || typeof raw !== "object") return;
 
     const previewUrl = extractPreviewImageUrl(raw as Record<string, unknown>);
     if (!previewUrl) return;
+
+    if (existing === previewUrl && isSupabaseStoragePublicObjectUrl(existing)) {
+      return;
+    }
 
     const abs = previewUrl.startsWith("//") ? `https:${previewUrl}` : previewUrl;
     if (!abs.startsWith("http://") && !abs.startsWith("https://")) return;

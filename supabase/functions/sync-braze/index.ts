@@ -2228,13 +2228,69 @@ function extractSegmentCurrentSize(seg: Record<string, unknown>): number | null 
   return null;
 }
 
-function segmentAnalyticsTrackingEnabled(seg: Record<string, unknown>): boolean {
-  const v =
-    seg.analytics_tracking_enabled ??
-    seg.has_analytics_tracking ??
-    seg.analytics_tracking;
-  if (v === true || v === 1 || v === "true") return true;
+function syncTruthyFlag(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on" || s === "enabled";
+  }
   return false;
+}
+
+function syncFalsyExplicit(v: unknown): boolean {
+  if (v === false || v === 0) return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "false" || s === "0" || s === "no" || s === "off" || s === "disabled";
+  }
+  return false;
+}
+
+function getNestedValue(obj: Record<string, unknown>, path: string[]): unknown {
+  let cur: unknown = obj;
+  for (const p of path) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
+
+function segmentAnalyticsTrackingEnabled(seg: Record<string, unknown>): boolean {
+  const tryVal = (v: unknown): boolean | null => {
+    if (v === undefined || v === null || v === "") return null;
+    if (syncFalsyExplicit(v)) return false;
+    if (syncTruthyFlag(v)) return true;
+    return null;
+  };
+
+  const topKeys = [
+    "analytics_tracking_enabled",
+    "analytics_enabled",
+    "tracking_enabled",
+    "is_tracking_enabled",
+    "analyticsTrackingEnabled",
+    "is_analytics_tracking_enabled",
+    "analytics_tracking",
+    "has_analytics_tracking",
+  ];
+  for (const k of topKeys) {
+    const t = tryVal(seg[k]);
+    if (t !== null) return t;
+  }
+
+  const nestedPaths = [
+    ["analytics", "tracking_enabled"],
+    ["analytics", "enabled"],
+    ["settings", "analytics_tracking_enabled"],
+    ["data_visibility", "analytics_tracking_enabled"],
+  ];
+  for (const path of nestedPaths) {
+    const t = tryVal(getNestedValue(seg, path));
+    if (t !== null) return t;
+  }
+
+  // Braze often omits this flag on list payloads; treat unknown as eligible for data_series fallback.
+  return true;
 }
 
 /**
@@ -3213,7 +3269,7 @@ Deno.serve(async (req) => {
         let segPage = 0;
         const segmentAnalyticsByKeyEarly = new Map<string, Record<string, unknown>>();
         const segmentSnapshotDayEarly = nowIso.slice(0, 10);
-        const segmentsForDataSeries: Array<{ id: string; name: string }> = [];
+        const segmentsForDataSeries: Array<{ id: string; name: string; trackingEnabled: boolean }> = [];
         const queuedDataSeriesSegmentIds = new Set<string>();
         while (segPage < MAX_SEGMENT_PAGES) {
           if (syncOverBudget() && segPage > 0) {
@@ -3293,13 +3349,10 @@ Deno.serve(async (req) => {
                 segment_name: name,
                 size,
               });
-            } else if (
-              MAX_SEGMENT_DATA_SERIES_LOOKUPS > 0 &&
-              segmentAnalyticsTrackingEnabled(s as Record<string, unknown>) &&
-              !queuedDataSeriesSegmentIds.has(id)
-            ) {
+            } else if (MAX_SEGMENT_DATA_SERIES_LOOKUPS > 0 && !queuedDataSeriesSegmentIds.has(id)) {
+              const trackingEnabled = segmentAnalyticsTrackingEnabled(s as Record<string, unknown>);
               queuedDataSeriesSegmentIds.add(id);
-              segmentsForDataSeries.push({ id, name });
+              segmentsForDataSeries.push({ id, name, trackingEnabled });
             }
           }
 
@@ -3326,11 +3379,15 @@ Deno.serve(async (req) => {
         }
 
         if (MAX_SEGMENT_DATA_SERIES_LOOKUPS > 0 && segmentsForDataSeries.length > 0) {
+          segmentsForDataSeries.sort((a, b) => {
+            if (a.trackingEnabled === b.trackingEnabled) return 0;
+            return a.trackingEnabled ? -1 : 1;
+          });
           const seriesCap = Math.min(MAX_SEGMENT_DATA_SERIES_LOOKUPS, segmentsForDataSeries.length);
           const endingAtForSeries = `${segmentSnapshotDayEarly}T23:59:59.000Z`;
           let dataSeriesHits = 0;
           console.log(
-            `[Braze Sync] segments/data_series fallback: up to ${seriesCap} segment(s) with analytics tracking (list payload had no size)`,
+            `[Braze Sync] segments/data_series fallback: up to ${seriesCap} segment(s) with missing size (tracking-enabled segments prioritized)`,
           );
           for (let i = 0; i < seriesCap; i++) {
             if (syncOverBudget()) {

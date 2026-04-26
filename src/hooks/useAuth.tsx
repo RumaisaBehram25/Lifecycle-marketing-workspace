@@ -37,6 +37,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function isInvalidRefreshTokenError(error: unknown): boolean {
+  if (!error) return false;
+  const message =
+    typeof error === 'string'
+      ? error
+      : typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: unknown }).message ?? '')
+      : '';
+  return (
+    message.includes('Invalid Refresh Token') ||
+    message.includes('Refresh Token Not Found')
+  );
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -136,6 +150,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(({ data: { session }, error }) => {
         if (error) {
           logger.error('getSession error:', error);
+          if (isInvalidRefreshTokenError(error)) {
+            // Stale/corrupt persisted auth should not keep triggering refresh failures.
+            void supabase.auth.signOut({ scope: 'local' });
+            setSession(null);
+            setUser(null);
+          }
           setIsLoading(false);
           return;
         }
@@ -206,7 +226,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUserData, loadProfileAndRole]);
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    let { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error && isInvalidRefreshTokenError(error)) {
+      await supabase.auth.signOut({ scope: 'local' });
+      const retry = await supabase.auth.signInWithPassword({ email, password });
+      error = retry.error;
+    }
     if (!error) {
       /** Allow post-login Braze auto-sync to run for this session (sessionStorage gate). */
       clearBrazeLoginAutoSyncFlags();

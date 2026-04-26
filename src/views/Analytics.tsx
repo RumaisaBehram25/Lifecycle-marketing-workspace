@@ -14,7 +14,6 @@ import {
 } from '@/hooks/useDoubleGoodClient';
 import { useToast } from '@/hooks/use-toast';
 import {
-  buildDefaultStarredSegmentMixNames,
   compareSegmentMixRows,
   migrateStarredSegmentMixNames,
 } from '@/lib/brazeSegmentMixNames';
@@ -62,7 +61,6 @@ import { cn } from '@/lib/utils';
 import {
   dashSectionTitleBorder,
   dashSubtitleRule,
-  dashPill,
   dashboardMetricTile,
   dashboardSectionHeadingClass,
   dashboardSurfaceCard,
@@ -252,9 +250,30 @@ function parseIsoDayToUtcMs(day: string): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-const STARRED_CORE_SEGMENTS_STORAGE_KEY = 'analytics:starred-core-segments:v1';
-/** First-time visitors: star up to N segments (core trio first when present, then by size). */
-const DEFAULT_STARRED_SEGMENT_MIX_COUNT = 5;
+const STARRED_CORE_SEGMENTS_STORAGE_KEY_PREFIX = 'analytics:starred-core-segments:v1';
+
+type AnalyticsCardId =
+  | 'lifecycleFlow'
+  | 'coreBenchmark'
+  | 'segmentSizeOverTime'
+  | 'dailyEngagement'
+  | 'campaignComparison'
+  | 'segmentMix'
+  | 'bounceHealth'
+  | 'aiInsights';
+
+const ANALYTICS_CARD_OPTIONS: ReadonlyArray<{ id: AnalyticsCardId; label: string }> = [
+  { id: 'lifecycleFlow', label: 'Lifecycle Flow Performance' },
+  { id: 'coreBenchmark', label: 'Core Benchmark' },
+  { id: 'segmentSizeOverTime', label: 'Segment Size Over Time' },
+  { id: 'dailyEngagement', label: 'Daily Email Engagement' },
+  { id: 'campaignComparison', label: 'Campaign Comparison' },
+  { id: 'segmentMix', label: 'Segment Mix' },
+  { id: 'bounceHealth', label: 'Bounce Health' },
+  { id: 'aiInsights', label: 'AI Insights' },
+];
+
+const ANALYTICS_CARD_OPTION_IDS = ANALYTICS_CARD_OPTIONS.map((option) => option.id);
 
 export default function Analytics() {
   const { data: client } = useActiveClientRow();
@@ -333,9 +352,48 @@ export default function Analytics() {
   const [benchmarkRangePreset, setBenchmarkRangePreset] = useState<BenchmarkRangePreset>('30d');
   const [benchmarkCustomStart, setBenchmarkCustomStart] = useState('');
   const [benchmarkCustomEnd, setBenchmarkCustomEnd] = useState('');
-  const [segmentRangePreset, setSegmentRangePreset] = useState<SegmentRangePreset>('30d');
+  const [segmentRangePreset, setSegmentRangePreset] = useState<SegmentRangePreset>('custom');
   const [segmentCustomStart, setSegmentCustomStart] = useState('');
   const [segmentCustomEnd, setSegmentCustomEnd] = useState('');
+  const starredCoreSegmentsStorageKey = useMemo(() => {
+    const scopedClientId = workspaceClientId || clientId || client?.id || 'global';
+    return `${STARRED_CORE_SEGMENTS_STORAGE_KEY_PREFIX}:${scopedClientId}`;
+  }, [workspaceClientId, clientId, client?.id]);
+  const analyticsLayoutStorageKey = useMemo(() => {
+    const scopedClientId = workspaceClientId || clientId || client?.id || 'global';
+    return `analytics:card-layout:v1:${scopedClientId}`;
+  }, [workspaceClientId, clientId, client?.id]);
+  const [selectedAnalyticsCards, setSelectedAnalyticsCards] = useState<AnalyticsCardId[]>(
+    [...ANALYTICS_CARD_OPTION_IDS],
+  );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(analyticsLayoutStorageKey);
+      if (!raw) {
+        setSelectedAnalyticsCards([...ANALYTICS_CARD_OPTION_IDS]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setSelectedAnalyticsCards([...ANALYTICS_CARD_OPTION_IDS]);
+        return;
+      }
+      const normalized = parsed.filter((id): id is AnalyticsCardId =>
+        ANALYTICS_CARD_OPTION_IDS.includes(id as AnalyticsCardId),
+      );
+      setSelectedAnalyticsCards(
+        normalized.length > 0 ? Array.from(new Set(normalized)) : [...ANALYTICS_CARD_OPTION_IDS],
+      );
+    } catch {
+      setSelectedAnalyticsCards([...ANALYTICS_CARD_OPTION_IDS]);
+    }
+  }, [analyticsLayoutStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(analyticsLayoutStorageKey, JSON.stringify(selectedAnalyticsCards));
+  }, [analyticsLayoutStorageKey, selectedAnalyticsCards]);
+
   /**
    * Starred/core segments persistence:
    * - Stored in localStorage so stars survive reloads/sessions without backend dependency.
@@ -345,6 +403,15 @@ export default function Analytics() {
 
   const rawRows = rawCampaignRows ?? [];
   const canvasRowsList = canvasListRows ?? [];
+  const isAnalyticsCardEnabled = useCallback(
+    (cardId: AnalyticsCardId) => selectedAnalyticsCards.includes(cardId),
+    [selectedAnalyticsCards],
+  );
+
+  const hasAnyPerformanceOverviewCard =
+    isAnalyticsCardEnabled('dailyEngagement') ||
+    isAnalyticsCardEnabled('campaignComparison') ||
+    isAnalyticsCardEnabled('segmentMix');
 
   // Unique campaign names for the filter dropdown
   const campaignNames = [...new Set(
@@ -716,7 +783,7 @@ export default function Analytics() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STARRED_CORE_SEGMENTS_STORAGE_KEY);
+      const raw = localStorage.getItem(starredCoreSegmentsStorageKey);
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return;
@@ -724,12 +791,12 @@ export default function Analytics() {
       const migrated = migrateStarredSegmentMixNames(filtered);
       setStarredCoreSegments(migrated);
       if (JSON.stringify(migrated) !== JSON.stringify(filtered)) {
-        localStorage.setItem(STARRED_CORE_SEGMENTS_STORAGE_KEY, JSON.stringify(migrated));
+        localStorage.setItem(starredCoreSegmentsStorageKey, JSON.stringify(migrated));
       }
     } catch {
       // Ignore invalid local storage payload and continue with empty starred set.
     }
-  }, []);
+  }, [starredCoreSegmentsStorageKey]);
 
   const toggleStarredCoreSegment = useCallback((segmentName: string) => {
     setStarredCoreSegments((prev) => {
@@ -737,13 +804,13 @@ export default function Analytics() {
         ? prev.filter((s) => s !== segmentName)
         : [...prev, segmentName];
       try {
-        localStorage.setItem(STARRED_CORE_SEGMENTS_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(starredCoreSegmentsStorageKey, JSON.stringify(next));
       } catch {
         // Storage failures (private mode/quota) should not break the dashboard.
       }
       return next;
     });
-  }, []);
+  }, [starredCoreSegmentsStorageKey]);
 
   const bounceRateData = useMemo(() => {
     const byDate = new Map<string, { bounces: number; sent: number }>();
@@ -810,33 +877,6 @@ export default function Analytics() {
     ? (filteredSegmentSeries[0] as Record<string, string | number>)
     : null;
 
-  /** Default stars when localStorage is unset: core trio first (if present), then largest other segments. */
-  const segmentMixDefaultStarNames = useMemo(
-    () =>
-      buildDefaultStarredSegmentMixNames(
-        segmentNames,
-        segmentSummaryRow as Record<string, unknown> | null,
-        DEFAULT_STARRED_SEGMENT_MIX_COUNT,
-      ),
-    [segmentNames, segmentSummaryRow],
-  );
-
-  /** First visit: no storage key → star top segments so Segment Size Over Time is populated without extra clicks. */
-  useEffect(() => {
-    if (segmentMixDefaultStarNames.length === 0) return;
-    try {
-      if (localStorage.getItem(STARRED_CORE_SEGMENTS_STORAGE_KEY) !== null) return;
-    } catch {
-      return;
-    }
-    setStarredCoreSegments(segmentMixDefaultStarNames);
-    try {
-      localStorage.setItem(STARRED_CORE_SEGMENTS_STORAGE_KEY, JSON.stringify(segmentMixDefaultStarNames));
-    } catch {
-      // private mode / quota
-    }
-  }, [segmentMixDefaultStarNames]);
-
   const segmentCurrentSizes = useMemo(
     () =>
       segmentNames
@@ -849,6 +889,30 @@ export default function Analytics() {
         .sort(compareSegmentMixRows),
     [segmentNames, segmentSummaryRow, starredCoreSegments],
   );
+
+  /** First visit per client: default to all segment categories starred. */
+  useEffect(() => {
+    if (segmentNames.length === 0) return;
+    const allSegments = [...new Set(segmentNames)];
+    try {
+      const raw = localStorage.getItem(starredCoreSegmentsStorageKey);
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // Any saved array (including empty) is an explicit user state; do not overwrite it.
+          return;
+        }
+      }
+    } catch {
+      // Ignore invalid storage payload and reset to all segments below.
+    }
+    setStarredCoreSegments(allSegments);
+    try {
+      localStorage.setItem(starredCoreSegmentsStorageKey, JSON.stringify(allSegments));
+    } catch {
+      // private mode / quota
+    }
+  }, [segmentNames, starredCoreSegmentsStorageKey]);
 
   const trackedCoreSegments = segmentCurrentSizes.filter((s) => s.isStarred);
   const trackedCoreSegmentNames = trackedCoreSegments.map((s) => s.name);
@@ -914,15 +978,7 @@ export default function Analytics() {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
-        <LoadingPage message="Loading analytics (campaigns, journeys, KPIs, email health)…" />
-      </div>
-    );
-  }
-
-  if (error) {
+  if (error && !hasAnyData && !isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 p-6">
         <p className="text-destructive font-medium">{error.message}</p>
@@ -934,7 +990,7 @@ export default function Analytics() {
     );
   }
 
-  if (!hasAnyData) {
+  if (!hasAnyData && !isLoading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-24 bg-gradient-to-b from-background via-primary/[0.02] to-muted/20">
         <Card className={cn('w-full max-w-md', dashboardEmptyWarningCard)}>
@@ -1030,7 +1086,6 @@ export default function Analytics() {
 
   const engagementRatio = metrics.mau > 0 ? (metrics.dau / metrics.mau) * 100 : 0;
 
-
   const chartMutedFill = 'hsl(var(--muted-foreground))';
 
   return (
@@ -1042,9 +1097,6 @@ export default function Analytics() {
             description="Revenue performance, campaign metrics, and subscriber trends"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary" className={cn(dashPill, 'border-0 text-[10px]')}>
-              Live data
-            </Badge>
           <Select value={period} onValueChange={setPeriod}>
             <SelectTrigger className="w-[150px] h-10 text-sm border-primary/15 bg-card/80 shadow-sm">
               <SelectValue placeholder="Period" />
@@ -1060,6 +1112,13 @@ export default function Analytics() {
           </Select>
           </div>
         </div>
+
+        {isLoading && (
+          <div className="rounded-xl border border-border/50 bg-card/70 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            Loading remaining analytics modules. Core sections render as data arrives.
+          </div>
+        )}
 
         {/* Performance Snapshot */}
         <Card className={analyticsCardClass}>
@@ -1185,8 +1244,67 @@ export default function Analytics() {
           </CardContent>
         </Card>
 
+        <Card className={cn(analyticsCardClass, 'border-dashed')}>
+          <div className={dashboardTopAccentClass} aria-hidden />
+          <CardHeader className={cn(analyticsCardHeaderClass, 'pb-3')}>
+            <CardTitle className={cn(analyticsSectionHeadingClass, 'text-xl text-foreground/95')}>
+              <span className={cn(dashIconChip, 'h-8 w-8 shrink-0')}>
+                <Layers className="h-4 w-4" />
+              </span>
+              Client Card Layout
+            </CardTitle>
+            <p className={analyticsSubtitleClass}>
+              Account managers can choose which analytics cards to show for this client. Layout is saved per client.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3 pb-5 bg-muted/10">
+            <div className="flex flex-wrap gap-2">
+              {ANALYTICS_CARD_OPTIONS.map((option) => {
+                const enabled = selectedAnalyticsCards.includes(option.id);
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedAnalyticsCards((current) => {
+                        if (current.includes(option.id)) {
+                          if (current.length === 1) return current;
+                          return current.filter((id) => id !== option.id);
+                        }
+                        return [...current, option.id];
+                      });
+                    }}
+                    className={cn(
+                      'inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs transition-colors',
+                      enabled
+                        ? 'border-primary/30 bg-primary/10 text-primary'
+                        : 'border-border/50 bg-card/60 text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Check className={cn('h-3.5 w-3.5', enabled ? 'opacity-100' : 'opacity-40')} />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+              <span>
+                Showing {selectedAnalyticsCards.length} of {ANALYTICS_CARD_OPTIONS.length} cards
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedAnalyticsCards([...ANALYTICS_CARD_OPTION_IDS])}
+                className="h-7 rounded-md border border-border/50 bg-card/70 px-2.5 text-xs text-foreground hover:bg-muted/40"
+              >
+                Reset to all cards
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Lifecycle Flow Performance — merged campaign analytics (CSV) + Braze canvas sync metrics */}
-        {(lifecycleFlowPerformanceRows.length > 0 ||
+        {isAnalyticsCardEnabled('lifecycleFlow') &&
+          (lifecycleFlowPerformanceRows.length > 0 ||
           (brazeCanvasFlowMetricsIsLoading && campaignTableRows.length === 0)) &&
           (() => {
           const metricLabels: Record<string, string> = {
@@ -1366,6 +1484,7 @@ export default function Analytics() {
         })()}
 
         {/* Core Benchmark: date-filtered campaign/canvas revenue vs benchmark */}
+        {isAnalyticsCardEnabled('coreBenchmark') && (
         <Card className={cn(analyticsCardClass, 'overflow-hidden')}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardHeader className={analyticsCardHeaderClass}>
@@ -1498,8 +1617,10 @@ export default function Analytics() {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Segment size over time */}
+        {isAnalyticsCardEnabled('segmentSizeOverTime') && (
         <Card className={analyticsCardClass}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardHeader className={analyticsCardHeaderClass}>
@@ -1511,7 +1632,12 @@ export default function Analytics() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pb-6 bg-muted/10">
-            {segmentChartDataByDate.length === 0 ? (
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/70" />
+                <p className="text-sm text-muted-foreground">Loading segment history...</p>
+              </div>
+            ) : segmentChartDataByDate.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <UploadCloud className="h-8 w-8 text-muted-foreground/70" />
                 <p className="text-sm text-muted-foreground">Segment history appears after Braze sync or when data is available.</p>
@@ -1605,7 +1731,12 @@ export default function Analytics() {
                 </div>
 
                 <div className={cn('h-[300px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]')}>
-                  {trackedCoreSegmentNames.length === 0 ? (
+                  {isLoading ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
+                      <Loader2 className="h-6 w-6 animate-spin opacity-70" />
+                      <span>Loading segment chart...</span>
+                    </div>
+                  ) : trackedCoreSegmentNames.length === 0 ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
                       <span>Select segments using the star in</span>
                       <a
@@ -1653,14 +1784,17 @@ export default function Analytics() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Performance Overview */}
+        {hasAnyPerformanceOverviewCard && (
         <div className="space-y-4">
           <div className="pl-1">
             <h2 className={analyticsSectionHeadingClass}>Performance Overview</h2>
             <p className={analyticsSubtitleClass}>Engagement, campaign mix, and subscriber composition</p>
           </div>
           <div className="flex min-w-0 flex-col gap-4">
+            {isAnalyticsCardEnabled('dailyEngagement') && (
             <Card className={cn(analyticsCardClass, 'min-w-0 w-full')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
@@ -1686,7 +1820,9 @@ export default function Analytics() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
+            {isAnalyticsCardEnabled('campaignComparison') && (
             <Card className={cn(analyticsCardClass, 'min-w-0 w-full overflow-visible')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
@@ -1874,7 +2010,14 @@ export default function Analytics() {
                 >
                   {compViewMode === 'by_campaign' && campaignComparisonData.length === 0 && (
                     <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">
-                      No data for selected filters
+                      {isLoading ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading filtered campaigns...
+                        </span>
+                      ) : (
+                        'No data for selected filters'
+                      )}
                     </div>
                   )}
                   {compViewMode === 'by_campaign' && campaignComparisonData.length > 0 && (
@@ -2004,7 +2147,9 @@ export default function Analytics() {
                 </div>
               </CardContent>
             </Card>
+            )}
 
+            {isAnalyticsCardEnabled('segmentMix') && (
             <Card id="analytics-segment-mix" className={cn(analyticsCardClass, 'min-w-0 w-full scroll-mt-24')}>
               <div className={dashboardTopAccentClass} aria-hidden />
               <CardHeader className={analyticsCardHeaderClass}>
@@ -2034,8 +2179,10 @@ export default function Analytics() {
                                 type="button"
                                 onClick={() => toggleStarredCoreSegment(s.name)}
                                 className={cn(
-                                  'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors',
-                                  s.isStarred ? 'text-amber-500' : 'text-muted-foreground hover:text-foreground',
+                                  'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ring-1',
+                                  s.isStarred
+                                    ? 'text-amber-500 bg-amber-500/15 ring-amber-500/30'
+                                    : 'text-muted-foreground hover:text-foreground ring-transparent',
                                 )}
                                 title={s.isStarred ? 'Unstar segment' : 'Star segment'}
                                 aria-label={s.isStarred ? `Unstar ${s.name}` : `Star ${s.name}`}
@@ -2064,9 +2211,12 @@ export default function Analytics() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
         </div>
+        )}
 
+        {isAnalyticsCardEnabled('bounceHealth') && (
         <Card className={cn(analyticsCardClass, 'min-w-0 w-full')}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardHeader className={analyticsCardHeaderClass}>
@@ -2076,7 +2226,12 @@ export default function Analytics() {
             </p>
           </CardHeader>
           <CardContent className="space-y-6 pb-6 pt-2 bg-muted/10">
-            {bounceRateData.length === 0 ? (
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/70" />
+                <p className="text-sm text-muted-foreground">Loading bounce rate data...</p>
+              </div>
+            ) : bounceRateData.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <MailWarning className="h-8 w-8 text-muted-foreground/70" />
                 <p className="text-sm text-muted-foreground">Bounce rate data appears after campaign analytics are synced or imported.</p>
@@ -2121,8 +2276,10 @@ export default function Analytics() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* AI Insights */}
+        {isAnalyticsCardEnabled('aiInsights') && (
         <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -2156,6 +2313,7 @@ export default function Analytics() {
             </div>
           </CardContent>
         </Card>
+        )}
         </div>
       </div>
   );
