@@ -273,6 +273,33 @@ function formatCampaignSentDateYmd(row: BrazeCampaignRow, rawDetails: Record<str
   return d ? format(d, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
 }
 
+function resolveCampaignSegmentName(
+  row: BrazeCampaignRow,
+  rawDetails: Record<string, unknown>,
+): string | undefined {
+  const direct = String(row.segment ?? '').trim();
+  if (direct) return direct;
+
+  const nestedSegment = rawDetails.segment;
+  if (nestedSegment && typeof nestedSegment === 'object' && !Array.isArray(nestedSegment)) {
+    const nestedName = String((nestedSegment as { name?: unknown }).name ?? '').trim();
+    if (nestedName) return nestedName;
+  }
+
+  const candidates = [
+    rawDetails.segment_name,
+    rawDetails.audience_segment,
+    rawDetails.audience_name,
+    rawDetails.recipient_segment,
+    rawDetails.segment_label,
+  ];
+  for (const c of candidates) {
+    const v = String(c ?? '').trim();
+    if (v) return v;
+  }
+  return undefined;
+}
+
 const PLACEHOLDER_CAMPAIGNS: PlaceholderCampaign[] = [
   {
     id: '1',
@@ -791,7 +818,7 @@ export default function Campaigns() {
         status: (row.status ?? 'draft') as PlaceholderCampaign['status'],
         opens: row.opens ?? undefined,
         clicks: row.clicks ?? undefined,
-        segment: row.segment ?? undefined,
+        segment: resolveCampaignSegmentName(row, rawDetails),
         deliveries: row.deliveries ?? undefined,
         sends: row.sends ?? undefined,
         open_rate: formatCampaignRate(row.open_rate),
@@ -1459,6 +1486,16 @@ export default function Campaigns() {
               </SelectContent>
             </Select>
 
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-[140px]" aria-label="Date range">
+                <SelectValue placeholder="Date range" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All Time">All Time</SelectItem>
+                <SelectItem value="Last 7 Days">Last 7 Days</SelectItem>
+              </SelectContent>
+            </Select>
+
             <Select value={sortBy} onValueChange={v => setSortBy(v as CampaignSortKey)}>
               <SelectTrigger className="w-[180px]" aria-label="Sort campaigns">
                 <SelectValue placeholder="Sort" />
@@ -1690,7 +1727,6 @@ export default function Campaigns() {
                           {titleText}
                         </TooltipContent>
                       </Tooltip>
-                      {viewMode === 'list' && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">
@@ -1701,6 +1737,10 @@ export default function Campaigns() {
                           {previewLine}
                         </TooltipContent>
                       </Tooltip>
+                      {campaign.segment && (
+                        <p className="text-xs text-muted-foreground">
+                          Segment: <span className="font-medium text-foreground">{campaign.segment}</span>
+                        </p>
                       )}
                     </div>
                     <div
@@ -1835,12 +1875,9 @@ export default function Campaigns() {
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs font-medium text-muted-foreground">Preheader</p>
+                      <p className="text-xs font-medium text-muted-foreground">Preview Text</p>
                         {selectedCampaignModalCopy.emailPreheader.hadLiquid && <PersonalizedLiquidBadge />}
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Inline preview text (below the subject)
-                      </p>
                       <p className="select-text text-sm leading-relaxed text-muted-foreground break-words">
                         {selectedCampaignModalCopy.emailPreheader.text.length > 0
                           ? selectedCampaignModalCopy.emailPreheader.text

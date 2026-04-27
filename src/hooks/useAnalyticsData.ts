@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useBrazeDashboardClientId } from '@/hooks/useBrazeDashboardClientId';
@@ -889,6 +890,46 @@ export function useAnalyticsData(period: string = 'default') {
     a.date.localeCompare(b.date),
   );
 
+  const getSegmentCategory = (name: string): string => {
+    if (!name) return 'OTHER_MISC';
+    
+    // 1. Bracket or Parentheses Format (e.g. [SOCO] or (SOCO))
+    const wrapMatch = name.match(/[\[\(](.*?)[\]\)]/);
+    if (wrapMatch && wrapMatch[1]) {
+      const extracted = wrapMatch[1].trim().toUpperCase().replace(/[^A-Z0-9_\s]/g, '');
+      if (extracted) return extracted;
+    }
+
+    const n = name.trim().toUpperCase();
+
+    // 2. Keyword Fallback (Prioritized)
+    if (n.includes('SOCO')) return 'SOCO';
+    if (n.includes('ACCOUNT TIER')) return 'ACCOUNT_TIER';
+    if (n.includes('VERTICAL')) return 'VERTICALS';
+    if (n.includes('MARKETING')) return 'MARKETING';
+    if (n.includes('AUDIENCE')) return 'AUDIENCE';
+    if (n.includes('VALIDITY')) return 'VALIDATION';
+    if (n.includes('TEST')) return 'TEST';
+    if (n.includes('NEW')) return 'NEW_USER';
+
+    // 3. Smart Fallbacks
+    if (n.includes('CSV')) return 'CSV_IMPORT';
+    if (n.includes('TEST')) return 'TEST_MISC';
+    
+    return 'OTHER_MISC';
+  };
+
+  const getSegmentSubcategory = (name: string): string => {
+    if (!name) return 'General';
+    const n = name.toUpperCase();
+    if (n.includes('WAVE')) return 'Wave';
+    if (n.includes('DAY')) return 'Day';
+    if (n.includes('USERS')) return 'Users';
+    if (n.includes('AUDIENCE')) return 'Audience';
+    if (n.includes('BATCH')) return 'Batch';
+    return 'General';
+  };
+
   const segmentChartData = segmentRows.map((r) => ({
     date: String(r.date ?? ''),
     segment_name: String(r.segment_name ?? ''),
@@ -896,13 +937,82 @@ export function useAnalyticsData(period: string = 'default') {
   }));
 
   const segmentNames = [...new Set(segmentChartData.map((r) => r.segment_name).filter(Boolean))];
+  
+  // Prepare Sunburst Data (3-level Hierarchy: Category -> Subcategory -> Segment)
+  const segmentSunburstData = useMemo(() => {
+    const byDate: Record<string, Record<string, number>> = {};
+    for (const r of segmentChartData) {
+      const d = r.date.slice(0, 10);
+      if (!byDate[d]) byDate[d] = {};
+      byDate[d][r.segment_name] = r.size;
+    }
+    const dates = Object.keys(byDate).sort();
+    const latestDate = dates[dates.length - 1];
+    if (!latestDate) return [];
+
+    const latest = byDate[latestDate];
+    
+    // hierarchy: category -> subcategory -> segment
+    const categories: Record<string, { 
+      name: string; 
+      value: number; 
+      children: Record<string, { 
+        name: string; 
+        value: number; 
+        children: { name: string; value: number }[] 
+      }> 
+    }> = {};
+
+    for (const name of segmentNames) {
+      const cat = getSegmentCategory(name);
+      const sub = getSegmentSubcategory(name);
+      const val = latest[name] ?? 0;
+      if (val <= 0) continue;
+
+      if (!categories[cat]) {
+        categories[cat] = { name: cat, value: 0, children: {} };
+      }
+      categories[cat].value += val;
+
+      if (!categories[cat].children[sub]) {
+        categories[cat].children[sub] = { name: sub, value: 0, children: [] };
+      }
+      categories[cat].children[sub].value += val;
+      categories[cat].children[sub].children.push({ name, value: val });
+    }
+
+    // Flatten into Recharts-friendly nested format
+    return Object.values(categories)
+      .map(c => ({
+        ...c,
+        children: Object.values(c.children)
+          .sort((a, b) => b.value - a.value)
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [segmentChartData, segmentNames]);
+  const segmentCategories = [...new Set(segmentNames.map(getSegmentCategory))];
+  const categoryByDate: Record<string, Record<string, number>> = {};
+  
+  for (const r of segmentChartData) {
+    const d = String(r.date ?? '').slice(0, 10);
+    const cat = getSegmentCategory(r.segment_name);
+    if (!categoryByDate[d]) categoryByDate[d] = {};
+    categoryByDate[d][cat] = (categoryByDate[d][cat] ?? 0) + r.size;
+  }
+
+  const uniqueDates = Object.keys(categoryByDate).sort();
+  const segmentCategoryChartDataByDate = uniqueDates.map((date) => {
+    const row: Record<string, string | number> = { date };
+    for (const cat of segmentCategories) row[cat] = categoryByDate[date][cat] ?? 0;
+    return row;
+  });
+
   const segmentByDate: Record<string, Record<string, number>> = {};
   for (const r of segmentChartData) {
     const d = String(r.date ?? '').slice(0, 10);
     if (!segmentByDate[d]) segmentByDate[d] = {};
     segmentByDate[d][r.segment_name] = r.size;
   }
-  const uniqueDates = Object.keys(segmentByDate).sort();
   const segmentChartDataByDate = uniqueDates.map((date) => {
     const row: Record<string, string | number> = { date };
     for (const seg of segmentNames) row[seg] = segmentByDate[date][seg] ?? 0;
@@ -921,7 +1031,52 @@ export function useAnalyticsData(period: string = 'default') {
     opens: agg.opens,
     clicks: agg.clicks,
   }));
-  // Analytics uses only campaign analytics data (date-filterable), not pre-aggregated canvas _last_30d columns
+  const channelMix = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const campaignData = brazeCampaignAnalytics.data ?? [];
+    const canvasRows = brazeCanvases.data ?? [];
+    let total = 0;
+
+    for (const r of campaignData) {
+      const s = String(r.channel ?? '').toLowerCase().trim();
+      let ch = 'Email';
+      if (!s || s.includes('email')) ch = 'Email';
+      else if (s.includes('sms')) ch = 'SMS';
+      else if (s.includes('in_app') || s.includes('in-app') || s === 'content_card' || s === 'inapp') ch = 'In-App';
+      else if (s.includes('push') || s.includes('android') || s.includes('ios') || s.includes('web_push')) ch = 'Push';
+      else ch = 'Other';
+      
+      const vol = num(r.sent);
+      if (vol <= 0) continue;
+      counts[ch] = (counts[ch] ?? 0) + vol;
+      total += vol;
+    }
+
+    for (const r of canvasRows) {
+      if (r.archived === true) continue;
+      const s = String(r.last_sent_channel ?? r.channel ?? '').toLowerCase().trim();
+      let ch = 'Email';
+      if (!s || s.includes('email')) ch = 'Email';
+      else if (s.includes('sms')) ch = 'SMS';
+      else if (s.includes('in_app') || s.includes('in-app') || s === 'content_card' || s === 'inapp') ch = 'In-App';
+      else if (s.includes('push') || s.includes('android') || s.includes('ios') || s.includes('web_push')) ch = 'Push';
+      else ch = 'Other';
+      
+      const vol = num(r.sends_last_30d ?? r.entries_last_30d);
+      if (vol <= 0) continue;
+      counts[ch] = (counts[ch] ?? 0) + vol;
+      total += vol;
+    }
+
+    return Object.entries(counts)
+      .map(([name, value]) => ({
+        name,
+        value,
+        percentage: total > 0 ? (value / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [brazeCampaignAnalytics.data, brazeCanvases.data]);
+
   const lifecycleFlowPerformanceRows = mergeLifecycleFlowPerformance(csvLifecycleFlowInput, []);
 
   const totalCampaignRevenue = campaignTableRows.reduce((s, r) => s + num(r.revenue), 0);
@@ -975,6 +1130,10 @@ export function useAnalyticsData(period: string = 'default') {
       : [],
     segmentChartDataByDate,
     segmentNames,
+    segmentCategoryChartDataByDate,
+    segmentCategories,
+    segmentSunburstData,
+    channelMix,
     /** Sum of merged campaign + canvas revenue (per normalized name). */
     totalCampaignRevenue,
     flowRevenueByCampaign: campaignTableRows

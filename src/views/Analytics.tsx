@@ -258,7 +258,6 @@ type AnalyticsCardId =
   | 'segmentSizeOverTime'
   | 'dailyEngagement'
   | 'campaignComparison'
-  | 'segmentMix'
   | 'bounceHealth'
   | 'aiInsights';
 
@@ -268,7 +267,6 @@ const ANALYTICS_CARD_OPTIONS: ReadonlyArray<{ id: AnalyticsCardId; label: string
   { id: 'segmentSizeOverTime', label: 'Segment Size Over Time' },
   { id: 'dailyEngagement', label: 'Daily Email Engagement' },
   { id: 'campaignComparison', label: 'Campaign Comparison' },
-  { id: 'segmentMix', label: 'Segment Mix' },
   { id: 'bounceHealth', label: 'Bounce Health' },
   { id: 'aiInsights', label: 'AI Insights' },
 ];
@@ -301,6 +299,10 @@ export default function Analytics() {
     campaignChartData,
     segmentChartDataByDate,
     segmentNames,
+    segmentCategoryChartDataByDate,
+    segmentCategories,
+    segmentSunburstData,
+    channelMix,
     flowRevenueByCampaign,
     bounceDomains,
     hardBounceCount,
@@ -401,6 +403,62 @@ export default function Analytics() {
    */
   const [starredCoreSegments, setStarredCoreSegments] = useState<string[]>([]);
 
+  const { data: starredSegmentVisibilityRows = [] } = useQuery({
+    queryKey: ['data-visibility-starred-segments', clientId],
+    queryFn: async () => {
+      if (!clientId) return [] as Array<{ item_id: string }>;
+      const { data, error } = await supabase
+        .from('data_visibility')
+        .select('item_id')
+        .eq('client_id', clientId)
+        .eq('item_type', 'segment_starred')
+        .eq('is_visible', true);
+      if (error) throw error;
+      return (data ?? []) as Array<{ item_id: string }>;
+    },
+    enabled: !!clientId,
+    staleTime: 60_000,
+  });
+
+  const { data: segmentDirectoryRows = [] } = useQuery({
+    queryKey: ['analytics', 'braze_segments_sync_directory', clientId],
+    queryFn: async () => {
+      if (!clientId) return [] as Array<{ braze_segment_id: string; name: string }>;
+      const { data, error } = await supabase
+        .from('braze_segments_sync')
+        .select('braze_segment_id,name')
+        .eq('client_id', clientId);
+      if (error) throw error;
+      return (data ?? []) as Array<{ braze_segment_id: string; name: string }>;
+    },
+    enabled: !!clientId,
+    staleTime: 60_000,
+  });
+
+  const segmentNameToId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of segmentDirectoryRows) {
+      const name = String(row.name ?? '').trim();
+      const id = String(row.braze_segment_id ?? '').trim();
+      if (!name || !id) continue;
+      if (!map.has(name)) map.set(name, id);
+    }
+    return map;
+  }, [segmentDirectoryRows]);
+
+  const dashboardStarredSegmentNames = useMemo(() => {
+    if (starredSegmentVisibilityRows.length === 0 || segmentDirectoryRows.length === 0) return [] as string[];
+    const ids = new Set(
+      starredSegmentVisibilityRows
+        .map((r) => String(r.item_id ?? '').trim())
+        .filter(Boolean),
+    );
+    return segmentDirectoryRows
+      .filter((r) => ids.has(String(r.braze_segment_id ?? '').trim()))
+      .map((r) => String(r.name ?? '').trim())
+      .filter(Boolean);
+  }, [starredSegmentVisibilityRows, segmentDirectoryRows]);
+
   const rawRows = rawCampaignRows ?? [];
   const canvasRowsList = canvasListRows ?? [];
   const isAnalyticsCardEnabled = useCallback(
@@ -410,8 +468,7 @@ export default function Analytics() {
 
   const hasAnyPerformanceOverviewCard =
     isAnalyticsCardEnabled('dailyEngagement') ||
-    isAnalyticsCardEnabled('campaignComparison') ||
-    isAnalyticsCardEnabled('segmentMix');
+    isAnalyticsCardEnabled('campaignComparison');
 
   // Unique campaign names for the filter dropdown
   const campaignNames = [...new Set(
@@ -782,6 +839,18 @@ export default function Analytics() {
   }, [benchmarkSeriesQuery.data]);
 
   useEffect(() => {
+    if (dashboardStarredSegmentNames.length > 0) {
+      const migrated = migrateStarredSegmentMixNames(
+        [...new Set(dashboardStarredSegmentNames)],
+      );
+      setStarredCoreSegments(migrated);
+      try {
+        localStorage.setItem(starredCoreSegmentsStorageKey, JSON.stringify(migrated));
+      } catch {
+        // private mode / quota
+      }
+      return;
+    }
     try {
       const raw = localStorage.getItem(starredCoreSegmentsStorageKey);
       if (!raw) return;
@@ -796,11 +865,13 @@ export default function Analytics() {
     } catch {
       // Ignore invalid local storage payload and continue with empty starred set.
     }
-  }, [starredCoreSegmentsStorageKey]);
+  }, [starredCoreSegmentsStorageKey, dashboardStarredSegmentNames]);
 
   const toggleStarredCoreSegment = useCallback((segmentName: string) => {
+    const segmentId = segmentNameToId.get(segmentName);
     setStarredCoreSegments((prev) => {
-      const next = prev.includes(segmentName)
+      const currentlyStarred = prev.includes(segmentName);
+      const next = currentlyStarred
         ? prev.filter((s) => s !== segmentName)
         : [...prev, segmentName];
       try {
@@ -808,9 +879,37 @@ export default function Analytics() {
       } catch {
         // Storage failures (private mode/quota) should not break the dashboard.
       }
+
+      if (clientId && segmentId) {
+        void supabase
+          .from('data_visibility')
+          .upsert(
+            {
+              client_id: clientId,
+              item_type: 'segment_starred',
+              item_id: segmentId,
+              is_visible: !currentlyStarred,
+            },
+            { onConflict: 'client_id,item_type,item_id' },
+          )
+          .then(({ error }) => {
+            if (error) {
+              throw error;
+            }
+            queryClient.invalidateQueries({ queryKey: ['data-visibility-starred-segments', clientId] });
+          })
+          .catch((err) => {
+            toast({
+              title: 'Could not update segment star',
+              description: err instanceof Error ? err.message : 'Unknown error',
+              variant: 'destructive',
+            });
+          });
+      }
+
       return next;
     });
-  }, [starredCoreSegmentsStorageKey]);
+  }, [starredCoreSegmentsStorageKey, clientId, segmentNameToId, queryClient, toast]);
 
   const bounceRateData = useMemo(() => {
     const byDate = new Map<string, { bounces: number; sent: number }>();
@@ -892,6 +991,7 @@ export default function Analytics() {
 
   /** First visit per client: default to all segment categories starred. */
   useEffect(() => {
+    if (dashboardStarredSegmentNames.length > 0) return;
     if (segmentNames.length === 0) return;
     const allSegments = [...new Set(segmentNames)];
     try {
@@ -912,43 +1012,50 @@ export default function Analytics() {
     } catch {
       // private mode / quota
     }
-  }, [segmentNames, starredCoreSegmentsStorageKey]);
+  }, [segmentNames, starredCoreSegmentsStorageKey, dashboardStarredSegmentNames]);
 
-  const trackedCoreSegments = segmentCurrentSizes.filter((s) => s.isStarred);
-  const trackedCoreSegmentNames = trackedCoreSegments.map((s) => s.name);
+  /**
+   * Tracked segments for "Segment Size Over Time":
+   * Derive directly from `starredCoreSegments` (populated from Dashboard's `data_visibility` stars)
+   * instead of filtering through `segmentCurrentSizes` (which requires CSV data to be present).
+   * This ensures Dashboard star/unstar actions are immediately reflected in Analytics.
+   */
+  /**
+   * Categorized segments for "Segment Size Over Time":
+   * Groups segments using the hybrid classification system (SOCO, ACCOUNT_TIER, etc.).
+   */
+  const trackedCategoryChartData = useMemo(() => {
+    return segmentCategoryChartDataByDate.filter((rawRow) => {
+      const row = rawRow as Record<string, unknown>;
+      const d = String(row.date ?? '').slice(0, 10);
+      if (!d) return false;
+      if (segmentRange.startDate && d < segmentRange.startDate) return false;
+      if (segmentRange.endDate && d > segmentRange.endDate) return false;
+      return true;
+    });
+  }, [segmentCategoryChartDataByDate, segmentRange.startDate, segmentRange.endDate]);
 
-  const trackedCoreMetrics = useMemo(() => {
-    /**
-     * Growth calculation:
-     * - When the selected date range has ≥1 row: current = last in-range point, first = first in-range point.
-     * - When range has no rows (sparse CSV): show latest global snapshot for current; growth line stays empty.
-     */
-    const rangeHasRows = filteredSegmentSeries.length > 0;
-    return trackedCoreSegmentNames.map((name) => {
-      if (rangeHasRows && latestSegmentRow && firstSegmentRow) {
-        const current = Number(latestSegmentRow[name] ?? 0);
-        const first = Number(firstSegmentRow[name] ?? 0);
+  const latestCategoryRow = trackedCategoryChartData.length > 0
+    ? (trackedCategoryChartData[trackedCategoryChartData.length - 1] as Record<string, string | number>)
+    : null;
+  const firstCategoryRow = trackedCategoryChartData.length > 0
+    ? (trackedCategoryChartData[0] as Record<string, string | number>)
+    : null;
+
+  const trackedCategoryMetrics = useMemo(() => {
+    const rangeHasRows = trackedCategoryChartData.length > 0;
+    // We only want to show the top 3-5 categories as cards to match the user's reference UI
+    return segmentCategories.slice(0, 6).map((name) => {
+      if (rangeHasRows && latestCategoryRow && firstCategoryRow) {
+        const current = Number(latestCategoryRow[name] ?? 0);
+        const first = Number(firstCategoryRow[name] ?? 0);
         const netGrowth = current - first;
         const growthPct = first > 0 ? (netGrowth / first) * 100 : current > 0 ? 100 : 0;
         return { name, current, netGrowth, growthPct, rangeEmpty: false };
       }
-      const current = segmentSummaryRow ? Number(segmentSummaryRow[name] ?? 0) : 0;
-      return { name, current, netGrowth: 0, growthPct: 0, rangeEmpty: true };
+      return { name, current: 0, netGrowth: 0, growthPct: 0, rangeEmpty: true };
     });
-  }, [trackedCoreSegmentNames, filteredSegmentSeries.length, latestSegmentRow, firstSegmentRow, segmentSummaryRow]);
-
-  const trackedSegmentChartData = useMemo(
-    () =>
-      filteredSegmentSeries.map((rawRow) => {
-        const row = rawRow as Record<string, unknown>;
-        const mapped: Record<string, string | number> = { date: String(row.date ?? '') };
-        trackedCoreSegmentNames.forEach((name) => {
-          mapped[name] = Number(row[name] ?? 0);
-        });
-        return mapped;
-      }),
-    [filteredSegmentSeries, trackedCoreSegmentNames],
-  );
+  }, [segmentCategories, trackedCategoryChartData, latestCategoryRow, firstCategoryRow]);
 
   const segmentTotal = segmentCurrentSizes.reduce((sum, s) => sum + s.value, 0);
 
@@ -1637,87 +1744,34 @@ export default function Analytics() {
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/70" />
                 <p className="text-sm text-muted-foreground">Loading segment history...</p>
               </div>
-            ) : segmentChartDataByDate.length === 0 ? (
+            ) : segmentCategoryChartDataByDate.length < 2 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <UploadCloud className="h-8 w-8 text-muted-foreground/70" />
-                <p className="text-sm text-muted-foreground">Segment history appears after Braze sync or when data is available.</p>
+                <p className="text-sm text-muted-foreground">Historical daily snapshots will appear here once tracked over time.</p>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-card/40 p-3">
-                  <div className="inline-flex h-8 flex-wrap gap-0.5 rounded-md border border-primary/15 bg-background/80 p-0.5">
-                    {(['7d', '30d', '90d'] as const).map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setSegmentRangePreset(preset)}
-                        className={cn(
-                          'rounded px-2.5 text-xs transition-colors',
-                          segmentRangePreset === preset
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        {preset === '7d' ? '7 days' : preset === '30d' ? '30 days' : '90 days'}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setSegmentRangePreset('custom')}
-                      className={cn(
-                        'rounded px-2.5 text-xs transition-colors',
-                        segmentRangePreset === 'custom'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      Custom
-                    </button>
-                  </div>
-                  {segmentRangePreset === 'custom' && (
-                    <>
-                      <input
-                        type="date"
-                        value={segmentCustomStart}
-                        onChange={(e) => setSegmentCustomStart(e.target.value)}
-                        className="h-8 rounded-md border border-primary/15 bg-background/80 px-2 text-xs shadow-sm text-foreground"
-                      />
-                      <span className="text-xs text-muted-foreground">—</span>
-                      <input
-                        type="date"
-                        value={segmentCustomEnd}
-                        onChange={(e) => setSegmentCustomEnd(e.target.value)}
-                        className="h-8 rounded-md border border-primary/15 bg-background/80 px-2 text-xs shadow-sm text-foreground"
-                      />
-                    </>
-                  )}
-                  <p className="text-[11px] text-muted-foreground">
-                    Tracked Core Segments ({trackedCoreSegments.length})
-                  </p>
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {trackedCoreMetrics.length === 0 ? (
+                  {trackedCategoryMetrics.length === 0 ? (
                     <div className="md:col-span-3 rounded-xl border border-dashed border-border/50 bg-card/40 p-4 text-xs text-muted-foreground space-y-2">
                       <p>
-                        No <strong className="font-medium text-foreground/85">core</strong> segments selected. Star segments in{' '}
-                        <a
-                          href="#analytics-segment-mix"
-                          className="font-medium text-primary underline-offset-4 hover:underline"
-                        >
-                          Segment mix
-                        </a>{' '}
-                        (below) — the star button next to each row — then they appear here and in the chart.
+                        No segment categories found. Ensure <strong className="font-medium text-foreground/85">braze_segment_analytics</strong> has synced data or CSV imports.
                       </p>
                     </div>
                   ) : (
-                    trackedCoreMetrics.map((seg) => (
-                      <div key={seg.name} className="rounded-xl border border-border/50 bg-card/70 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{seg.name}</p>
+                    trackedCategoryMetrics.map((seg, i) => (
+                      <div 
+                        key={seg.name} 
+                        className={cn(
+                          'rounded-xl border border-border/50 bg-card/70 p-4 border-l-[3px]',
+                          statRail[['blue', 'emerald', 'violet', 'orange', 'cyan', 'rose'][i % 6] as StatAccent]
+                        )}
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{seg.name.replace(/_/g, ' ')}</p>
                         <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{seg.current.toLocaleString()}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {seg.rangeEmpty ? (
-                            <>No daily snapshots in this range · totals are latest available</>
+                            <>No daily snapshots in this range</>
                           ) : (
                             <>
                               Net growth {seg.netGrowth >= 0 ? '+' : ''}
@@ -1730,48 +1784,38 @@ export default function Analytics() {
                   )}
                 </div>
 
-                <div className={cn('h-[300px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]')}>
+                <div className={cn('h-[320px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))] [&_.recharts-legend-item-text]:fill-[hsl(var(--muted-foreground))]')}>
                   {isLoading ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
                       <Loader2 className="h-6 w-6 animate-spin opacity-70" />
                       <span>Loading segment chart...</span>
                     </div>
-                  ) : trackedCoreSegmentNames.length === 0 ? (
+                  ) : trackedCategoryMetrics.length === 0 ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
-                      <span>Select segments using the star in</span>
-                      <a
-                        href="#analytics-segment-mix"
-                        className="font-medium text-primary underline-offset-4 hover:underline"
-                      >
-                        Segment mix
-                      </a>
+                      <span>No segment categories detected. Categories are automatically derived from segment names.</span>
                     </div>
-                  ) : trackedSegmentChartData.length === 0 ? (
+                  ) : trackedCategoryChartData.length === 0 ? (
                     <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-sm text-muted-foreground">
                       <p>No daily segment snapshots in this date range.</p>
-                      <p className="text-xs max-w-md">
-                        Run a Braze sync so <code className="rounded bg-muted px-1 py-0.5 text-[11px]">braze_segment_analytics</code> gets rows for
-                        these dates, import segment analytics CSV, or widen the range (e.g. 90 days).
-                      </p>
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={trackedSegmentChartData} margin={{ top: 12, right: 12, bottom: 8, left: 8 }}>
+                      <ComposedChart data={trackedCategoryChartData} margin={{ top: 12, right: 12, bottom: 8, left: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                         <XAxis dataKey="date" tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+                        <YAxis tick={{ fill: chartMutedFill, fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
                         <Tooltip
                           contentStyle={analyticsTooltipContentStyle}
                           labelStyle={analyticsTooltipLabelStyle}
                         />
-                        <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" iconSize={8} />
-                        {trackedCoreSegmentNames.map((seg, i) => (
+                        <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} iconType="circle" iconSize={8} />
+                        {segmentCategories.map((seg, i) => (
                           <Line
                             key={seg}
                             type="monotone"
                             dataKey={seg}
                             name={seg}
-                            stroke={['hsl(217 91% 60%)', 'hsl(173 58% 39%)', 'hsl(262 83% 58%)', 'hsl(199 89% 48%)', 'hsl(24 95% 53%)'][i % 5]}
+                            stroke={['hsl(217 91% 60%)', 'hsl(173 58% 39%)', 'hsl(262 83% 58%)', 'hsl(199 89% 48%)', 'hsl(24 95% 53%)', 'hsl(335 78% 56%)'][i % 6]}
                             strokeWidth={2}
                             dot={{ r: 3, fill: 'hsl(var(--card))' }}
                           />
@@ -2149,69 +2193,6 @@ export default function Analytics() {
             </Card>
             )}
 
-            {isAnalyticsCardEnabled('segmentMix') && (
-            <Card id="analytics-segment-mix" className={cn(analyticsCardClass, 'min-w-0 w-full scroll-mt-24')}>
-              <div className={dashboardTopAccentClass} aria-hidden />
-              <CardHeader className={analyticsCardHeaderClass}>
-                <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Segment mix</CardTitle>
-                <p className={analyticsSubtitleClass}>
-                  Share of audience from Braze segment analytics{segmentMixAsOfDate ? ` (${segmentMixAsOfDate})` : ''}. Star a row to plot it in <strong className="font-medium text-foreground/90">Segment Size Over Time</strong> (section above).
-                  {segmentMixIsStale ? ` Data is ${segmentMixStaleDays} day${segmentMixStaleDays === 1 ? '' : 's'} old.` : ''}
-                  {segmentMixIsStale
-                    ? ' Run Sync All from Braze on the Dashboard to append today’s segment sizes when Braze returns them; otherwise import segment analytics CSV.'
-                    : ''}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-3 pb-6 bg-muted/10">
-                {segmentCurrentSizes.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-6 text-center">No segment analytics yet — sync Braze or import segment analytics CSV.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {segmentCurrentSizes.slice(0, 10).map((s, i) => {
-                      const pct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
-                      const barPct = segmentTotal > 0 ? (s.value / segmentTotal) * 100 : 0;
-                      const barColor = ['hsl(217 91% 60%)', 'hsl(142 71% 45%)', 'hsl(0 72% 51%)', 'hsl(262 83% 58%)', 'hsl(24 95% 53%)', 'hsl(173 58% 39%)'][i % 6];
-                      return (
-                        <div key={s.name} className="space-y-1">
-                          <div className="flex items-center justify-between gap-2 text-xs">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleStarredCoreSegment(s.name)}
-                                className={cn(
-                                  'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors ring-1',
-                                  s.isStarred
-                                    ? 'text-amber-500 bg-amber-500/15 ring-amber-500/30'
-                                    : 'text-muted-foreground hover:text-foreground ring-transparent',
-                                )}
-                                title={s.isStarred ? 'Unstar segment' : 'Star segment'}
-                                aria-label={s.isStarred ? `Unstar ${s.name}` : `Star ${s.name}`}
-                              >
-                                <Star className={cn('h-3.5 w-3.5', s.isStarred ? 'fill-current' : '')} />
-                              </button>
-                              <span className="truncate text-muted-foreground">{s.name}</span>
-                            </div>
-                            <span className="shrink-0 font-semibold tabular-nums text-foreground">
-                              {s.value.toLocaleString()} ({pct.toFixed(1)}%)
-                            </span>
-                          </div>
-                          <div className="h-2 w-full overflow-hidden rounded-full bg-muted/60">
-                            <div className="h-full rounded-full transition-[width]" style={{ width: `${barPct}%`, backgroundColor: barColor }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {segmentTotal > 0 && (
-                      <div className="flex items-center justify-between border-t border-border/40 pt-3 text-xs text-muted-foreground">
-                        <span className="font-medium">Total subscribers</span>
-                        <span className="font-semibold tabular-nums text-foreground">{segmentTotal.toLocaleString()}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            )}
           </div>
         </div>
         )}

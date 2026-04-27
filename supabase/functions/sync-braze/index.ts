@@ -2550,6 +2550,8 @@ Deno.serve(async (req) => {
       force_canvas_ids?: unknown;
       touchpoints_only?: unknown;
       campaigns_only?: unknown;
+      segments_only?: unknown;
+      auto_star_segments?: unknown;
       lifecycle_only?: unknown;
       lifecycle_recent_days?: unknown;
       skip_canvas_sync?: unknown;
@@ -2582,6 +2584,8 @@ Deno.serve(async (req) => {
     const { clientId, platformId, restEndpoint } = body;
     const touchpointsOnly = body.touchpoints_only === true;
     const campaignsOnly = body.campaigns_only === true;
+    const segmentsOnly = body.segments_only === true;
+    const autoStarSegments = body.auto_star_segments === true;
     const lifecycleOnly = body.lifecycle_only === true;
     const lifecycleRecentDays =
       typeof body.lifecycle_recent_days === "number" && Number.isFinite(body.lifecycle_recent_days)
@@ -2592,7 +2596,7 @@ Deno.serve(async (req) => {
       ? body.force_canvas_ids.map((x) => String(x).trim()).filter(Boolean)
       : [];
 
-    console.log(`[Braze Sync] Mode: ${campaignsOnly ? 'CAMPAIGNS_ONLY' : touchpointsOnly ? 'TOUCHPOINTS_ONLY' : 'FULL'} | clientId=${clientId} | platformId=${platformId}`);
+    console.log(`[Braze Sync] Mode: ${segmentsOnly ? 'SEGMENTS_ONLY' : campaignsOnly ? 'CAMPAIGNS_ONLY' : touchpointsOnly ? 'TOUCHPOINTS_ONLY' : 'FULL'} | clientId=${clientId} | platformId=${platformId}`);
 
     if (!clientId || !platformId) {
       throw new Error('clientId and platformId are required');
@@ -2774,6 +2778,11 @@ Deno.serve(async (req) => {
         );
       }
     }
+    if (segmentsOnly) {
+      console.log(
+        "[Braze Sync] SEGMENTS_ONLY: syncing segments/list (+ optional data_series sizes) and skipping KPI, email, canvases, campaigns, and scheduled broadcasts",
+      );
+    }
     if (forceCanvasIds.length > 0) {
       console.log(
         "[Braze Sync] force_canvas_ids:",
@@ -2797,7 +2806,7 @@ Deno.serve(async (req) => {
       !touchpointsOnly && forceCanvasIds.length > 0 && forceCanvasIds.length < 10;
 
     /** KPI, Phase 1b, email, Phase 4+ — skipped for fast path or touchpoints-only sync. */
-    const skipHeavySyncPhases = FORCE_CANVAS_FAST_PATH || touchpointsOnly || campaignsOnly;
+    const skipHeavySyncPhases = FORCE_CANVAS_FAST_PATH || touchpointsOnly || campaignsOnly || segmentsOnly;
 
     if (!skipHeavySyncPhases) {
       await pruneBrazeStorageForClient(supabase, String(clientId));
@@ -3021,10 +3030,12 @@ Deno.serve(async (req) => {
     const seenIds = new Set<string>();
     let canvasPage = 0;
 
-    if (campaignsOnly || skipCanvasSync) {
+    if (campaignsOnly || segmentsOnly || skipCanvasSync) {
       console.log(
         campaignsOnly
           ? '[Braze Sync] CAMPAIGNS_ONLY: skipping canvas list fetch and all canvas phases'
+          : segmentsOnly
+            ? '[Braze Sync] SEGMENTS_ONLY: skipping canvas list fetch and all canvas phases'
           : '[Braze Sync] skip_canvas_sync=true: skipping canvas list fetch and all canvas phases',
       );
     } else {
@@ -3084,7 +3095,7 @@ Deno.serve(async (req) => {
 
     // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
     // Runs even when FORCE_CANVAS_FAST_PATH (so canvas/data_series .update has rows to target).
-    if (!touchpointsOnly && !campaignsOnly && !skipCanvasSync) {
+    if (!touchpointsOnly && !campaignsOnly && !segmentsOnly && !skipCanvasSync) {
     const minimalChunks: CanvasListItem[][] = [];
     for (let i = 0; i < allCanvasList.length; i += 40) {
       minimalChunks.push(allCanvasList.slice(i, i + 40));
@@ -3266,6 +3277,7 @@ Deno.serve(async (req) => {
       console.log("[SYNC] Starting: segments (early — before canvas Phase 3 / campaigns)");
       console.log("[START] segments/list → braze_segments_sync + braze_segment_analytics snapshot");
       try {
+        const syncedSegmentIds = new Set<string>();
         let segPage = 0;
         const segmentAnalyticsByKeyEarly = new Map<string, Record<string, unknown>>();
         const segmentSnapshotDayEarly = nowIso.slice(0, 10);
@@ -3318,6 +3330,7 @@ Deno.serve(async (req) => {
                   "",
               );
               if (!id) return null;
+              syncedSegmentIds.add(id);
               return {
                 client_id: clientId,
                 braze_segment_id: id,
@@ -3445,6 +3458,24 @@ Deno.serve(async (req) => {
           console.log(
             "[Braze Sync] Segment analytics snapshot (early): no segment sizes (list has none per Braze docs; data_series empty, tracking off, or missing `segments.data_series` permission)",
           );
+        }
+
+        if (autoStarSegments && syncedSegmentIds.size > 0) {
+          const starRows = [...syncedSegmentIds].map((segmentId) => ({
+            client_id: clientId,
+            item_type: 'segment_starred',
+            item_id: segmentId,
+            is_visible: true,
+          }));
+          const { error: starErr } = await supabase
+            .from('data_visibility')
+            .upsert(starRows, { onConflict: 'client_id,item_type,item_id' });
+          if (starErr) {
+            console.warn('[Braze Sync] data_visibility segment_starred upsert:', starErr.message);
+            pushDbErr('data_visibility(segment_starred)', starErr);
+          } else {
+            console.log(`[Braze Sync] Auto-starred ${starRows.length} synced segment(s)`);
+          }
         }
       } catch (e) {
         console.error("[Braze Sync] Early segment list sync failed:", e);
@@ -3622,7 +3653,7 @@ Deno.serve(async (req) => {
 
     // Build template map first (limited to 30 templates for memory). Touchpoints_only fetches templates per canvas instead.
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
-    if (!touchpointsOnly && !campaignsOnly) {
+    if (!touchpointsOnly && !campaignsOnly && !segmentsOnly) {
       try {
         const templatesData = await brazeFetch('templates/email/list?limit=30', apiKey, brazeRestEndpoint);
         const templateList = templatesData.templates || [];
@@ -4201,7 +4232,7 @@ Deno.serve(async (req) => {
 
     // Campaigns / segments / scheduled broadcasts: run on any non–touchpoints-only invocation,
     // even when FORCE_CANVAS_FAST_PATH skips KPI + email + canvas minimal upsert.
-    if (!touchpointsOnly) {
+    if (!touchpointsOnly && !segmentsOnly) {
     // === PHASE 4: Fetch and process campaigns ===
     console.log('Phase 4: Fetching all campaign IDs...');
     const seenCampaignIds = new Set<string>();
@@ -4780,8 +4811,12 @@ Deno.serve(async (req) => {
 
     // Segment directory + segment analytics are synced **early** (after KPI/email, before heavy canvas/campaign work)
     // so partial syncs still refresh subscriber mix. Scheduled broadcasts remain here after campaigns.
-    if (campaignsOnly) {
-      console.log('[Braze Sync] CAMPAIGNS_ONLY: skipping scheduled broadcasts');
+    if (campaignsOnly || segmentsOnly) {
+      console.log(
+        campaignsOnly
+          ? '[Braze Sync] CAMPAIGNS_ONLY: skipping scheduled broadcasts'
+          : '[Braze Sync] SEGMENTS_ONLY: skipping scheduled broadcasts',
+      );
     } else {
     console.log("[Braze Sync] Segments: directory + analytics already synced early; continuing with scheduled broadcasts");
 
@@ -4876,25 +4911,53 @@ Deno.serve(async (req) => {
     } // end !touchpointsOnly (campaigns, segments, scheduled_broadcasts)
 
     // === Update schema_cache with summary + lightweight campaign list (Settings + Campaigns fallback) ===
-    const schemaCacheCampaigns = allCampaignList.slice(0, 300).map((c) => ({
+    const previousSchemaCache =
+      platform?.schema_cache && typeof platform.schema_cache === 'object' && !Array.isArray(platform.schema_cache)
+        ? (platform.schema_cache as Record<string, unknown>)
+        : {};
+
+    const schemaCacheCampaignsCurrent = allCampaignList.slice(0, 300).map((c) => ({
       id: c.id,
       name: c.name,
       last_sent: c.last_sent,
     }));
+
+    const preserveCanvasSummary = skipCanvasSync || campaignsOnly || segmentsOnly;
+    const preserveCampaignSummary = campaignsOnly || segmentsOnly;
+
+    const schemaCacheCampaigns = preserveCampaignSummary
+      ? ((previousSchemaCache.campaigns as Array<Record<string, unknown>> | undefined) ?? [])
+      : schemaCacheCampaignsCurrent;
 
     const schemaCache = {
       cache_version: 11,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
       force_canvas_fast_path: FORCE_CANVAS_FAST_PATH,
-      canvas_list_total: allCanvasList.length,
-      canvas_minimal_upserted: canvasMinimalUpserted,
-      canvases_count: processedCount,
-      canvases_enabled_count: enabledCount,
-      campaigns_count: campaignsProcessedCount,
-      campaigns_enabled_count: campaignsEnabledCount,
-      canvases_data_series_updated: canvasDataSeriesUpdatedTotal,
-      campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
+      canvas_list_total: preserveCanvasSummary
+        ? Number(previousSchemaCache.canvas_list_total ?? 0)
+        : allCanvasList.length,
+      canvas_minimal_upserted: preserveCanvasSummary
+        ? Number(previousSchemaCache.canvas_minimal_upserted ?? 0)
+        : canvasMinimalUpserted,
+      canvases_count: preserveCanvasSummary
+        ? Number(previousSchemaCache.canvases_count ?? 0)
+        : processedCount,
+      canvases_enabled_count: preserveCanvasSummary
+        ? Number(previousSchemaCache.canvases_enabled_count ?? 0)
+        : enabledCount,
+      campaigns_count: preserveCampaignSummary
+        ? Number(previousSchemaCache.campaigns_count ?? 0)
+        : campaignsProcessedCount,
+      campaigns_enabled_count: preserveCampaignSummary
+        ? Number(previousSchemaCache.campaigns_enabled_count ?? 0)
+        : campaignsEnabledCount,
+      canvases_data_series_updated: preserveCanvasSummary
+        ? Number(previousSchemaCache.canvases_data_series_updated ?? 0)
+        : canvasDataSeriesUpdatedTotal,
+      campaign_analytics_rows_upserted: preserveCampaignSummary
+        ? Number(previousSchemaCache.campaign_analytics_rows_upserted ?? 0)
+        : campaignAnalyticsRowsUpserted,
       /** Mirrors legacy shape: used in Settings + Campaigns when braze_campaigns rows are empty (e.g. RLS client mismatch or partial sync). */
       campaigns: schemaCacheCampaigns,
       kpi_series_points: kpiSeriesPoints,

@@ -22,11 +22,13 @@ import {
   clearImplicitDashboardBrazeSyncSuppress,
 } from '@/lib/brazeDashboardBackgroundSync';
 import { useDashboardBrazeSyncHud } from '@/components/braze/BrazeDashboardSyncHud';
+import { runDashboardBrazeSegmentSync } from '@/lib/runDashboardBrazeFullSync';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
+import { DashboardSegmentsPanel } from '@/components/dashboard/DashboardSegmentsPanel';
 import { BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
 
@@ -357,6 +359,35 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const brazeSyncHud = useDashboardBrazeSyncHud();
+  const [segmentSyncing, setSegmentSyncing] = useState(false);
+
+  const { data: dashboardStarredSegmentNames = [] } = useQuery({
+    queryKey: ['dashboard-starred-segments', brazeMetricsClientId],
+    queryFn: async () => {
+      if (!brazeMetricsClientId) return [] as string[];
+      const { data: starRows, error: starErr } = await supabase
+        .from('data_visibility')
+        .select('item_id')
+        .eq('client_id', brazeMetricsClientId)
+        .eq('item_type', 'segment_starred')
+        .eq('is_visible', true);
+      if (starErr) throw starErr;
+      const ids = new Set((starRows ?? []).map((r) => String((r as { item_id: string }).item_id ?? '').trim()).filter(Boolean));
+      if (ids.size === 0) return [] as string[];
+      const { data: segRows, error: segErr } = await supabase
+        .from('braze_segments_sync')
+        .select('braze_segment_id,name')
+        .eq('client_id', brazeMetricsClientId);
+      if (segErr) throw segErr;
+      return (segRows ?? [])
+        .filter((r) => ids.has(String((r as { braze_segment_id: string }).braze_segment_id ?? '').trim()))
+        .map((r) => String((r as { name: string }).name ?? '').trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    },
+    enabled: !!brazeMetricsClientId,
+    staleTime: 60_000,
+  });
 
 
   const handleSyncAll = useCallback(async () => {
@@ -395,6 +426,30 @@ export default function Dashboard() {
     }
     void handleSyncAll();
   }, [brazeSyncHud.running, handleSyncAll]);
+
+  const handleSyncSegments = useCallback(async () => {
+    if (!clientId || !brazePlatform?.id || brazeSyncHud.running || segmentSyncing) return;
+    setSegmentSyncing(true);
+    try {
+      const result = await runDashboardBrazeSegmentSync({
+        clientId,
+        platformId: brazePlatform.id,
+        queryClient,
+      });
+      toast({
+        title: 'Segments synced',
+        description: `${result.segmentsSynced} segment(s) synced and starred in Dashboard.`,
+      });
+    } catch (err: unknown) {
+      toast({
+        title: 'Segment sync failed',
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    } finally {
+      setSegmentSyncing(false);
+    }
+  }, [clientId, brazePlatform?.id, brazeSyncHud.running, segmentSyncing, queryClient, toast]);
 
   // DISABLED: Re-entering the Dashboard no longer starts throttled background Braze sync.
   // Sync only when the user clicks “Sync All from Braze”.
@@ -507,21 +562,38 @@ export default function Dashboard() {
               </div>
               {brazePlatform && (
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <Button
-                    type="button"
-                    onClick={handleBrazeSyncButtonClick}
-                    variant={brazeSyncHud.running ? 'secondary' : 'outline'}
-                    size="sm"
-                    aria-label={brazeSyncHud.running ? 'Stop Braze sync' : 'Sync all from Braze'}
-                    title={brazeSyncHud.running ? 'Click to stop (finishes the current step first)' : undefined}
-                  >
-                    {brazeSyncHud.running ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                    )}
-                    {brazeSyncHud.running ? 'Syncing…' : 'Sync All from Braze'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleSyncSegments}
+                      variant="outline"
+                      size="sm"
+                      disabled={brazeSyncHud.running || segmentSyncing}
+                      aria-label="Sync segments from Braze"
+                    >
+                      {segmentSyncing ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Layers className="h-4 w-4 mr-2" />
+                      )}
+                      Sync Segments
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleBrazeSyncButtonClick}
+                      variant={brazeSyncHud.running ? 'secondary' : 'outline'}
+                      size="sm"
+                      aria-label={brazeSyncHud.running ? 'Stop Braze sync' : 'Sync all from Braze'}
+                      title={brazeSyncHud.running ? 'Click to stop (finishes the current step first)' : undefined}
+                    >
+                      {brazeSyncHud.running ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                      )}
+                      {brazeSyncHud.running ? 'Syncing…' : 'Sync All from Braze'}
+                    </Button>
+                  </div>
                   {brazeSyncHud.running && brazeSyncHud.status && (
                     <p className="text-xs text-muted-foreground animate-pulse max-w-[250px] text-right">
                       {brazeSyncHud.status}
@@ -530,6 +602,7 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+
           </CardContent>
         </Card>
 
@@ -626,6 +699,9 @@ export default function Dashboard() {
           driveBriefs={driveBriefs}
           isFetching={driveBriefsLoading}
         />
+
+        {/* Segments — star/unstar, search, filter */}
+        <DashboardSegmentsPanel />
 
 
 

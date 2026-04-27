@@ -69,8 +69,8 @@ import {
 import { Link } from 'react-router-dom';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
-import { prefetchLifecycleJourneyImageUrls, preloadHoveredCampaignImage } from '@/lib/campaignImagePreload';
-import { collectLifecycleStepImageUrls, pickJourneyGridHeroPreviewUrl } from '@/lib/lifecycleCanvasImageUrls';
+import { prefetchLifecycleJourneyImageUrls } from '@/lib/campaignImagePreload';
+import { collectLifecycleStepImageUrls } from '@/lib/lifecycleCanvasImageUrls';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import {
@@ -84,11 +84,8 @@ import {
 } from '@/lib/lifecycleCanvasSteps';
 import { HorizontalFlowChart } from '@/components/creative/HorizontalFlowChart';
 import { BRCGIcon } from '@/components/BRCGLogo';
-import { CampaignCreativeHero } from '@/components/campaigns/CampaignCreativeHero';
 import {
-  normalizeCampaignChannel,
   stripBrazeLiquidForDisplay,
-  type CampaignChannelUi,
 } from '@/lib/campaignDisplay';
 
 // Type definitions
@@ -252,7 +249,7 @@ function sortJourneysByRecentDesc<
   });
 }
 
-/** Journey cards per page — matches Campaigns grid (21 per page). */
+/** Journey cards per page — pagination chunk size. */
 const JOURNEY_PAGE_SIZE = 21;
 
 /** localStorage key for Lifecycle “Canvases” hide list (per workspace client id). */
@@ -343,31 +340,22 @@ export default function Lifecycle() {
   const canViewLifecycleFromBraze =
     hasBrazeOnWorkspace || Boolean(dashboardBrazePlatform?.is_connected);
 
-  // Fetch canvases from normalized table (synced rows only — avoids flooding the tab with schema_cache dumps)
-  // Filter to ONLY actively live canvases: enabled, not archived, not draft, and recent activity (last 60 days)
+  // Fetch latest synced canvases from normalized table (synced rows only — avoids schema_cache dumps).
   const { data: normalizedCanvases, isLoading: canvasesLoading } = useQuery({
     queryKey: ['braze_canvases', brazeReadClientId],
     queryFn: async () => {
       if (!brazeReadClientId) return [];
-      const now = new Date();
-      const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
-      
+
       const { data, error } = await supabase
         .from('braze_canvases')
         .select(BRAZE_CANVASES_LIST_SELECT)
         .eq('client_id', brazeReadClientId)
-        // Active-only filters: enabled, not archived, not draft
-        .eq('archived', false)
-        .eq('draft', false)
-        .eq('enabled', true)
-        // Recent activity: entries in last 60 days OR last entry within 60 days
-        .or(`entries_last_60d.gt.0,last_entry.gte.${sixtyDaysAgo}`)
         // Latest lifecycle cards: newest by activity/sync timestamps.
         .order('last_entry', { ascending: false, nullsFirst: false })
         .order('updated_in_braze', { ascending: false, nullsFirst: false })
         .order('synced_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
-      return sortCanvasRowsByName(data ?? []);
+      return data ?? [];
     },
     enabled: !!brazeReadClientId && canViewLifecycleFromBraze,
   });
@@ -614,6 +602,13 @@ export default function Lifecycle() {
       if (!isItemVisible(journey.id)) return false;
       if (hiddenCanvasDbIds.has(journey.dbId)) return false;
 
+      // Lifecycle should only show journeys whose most relevant activity date or sync date is in 2026.
+      const recencyMs = journeyRecencyMs(journey);
+      const activityYear = recencyMs ? new Date(recencyMs).getFullYear() : 0;
+      const syncYear = journey.synced_at ? new Date(journey.synced_at).getFullYear() : 0;
+      
+      if (activityYear !== 2026 && syncYear !== 2026) return false;
+
       const matchesSearch =
         journey.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         journey.description?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -634,7 +629,6 @@ export default function Lifecycle() {
 
       let matchesLaunchDate = true;
       if (launchDateFilter !== 'All') {
-        const recencyMs = journeyRecencyMs(journey);
         if (!recencyMs) {
           matchesLaunchDate = false;
         } else {
@@ -665,14 +659,18 @@ export default function Lifecycle() {
     isItemVisible,
   ]);
 
-  const journeyTotalPages = Math.max(1, Math.ceil(filteredJourneys.length / JOURNEY_PAGE_SIZE));
+  const top30Journeys = useMemo(() => {
+    return filteredJourneys.slice(0, 30);
+  }, [filteredJourneys]);
+
+  const journeyTotalPages = Math.max(1, Math.ceil(top30Journeys.length / JOURNEY_PAGE_SIZE));
 
   const journeyRangeStart =
-    filteredJourneys.length === 0
+    top30Journeys.length === 0
       ? 0
       : (Math.min(journeyPage, journeyTotalPages) - 1) * JOURNEY_PAGE_SIZE + 1;
   const journeyRangeEnd = Math.min(
-    filteredJourneys.length,
+    top30Journeys.length,
     Math.min(journeyPage, journeyTotalPages) * JOURNEY_PAGE_SIZE,
   );
 
@@ -687,8 +685,8 @@ export default function Lifecycle() {
   const paginatedJourneys = useMemo(() => {
     const safePage = Math.min(journeyPage, journeyTotalPages);
     const start = (safePage - 1) * JOURNEY_PAGE_SIZE;
-    return filteredJourneys.slice(start, start + JOURNEY_PAGE_SIZE);
-  }, [filteredJourneys, journeyPage, journeyTotalPages]);
+    return top30Journeys.slice(start, start + JOURNEY_PAGE_SIZE);
+  }, [top30Journeys, journeyPage, journeyTotalPages]);
 
   const listLoading =
     canViewLifecycleFromBraze &&
@@ -701,6 +699,74 @@ export default function Lifecycle() {
   return (
     <>
       <TooltipProvider delayDuration={300}>
+        {selectedJourney ? (
+          <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="mb-6">
+              <Button variant="ghost" onClick={() => setSelectedJourney(null)} className="gap-2 -ml-2 text-muted-foreground hover:text-foreground">
+                <ArrowLeft className="h-4 w-4" /> Back to Journeys
+              </Button>
+            </div>
+            {(() => {
+              const j = selectedJourney as Record<string, unknown>;
+              const title = String(j.displayName ?? j.name ?? 'Journey');
+              const { Icon, gradient, shadow } = getJourneyVisuals(String(j.name ?? ''));
+              const hdrSteps = normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined);
+              const hdrBadge = formatLifecycleStepBadge(
+                hdrSteps,
+                (j as { db_total_steps?: number }).db_total_steps,
+              );
+              const firstEntry = j.first_entry ? String(j.first_entry) : '';
+              let entryLine = '';
+              if (firstEntry) {
+                const d = new Date(firstEntry);
+                if (!Number.isNaN(d.getTime())) entryLine = ` · First entry ${format(d, 'MMMM d, yyyy')}`;
+              }
+              const headerDraft = Boolean(j.draft);
+              const headerDisabled = j.enabled === false;
+              return (
+                <div className="mb-8 space-y-2">
+                  <h1 className="flex flex-wrap items-center gap-3 text-2xl font-bold leading-snug sm:text-3xl text-foreground">
+                    <div
+                      className={cn(
+                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10',
+                        `bg-gradient-to-br ${gradient}`,
+                        shadow,
+                      )}
+                    >
+                      <Icon className="h-5 w-5 text-white drop-shadow" />
+                    </div>
+                    <span className="break-words">{title}</span>
+                    {headerDraft && (
+                      <Badge variant="outline" className="shrink-0 border-amber-500/40 bg-amber-500/10 font-normal text-amber-900 dark:text-amber-200">
+                        Draft
+                      </Badge>
+                    )}
+                    {!headerDraft && headerDisabled && (
+                      <Badge variant="outline" className="shrink-0 font-normal text-muted-foreground">
+                        Disabled
+                      </Badge>
+                    )}
+                  </h1>
+                  <p className="text-muted-foreground text-sm flex items-center gap-2">
+                    {hdrBadge.line}
+                    {entryLine}
+                  </p>
+                </div>
+              );
+            })()}
+            <div className="bg-card rounded-xl border border-border/50 shadow-sm overflow-hidden h-[calc(100vh-16rem)] min-h-[600px] flex flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pb-6 pt-6 [scrollbar-gutter:stable]">
+                <JourneyDetail
+                  journey={selectedJourney}
+                  clientId={brazeReadClientId ?? workspaceClientId}
+                  inDialog={false}
+                  onBack={() => setSelectedJourney(null)}
+                  onViewTouchpoint={(step: unknown) => setSelectedTouchpoint(step)}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
       <div className="relative mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
         <div
           className="pointer-events-none absolute inset-x-0 -top-px h-72 max-w-7xl rounded-b-[2rem] bg-gradient-to-b from-teal-500/[0.07] via-violet-500/[0.04] to-transparent dark:from-teal-950/35 dark:via-violet-950/25 dark:to-transparent"
@@ -973,12 +1039,11 @@ export default function Lifecycle() {
                     </p>
                   </div>
                 ) : (
-                  paginatedJourneys.map((journey, journeyIdx) => (
+                  paginatedJourneys.map((journey) => (
                     <JourneyCard
                       key={journey.dbId}
                       journey={journey}
                       viewMode={viewMode}
-                      listPageIndex={viewMode === 'grid' ? journeyIdx : undefined}
                       onClick={() => openJourneyDetail(journey)}
                       onPointerEnter={() => prefetchCanvasDetailForJourney(journey)}
                       onPointerDown={() => prefetchCanvasDetailForJourney(journey)}
@@ -986,14 +1051,14 @@ export default function Lifecycle() {
                   ))
                 )}
               </div>
-              {filteredJourneys.length > 0 && journeyTotalPages > 1 && (
+              {top30Journeys.length > 0 && journeyTotalPages > 1 && (
                 <div className="flex flex-col items-center justify-between gap-3 border-t border-border/60 pt-5 sm:flex-row">
                   <p className="text-sm text-muted-foreground">
                     Showing{' '}
                     <span className="font-medium text-foreground">
                       {journeyRangeStart}–{journeyRangeEnd}
                     </span>{' '}
-                    of {filteredJourneys.length}
+                    of {top30Journeys.length}
                   </p>
                   <div className="flex items-center gap-2 rounded-full border border-border/70 bg-muted/30 px-2 py-1.5 shadow-inner dark:bg-muted/15">
                     <Button
@@ -1033,83 +1098,8 @@ export default function Lifecycle() {
             </>
           )}
       </div>
+        )}
       </TooltipProvider>
-
-      {/* Journey detail — same modal pattern as Campaigns */}
-      <Dialog
-        open={!!selectedJourney}
-        onOpenChange={(open) => {
-          if (!open) setSelectedJourney(null);
-        }}
-      >
-        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden border-primary/15 bg-card p-0 shadow-xl duration-300 sm:max-w-4xl">
-          {selectedJourney && (
-            <>
-              {(() => {
-                const j = selectedJourney as Record<string, unknown>;
-                const title = String(j.displayName ?? j.name ?? 'Journey');
-                const { Icon, gradient, shadow } = getJourneyVisuals(String(j.name ?? ''));
-                const hdrSteps = normalizeRawSteps(j.steps as Record<string, LifecycleCanvasStep> | undefined);
-                const hdrBadge = formatLifecycleStepBadge(
-                  hdrSteps,
-                  (j as { db_total_steps?: number }).db_total_steps,
-                );
-                const firstEntry = j.first_entry ? String(j.first_entry) : '';
-                let entryLine = '';
-                if (firstEntry) {
-                  const d = new Date(firstEntry);
-                  if (!Number.isNaN(d.getTime())) entryLine = ` · First entry ${format(d, 'MMMM d, yyyy')}`;
-                }
-                const headerDraft = Boolean(j.draft);
-                const headerDisabled = j.enabled === false;
-                return (
-                  <DialogHeader className="shrink-0 space-y-2 px-6 pb-2 pt-6">
-                    <DialogTitle className="flex flex-wrap items-start gap-3 pr-8 text-left text-lg font-semibold leading-snug">
-                      <div
-                        className={cn(
-                          'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10',
-                          `bg-gradient-to-br ${gradient}`,
-                          shadow,
-                        )}
-                      >
-                        <Icon className="h-4 w-4 text-white drop-shadow" />
-                      </div>
-                      <span className="line-clamp-3 min-w-0 flex-1 break-words">{title}</span>
-                      {headerDraft && (
-                        <Badge variant="outline" className="shrink-0 border-amber-500/40 bg-amber-500/10 text-xs font-normal text-amber-900 dark:text-amber-200">
-                          Draft
-                        </Badge>
-                      )}
-                      {!headerDraft && headerDisabled && (
-                        <Badge variant="outline" className="shrink-0 text-xs font-normal text-muted-foreground">
-                          Disabled
-                        </Badge>
-                      )}
-                    </DialogTitle>
-                    <DialogDescription>
-                      {hdrBadge.line}
-                      {entryLine}
-                    </DialogDescription>
-                  </DialogHeader>
-                );
-              })()}
-              <div
-                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-6 pb-6 [scrollbar-gutter:stable]"
-                tabIndex={-1}
-                aria-label="Journey details"
-              >
-                <JourneyDetail
-                  journey={selectedJourney}
-                  clientId={brazeReadClientId ?? workspaceClientId}
-                  inDialog
-                  onBack={() => setSelectedJourney(null)}
-                  onViewTouchpoint={(step: unknown) => setSelectedTouchpoint(step)}
-                />
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Touchpoint Creative Modal */}
       <Dialog open={!!selectedTouchpoint} onOpenChange={() => setSelectedTouchpoint(null)}>
@@ -1295,37 +1285,6 @@ function generateJourneyDescription(name: string): string {
   return 'Automated multi-touch journey delivering targeted messages across channels.';
 }
 
-function journeyCardPreviewLine(journey: {
-  description?: string;
-  name?: string;
-}): string {
-  const raw = typeof journey.description === 'string' ? journey.description.trim() : '';
-  if (raw && raw !== 'Automated lifecycle journey') {
-    const cleaned = plainTextPreviewFromBrazeMessageBody(raw);
-    if (cleaned) return cleaned;
-  }
-  return generateJourneyDescription(String(journey.name ?? ''));
-}
-
-function journeyCardPrimaryUiChannel(channels: string[] | undefined): CampaignChannelUi {
-  if (!channels?.length) return 'email';
-  return normalizeCampaignChannel(channels[0]);
-}
-
-function journeyCardDateLabel(journey: {
-  first_entry?: string;
-  last_entry?: string;
-  updated_in_braze?: string;
-  synced_at?: string;
-  updated_at?: string;
-  created_in_braze?: string;
-  created_at?: string;
-}): string {
-  const ms = journeyRecencyMs(journey);
-  if (ms == null) return '—';
-  return format(new Date(ms), 'MMM d, yyyy');
-}
-
 /** One pill per channel: Push → Push, Email/SMS/In-App as before; unknown raw strings get a muted pill. */
 function journeyCardChannelPillList(channels: string[] | undefined): Array<{
   key: string;
@@ -1412,15 +1371,12 @@ function JourneyFlowPreviewSkeleton() {
 function JourneyCard({
   journey,
   viewMode,
-  listPageIndex,
   onClick,
   onPointerEnter,
   onPointerDown,
 }: {
   journey: any;
   viewMode: 'grid' | 'list';
-  /** Grid only: first rows get eager image hints (same pattern as Campaigns). */
-  listPageIndex?: number;
   onClick: () => void;
   onPointerEnter?: () => void;
   /** Warms canvas detail before click (pointer down fires before click — hides perceived lag). */
@@ -1428,40 +1384,26 @@ function JourneyCard({
 }) {
   const titleText = String(journey.displayName || journey.name || 'Journey');
   const titleForVisual = String(journey.name ?? journey.displayName ?? '');
-  const { Icon: TitleIcon, gradient: titleGradient, shadow: titleShadow, heroSurface } =
+  const { Icon: TitleIcon, gradient: titleGradient, shadow: titleShadow } =
     getJourneyVisuals(titleForVisual);
-  const previewLine = journeyCardPreviewLine(journey);
   const channels = journey.channels as string[] | undefined;
-  const primaryCh = journeyCardPrimaryUiChannel(channels);
-  const dateLabel = journeyCardDateLabel(journey);
   const stepsRecord = normalizeRawSteps(journey.steps) as Record<string, LifecycleCanvasStep>;
-  const journeyGridPreviewUrl = useMemo(
-    () =>
-      pickJourneyGridHeroPreviewUrl(
-        stepsRecord,
-        (journey.variants ?? []) as ReadonlyArray<{ first_step_id: string | null }>,
-      ),
-    [stepsRecord, journey.variants],
-  );
   const stepBadge = formatLifecycleStepBadge(
     stepsRecord,
     (journey as { db_total_steps?: number }).db_total_steps,
   );
   const channelPills = journeyCardChannelPillList(channels);
-  const canvasTags = Array.isArray(journey.tags)
-    ? (journey.tags as unknown[]).filter((t): t is string => typeof t === 'string' && t.trim().length > 0).slice(0, 8)
-    : [];
 
   const titleIconBadge = (
     <div
       className={cn(
-        'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white/30 dark:ring-black/25',
+        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md ring-1 ring-white/30 dark:ring-black/25',
         titleGradient,
         titleShadow,
       )}
       aria-hidden
     >
-      <TitleIcon className="h-5 w-5 drop-shadow" strokeWidth={2} />
+      <TitleIcon className="h-4.5 w-4.5 drop-shadow" strokeWidth={2} />
     </div>
   );
 
@@ -1515,22 +1457,6 @@ function JourneyCard({
     </div>
   );
 
-  const tagPillRow =
-    canvasTags.length > 0 ? (
-      <div className="flex flex-wrap gap-1.5">
-        {canvasTags.map((tag) => (
-          <Badge
-            key={tag}
-            variant="secondary"
-            className="max-w-[140px] truncate text-[10px] font-normal border-border/60 text-muted-foreground"
-            title={tag}
-          >
-            {tag}
-          </Badge>
-        ))}
-      </div>
-    ) : null;
-
   if (viewMode === 'list') {
     return (
       <Card
@@ -1542,11 +1468,9 @@ function JourneyCard({
         )}
         onPointerEnter={() => {
           onPointerEnter?.();
-          if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
         }}
         onPointerDown={() => {
           onPointerDown?.();
-          if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
         }}
         onClick={open}
         onKeyDown={(e) => {
@@ -1556,37 +1480,25 @@ function JourneyCard({
           }
         }}
       >
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:gap-4">
-          {titleIconBadge}
-          <div className="min-w-0 flex-1 space-y-2">
+        <CardContent className="flex flex-col gap-3 p-4">
+          <div className="flex items-center gap-3 min-w-0">
+            {titleIconBadge}
             <Tooltip>
               <TooltipTrigger asChild>
-                <h3 className="line-clamp-2 text-left text-sm font-medium leading-snug">{titleText}</h3>
+                <h3 className="line-clamp-1 min-w-0 text-left text-[1rem] font-semibold leading-snug text-foreground">{titleText}</h3>
               </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-sm">
-                {titleText}
-              </TooltipContent>
+              <TooltipContent side="top" className="max-w-sm">{titleText}</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">{previewLine}</p>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm">
-                {previewLine}
-              </TooltipContent>
-            </Tooltip>
-            {touchpointBadge}
-            {statusBadges}
-            {channelPillRow}
-            {tagPillRow}
           </div>
-          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-            <span className="flex items-center justify-end gap-1 text-xs tabular-nums text-muted-foreground sm:justify-start">
-              <Calendar className="h-3 w-3 shrink-0" aria-hidden />
-              {dateLabel}
-            </span>
-            <span className="flex items-center gap-1 text-sm font-medium text-teal-700 dark:text-teal-300 sm:justify-end">
-              View journey
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <GitBranch className="h-3.5 w-3.5 shrink-0 opacity-75" aria-hidden />
+            <span>{stepBadge.line}</span>
+          </div>
+          {statusBadges}
+          {channelPillRow}
+          <div className="mt-1 border-t border-border/60 pt-3 flex items-center justify-end">
+            <span className="inline-flex items-center gap-1 text-sm font-semibold text-foreground/90 group-hover:text-primary transition-colors">
+              View Journey
               <ArrowRight className="h-3.5 w-3.5 opacity-90" aria-hidden />
             </span>
           </div>
@@ -1605,11 +1517,9 @@ function JourneyCard({
       )}
       onPointerEnter={() => {
         onPointerEnter?.();
-        if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
       }}
       onPointerDown={() => {
         onPointerDown?.();
-        if (journeyGridPreviewUrl) preloadHoveredCampaignImage(journeyGridPreviewUrl);
       }}
       onClick={open}
       onKeyDown={(e) => {
@@ -1619,51 +1529,25 @@ function JourneyCard({
         }
       }}
     >
-      <CampaignCreativeHero
-        channel={primaryCh}
-        previewText={previewLine}
-        previewImageUrl={journeyGridPreviewUrl}
-        campaignName={titleText}
-        variant="card"
-        listPageIndex={listPageIndex}
-        journeyPlaceholder={{
-          surfaceGradient: heroSurface,
-          largeIcon: <TitleIcon className="h-8 w-8 text-white drop-shadow" strokeWidth={2} aria-hidden />,
-          iconContainerClassName: cn(
-            'mb-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl shadow-lg ring-2 ring-white/40 dark:ring-black/25',
-            `bg-gradient-to-br ${titleGradient}`,
-            titleShadow,
-          ),
-        }}
-      />
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-2 p-4">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <h3 className="line-clamp-2 text-left text-sm font-medium leading-snug">{titleText}</h3>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-sm">
-            {titleText}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <p className="line-clamp-2 text-left text-xs leading-relaxed text-muted-foreground">{previewLine}</p>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-sm">
-            {previewLine}
-          </TooltipContent>
-        </Tooltip>
-        {touchpointBadge}
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+        <div className="flex items-center gap-3 min-w-0">
+          {titleIconBadge}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <h3 className="line-clamp-1 min-w-0 text-left text-[1.05rem] font-semibold leading-snug text-foreground">{titleText}</h3>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-sm">{titleText}</TooltipContent>
+          </Tooltip>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <GitBranch className="h-3.5 w-3.5 shrink-0 opacity-75" aria-hidden />
+          <span>{stepBadge.line}</span>
+        </div>
         {statusBadges}
         {channelPillRow}
-        {tagPillRow}
-        <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-          <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
-            <Calendar className="h-3 w-3 shrink-0" aria-hidden />
-            {dateLabel}
-          </span>
-          <span className="flex items-center gap-1 text-sm font-medium text-teal-700 dark:text-teal-300">
-            View journey
+        <div className="mt-auto border-t border-border/60 pt-4 flex items-center justify-end">
+          <span className="inline-flex items-center gap-1 text-sm font-semibold text-foreground/90 group-hover:text-primary transition-colors">
+            View Journey
             <ArrowRight className="h-3.5 w-3.5 opacity-90" aria-hidden />
           </span>
         </div>

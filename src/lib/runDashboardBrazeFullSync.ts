@@ -27,6 +27,11 @@ export type RunDashboardBrazeFullSyncResult = {
   cancelled?: boolean;
 };
 
+export type RunDashboardBrazeSegmentSyncResult = {
+  segmentsSynced: number;
+  segmentAnalyticsRowsUpserted: number;
+};
+
 /**
  * Single entry point: campaigns-only rounds → touchpoint chunks → full sync-braze
  * (Campaigns + Lifecycle canvas data + Analytics KPI/segments/email, same as Dashboard “Sync All”).
@@ -107,10 +112,37 @@ export async function runDashboardBrazeFullSync(options: {
 
   onStatus('Syncing KPI & metrics…');
   const { error: fullErr } = await supabase.functions.invoke('sync-braze', {
-    body: { clientId, platformId, skip_canvas_sync: true },
+    body: { clientId, platformId, skip_canvas_sync: true, auto_star_segments: true },
   });
   if (fullErr) throw fullErr;
   bump();
 
   return { campaignRounds: campaignRound, touchpointChunks: touchpointRound };
+}
+
+/** Segments-only sync from Braze API + auto-star segments in `data_visibility` for Dashboard/Settings visibility. */
+export async function runDashboardBrazeSegmentSync(options: {
+  clientId: string;
+  platformId: string;
+  queryClient?: QueryClient;
+}): Promise<RunDashboardBrazeSegmentSyncResult> {
+  const { clientId, platformId, queryClient } = options;
+  const { data, error } = await supabase.functions.invoke('sync-braze', {
+    body: {
+      clientId,
+      platformId,
+      segments_only: true,
+      auto_star_segments: true,
+    },
+  });
+  if (error) throw error;
+
+  if (queryClient) invalidateAfterBrazeFullSync(queryClient);
+
+  const counts = (data?.data as { counts?: { segments_synced?: number; segment_analytics_rows_upserted?: number } } | undefined)
+    ?.counts;
+  return {
+    segmentsSynced: counts?.segments_synced ?? 0,
+    segmentAnalyticsRowsUpserted: counts?.segment_analytics_rows_upserted ?? 0,
+  };
 }
