@@ -798,18 +798,18 @@ export default function Lifecycle() {
               <div className="flex flex-col items-center text-center">
                 <div
                   className={cn(
-                    'mb-8 flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full',
+                    'mb-8 flex h-12 w-12 items-center justify-center rounded-full',
                     'bg-primary/[0.07] text-primary shadow-inner',
                     'ring-1 ring-primary/15',
                   )}
                   aria-hidden
                 >
-                  <Workflow className="h-9 w-9" strokeWidth={1.25} />
+                  <Workflow className="h-6 w-6" strokeWidth={1.25} />
                 </div>
-                <h2 className="text-balance text-lg font-semibold leading-snug tracking-tight text-foreground sm:text-xl">
+                <h2 className="text-balance text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
                   Lifecycle journeys are hidden until Braze is connected.
                 </h2>
-                <p className="mt-4 max-w-sm text-pretty text-sm leading-relaxed text-muted-foreground">
+                <p className="mt-4 max-w-sm text-pretty text-xs leading-relaxed text-muted-foreground sm:text-sm">
                   Add your Braze API credentials on Platforms. This page only lists canvases after sync—not embedded
                   schema cache—so this tab stays clean.
                 </p>
@@ -1016,14 +1016,14 @@ export default function Lifecycle() {
             <>
               <div
                 className={
-                  viewMode === 'grid'
+                        'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10',
                     ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3'
                     : 'space-y-3'
                 }
               >
-                {journeys.length === 0 ? (
+                      <Icon className="h-6 w-6 text-white drop-shadow" />
                   <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-                    <Workflow className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
+                    <span className="break-words text-xl sm:text-2xl">{title}</span>
                     <p className="font-medium text-foreground">No journeys synced yet</p>
                     <p className="max-w-md text-sm text-muted-foreground">
                       Run <strong className="font-medium text-foreground">Sync All from Braze</strong> on the Dashboard so rows appear in{' '}
@@ -1397,13 +1397,13 @@ function JourneyCard({
   const titleIconBadge = (
     <div
       className={cn(
-        'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md ring-1 ring-white/30 dark:ring-black/25',
+        'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md ring-1 ring-white/30 dark:ring-black/25',
         titleGradient,
         titleShadow,
       )}
       aria-hidden
     >
-      <TitleIcon className="h-4.5 w-4.5 drop-shadow" strokeWidth={2} />
+      <TitleIcon className="h-6 w-6 drop-shadow" strokeWidth={2} />
     </div>
   );
 
@@ -1485,7 +1485,7 @@ function JourneyCard({
             {titleIconBadge}
             <Tooltip>
               <TooltipTrigger asChild>
-                <h3 className="line-clamp-1 min-w-0 text-left text-[1rem] font-semibold leading-snug text-foreground">{titleText}</h3>
+                <h3 className="line-clamp-1 min-w-0 text-left text-sm font-medium leading-snug text-foreground">{titleText}</h3>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-sm">{titleText}</TooltipContent>
             </Tooltip>
@@ -1534,7 +1534,7 @@ function JourneyCard({
           {titleIconBadge}
           <Tooltip>
             <TooltipTrigger asChild>
-              <h3 className="line-clamp-1 min-w-0 text-left text-[1.05rem] font-semibold leading-snug text-foreground">{titleText}</h3>
+              <h3 className="line-clamp-1 min-w-0 text-left text-sm font-medium leading-snug text-foreground">{titleText}</h3>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-sm">{titleText}</TooltipContent>
           </Tooltip>

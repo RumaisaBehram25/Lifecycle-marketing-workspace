@@ -69,6 +69,8 @@ const MAX_SEGMENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_PAGES", 40, 1, 200
 /** When `segments/list` has no size (normal per Braze docs), call `/segments/data_series` for tracked segments. 0 = skip. */
 const MAX_SEGMENT_DATA_SERIES_LOOKUPS = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_DATA_SERIES", 120, 0, 500);
 const MAX_EMAIL_EVENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EMAIL_PAGES", 35, 1, 120);
+/** Max pages for /events/list endpoint. Default 20 pages. Override via BRAZE_SYNC_MAX_EVENTS_PAGES. */
+const MAX_EVENTS_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EVENTS_PAGES", 20, 1, 100);
 /** Per-client retention deletes at start of each sync (0 = disabled). Frees rows in braze_email_events / braze_sync_runs / braze_kpi_series. */
 const PRUNE_EMAIL_EVENTS_DAYS = clampIntEnv("BRAZE_SYNC_PRUNE_EMAIL_EVENTS_DAYS", 90, 0, 1095);
 const PRUNE_SYNC_RUN_DAYS = clampIntEnv("BRAZE_SYNC_PRUNE_SYNC_RUN_DAYS", 45, 0, 1095);
@@ -2899,6 +2901,7 @@ Deno.serve(async (req) => {
     let emailHardBounceRows = 0;
     let emailUnsubRows = 0;
     let emailEventsSynced = 0;
+    let customEventsSynced = 0;
     let segmentAnalyticsRowsUpserted = 0;
     const dbWriteErrors: string[] = [];
     const pushDbErr = (label: string, err: { message?: string } | null | undefined) => {
@@ -3267,6 +3270,103 @@ Deno.serve(async (req) => {
     console.log(
       `[Braze Sync] Email events (early phase): hard_bounce_rows=${emailHardBounceRows} unsub_rows=${emailUnsubRows}`,
     );
+    }
+
+    /**
+     * Custom events directory — runs **early** so events are available for campaign/canvas targeting logic.
+     * Fetches from /events/list endpoint and stores event metadata (name, description, properties).
+     */
+    if (!touchpointsOnly && !campaignsOnly) {
+      console.log("[SYNC] Starting: custom events (early)");
+      console.log("[START] events/list → braze_custom_events");
+      try {
+        let eventsPage = 0;
+        const eventRows: Array<Record<string, unknown>> = [];
+        
+        while (eventsPage < MAX_EVENTS_PAGES) {
+          if (syncOverBudget() && eventsPage > 0) {
+            console.warn(
+              "[Braze Sync] Time budget: stopping custom events pagination early",
+            );
+            syncPartial = true;
+            syncStoppedReason = "time_budget";
+            break;
+          }
+          
+          try {
+            const eventsJson = (await brazeFetch(
+              `events/list?page=${eventsPage}&limit=100`,
+              apiKey,
+              brazeRestEndpoint,
+            )) as Record<string, unknown>;
+            
+            const events = getBrazeListArray(eventsJson, [
+              "events",
+              "items",
+              "data",
+            ]) as Array<Record<string, unknown>>;
+            
+            console.log(
+              `[API] custom events page ${eventsPage}: ${events.length} event(s)`,
+            );
+            
+            if (events.length === 0 && eventsPage === 0) {
+              console.log("[Braze Sync] Custom events page 0 empty; skipping events sync");
+              break;
+            }
+            
+            if (events.length === 0) break;
+            
+            for (const event of events) {
+              const eventId = String(event.id ?? event.event_id ?? "").trim();
+              if (!eventId) continue;
+              
+              const eventName = String(event.name ?? event.event_name ?? "Custom Event");
+              const properties = event.properties as Array<Record<string, unknown>> | undefined;
+              
+              eventRows.push({
+                client_id: clientId,
+                braze_event_id: eventId,
+                event_name: eventName,
+                event_description: String(event.description ?? event.event_description ?? ""),
+                event_type: String(event.type ?? event.event_type ?? "custom"),
+                category: String(event.category ?? ""),
+                platform: String(event.platform ?? ""),
+                properties: properties ? JSON.stringify(properties) : null,
+                properties_count: Array.isArray(properties) ? properties.length : 0,
+                raw: event as Record<string, unknown>,
+                synced_at: nowIso,
+              });
+            }
+            
+            eventsPage++;
+            await new Promise((r) => setTimeout(r, 50));
+          } catch (e) {
+            console.error(`[Braze Sync] Custom events page ${eventsPage} failed:`, e);
+            break;
+          }
+        }
+        
+        if (eventRows.length > 0) {
+          console.log(
+            "[DB WRITE] braze_custom_events attempting to write:",
+            eventRows.length,
+            "rows",
+          );
+          const { error: eventsErr } = await supabase.from("braze_custom_events").upsert(eventRows, {
+            onConflict: "client_id,braze_event_id",
+          });
+          if (eventsErr) {
+            console.warn("[Braze Sync] braze_custom_events upsert:", eventsErr.message);
+            pushDbErr("braze_custom_events", eventsErr);
+          } else {
+            customEventsSynced = eventRows.length;
+            console.log(`[Braze Sync] Custom events: synced ${customEventsSynced} event(s)`);
+          }
+        }
+      } catch (e) {
+        console.error("[Braze Sync] Custom events sync failed:", e);
+      }
     }
 
     /**
@@ -5112,6 +5212,7 @@ Deno.serve(async (req) => {
             campaigns_enabled: campaignsEnabledCount,
             campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
             kpi_series_points: schemaCache.kpi_series_points,
+            custom_events_synced: customEventsSynced,
             segments_synced: schemaCache.segments_synced,
             segment_analytics_rows_upserted: schemaCache.segment_analytics_rows_upserted,
             email_events_ingested: schemaCache.email_events_ingested,
