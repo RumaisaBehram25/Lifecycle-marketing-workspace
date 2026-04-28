@@ -40,6 +40,11 @@ async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string
     });
     if (!response.ok) {
       const errorText = await response.text();
+      console.error("[braze-campaign-creative] Braze API error", {
+        status: response.status,
+        url,
+        body: errorText.slice(0, 2000),
+      });
       throw new Error(`Braze API error ${response.status}: ${errorText.slice(0, 240)}`);
     }
     return await response.json();
@@ -283,6 +288,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env var");
+    }
+
     const authResult = await validateAuth(req);
     if (!authResult.success) {
       return authErrorResponse(authResult.error!, authResult.status!, corsHeaders);
@@ -294,6 +305,13 @@ Deno.serve(async (req: Request) => {
       brazeCampaignId?: string;
       persist?: boolean;
     };
+
+    console.info("[braze-campaign-creative] request", {
+      clientId: body.clientId,
+      platformId: body.platformId,
+      brazeCampaignId: body.brazeCampaignId,
+      persist: body.persist === true,
+    });
 
     const clientId = String(body.clientId ?? "").trim();
     const platformId = String(body.platformId ?? "").trim();
@@ -307,10 +325,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     const accessResult = await validateClientAccessForEdge(
       supabase,
@@ -435,7 +450,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[braze-campaign-creative]", msg);
+    console.error("[braze-campaign-creative]", msg, e);
     return new Response(JSON.stringify({ error: msg.slice(0, 500) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

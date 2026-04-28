@@ -288,6 +288,21 @@ async function fetchLifecycleBrazeCanvasDetail(
   return data as Record<string, unknown> | null;
 }
 
+/** Batch load canvas detail rows to avoid N+1 fetch loops. */
+async function fetchLifecycleBrazeCanvasDetailsBatch(
+  clientId: string,
+  journeyDbIds: string[],
+): Promise<Array<Record<string, unknown>>> {
+  if (journeyDbIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('braze_canvases')
+    .select('id,raw_steps,raw_variants,total_steps')
+    .eq('client_id', clientId)
+    .in('id', journeyDbIds);
+  if (error) throw error;
+  return (data ?? []) as Array<Record<string, unknown>>;
+}
+
 export default function Lifecycle() {
   const { clientId: workspaceClientId } = useResolvedClientId();
   const { clientId: brazeReadClientId, isLoading: brazeDashboardClientLoading } =
@@ -475,19 +490,26 @@ export default function Lifecycle() {
     const clientId = brazeReadClientId ?? workspaceClientId;
     if (!clientId || journeys.length === 0) return;
     const top = journeys.slice(0, JOURNEY_PAGE_SIZE);
-    top.forEach((j, i) => {
-      const journeyDbId = String(j.dbId ?? j.id ?? '');
-      if (!journeyDbId) return;
-      // First batch in parallel so touchpoint images start warming immediately; light stagger for the rest.
-      const delay = i < 16 ? 0 : 80 + (i - 16) * 55;
-      setTimeout(() => {
-        void queryClient.prefetchQuery({
-          queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
-          queryFn: () => fetchLifecycleBrazeCanvasDetail(clientId, journeyDbId),
-          staleTime: LIFECYCLE_CANVAS_DETAIL_STALE_MS,
+    const journeyDbIds = top
+      .map((j) => String(j.dbId ?? j.id ?? ''))
+      .filter((id) => id.length > 0);
+    if (journeyDbIds.length === 0) return;
+    void (async () => {
+      try {
+        const rows = await fetchLifecycleBrazeCanvasDetailsBatch(clientId, journeyDbIds);
+        rows.forEach((row) => {
+          const journeyDbId = String(row.id ?? '');
+          if (!journeyDbId) return;
+          preloadJourneyStepImages(row.raw_steps);
+          queryClient.setQueryData(
+            ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
+            row,
+          );
         });
-      }, delay);
-    });
+      } catch (err) {
+        console.warn('[lifecycle] batch prefetch failed', err);
+      }
+    })();
   }, [journeys, brazeReadClientId, workspaceClientId, queryClient]);
 
   const isItemVisible = useCallback((brazeOrVisibilityId: string) => {
@@ -1015,14 +1037,15 @@ export default function Lifecycle() {
           ) : (
             <>
               <div
-                className={
-                        'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10',
-                    ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3'
-                    : 'space-y-3'
-                }
+                className={cn(
+                  viewMode === 'grid' ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3',
+                )}
               >
-                      <Icon className="h-6 w-6 text-white drop-shadow" />
+                {top30Journeys.length === 0 ? (
                   <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10">
+                      <Icon className="h-6 w-6 text-white drop-shadow" />
+                    </div>
                     <span className="break-words text-xl sm:text-2xl">{title}</span>
                     <p className="font-medium text-foreground">No journeys synced yet</p>
                     <p className="max-w-md text-sm text-muted-foreground">

@@ -2,9 +2,9 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const RAW_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-const RAW_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
+const RAW_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '';
+const RAW_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 
 function parseJwtRole(token?: string): string | null {
   if (!token || !token.startsWith('eyJ')) return null;
@@ -39,6 +39,13 @@ function resolveClientKey(): string {
 }
 
 const SUPABASE_CLIENT_KEY = resolveClientKey();
+
+if (!SUPABASE_URL || !SUPABASE_CLIENT_KEY) {
+  console.error(
+    '[supabase] Missing VITE_SUPABASE_URL or anon key. Check .env/.env.local and restart the dev server.',
+  );
+  throw new Error('Supabase client misconfigured: missing URL or anon key.');
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
