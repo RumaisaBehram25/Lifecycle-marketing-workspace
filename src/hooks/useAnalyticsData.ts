@@ -894,7 +894,7 @@ export function useAnalyticsData(period: string = 'default') {
     if (!name) return 'OTHER_MISC';
     
     // 1. Bracket or Parentheses Format (e.g. [SOCO] or (SOCO))
-    const wrapMatch = name.match(/[\[\(](.*?)[\]\)]/);
+    const wrapMatch = name.match(/(\[|\()(.*?)(\]|\))/) 
     if (wrapMatch && wrapMatch[1]) {
       const extracted = wrapMatch[1].trim().toUpperCase().replace(/[^A-Z0-9_\s]/g, '');
       if (extracted) return extracted;

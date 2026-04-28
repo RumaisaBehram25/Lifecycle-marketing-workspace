@@ -70,7 +70,11 @@ import { Link } from 'react-router-dom';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
 import { prefetchLifecycleJourneyImageUrls } from '@/lib/campaignImagePreload';
-import { collectLifecycleStepImageUrls } from '@/lib/lifecycleCanvasImageUrls';
+import { collectLifecycleStepImageUrls, collectOrderedTouchpointImageUrls } from '@/lib/lifecycleCanvasImageUrls';
+import {
+  saveLifecycleCanvasImageUrls,
+  warmAllCachedLifecycleImages,
+} from '@/lib/lifecycleImageSessionCache';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseCampaignTaxonomy, getChannelColor, getTypeColor } from '@/lib/campaign-taxonomy';
 import {
@@ -258,19 +262,94 @@ const LIFECYCLE_HIDDEN_CANVAS_IDS_KEY = 'lifecycle:hidden_canvas_db_ids';
 
 
 /**
- * Warm touchpoint hero URLs (same transforms as flow-chart `<img>`) using batched `Image()` + link preload —
- * matches {@link prefetchLifecycleJourneyImageUrls} so S3/Storage creatives hit HTTP cache before the user opens a journey.
+ * Warm touchpoint hero URLs in **journey path order** so the first creative the user sees
+ * on open is already in the HTTP cache.
+ *
+ * Two passes:
+ *  1. Ordered pass — follows each variant's BFS path so images arrive in the same order
+ *     as the flow chart renders them (highest visual priority first).
+ *  2. Unordered fallback — catches any step images not reachable from the entry chain.
+ *
+ * Persists discovered URLs to localStorage (via lifecycleImageSessionCache) so they can be
+ * warmed immediately on the next page visit — before any DB query runs.
  */
-function preloadJourneyStepImages(rawSteps: unknown): void {
+function preloadJourneyStepImages(
+  rawSteps: unknown,
+  rawVariants?: unknown,
+  clientId?: string,
+  canvasDbId?: string,
+): void {
   if (!rawSteps || typeof rawSteps !== 'object') return;
-  const urls = collectLifecycleStepImageUrls(
-    rawSteps as Record<string, { messages?: Array<{ image_url?: string; html_content?: string; body?: string }> }>,
-  );
-  if (urls.length === 0) return;
-  prefetchLifecycleJourneyImageUrls(urls, { linkPreloadCount: 28, concurrency: 14 });
+
+  const stepsMap = rawSteps as Record<string, LifecycleCanvasStep>;
+
+  // --- Ordered pass (variant-aware BFS path) ---
+  const orderedUrls: string[] = [];
+  const orderedSeen = new Set<string>();
+
+  const variants = Array.isArray(rawVariants) ? rawVariants : [];
+  // Find each non-control variant's entry and walk its BFS path.
+  const entryIds: string[] = [];
+  for (const v of variants) {
+    if (typeof v !== 'object' || !v) continue;
+    const name = String((v as { name?: string }).name ?? '').toLowerCase();
+    if (name.includes('control')) continue;
+    const fid = (v as { first_step_id?: string | null }).first_step_id;
+    if (fid && typeof fid === 'string' && stepsMap[fid]) entryIds.push(fid);
+  }
+  // Fallback: infer entry from graph when no variants
+  if (entryIds.length === 0) {
+    const ids = Object.keys(stepsMap);
+    const hasIncoming = new Set<string>();
+    for (const s of Object.values(stepsMap)) {
+      const step = s as LifecycleCanvasStep;
+      const nexts = (step.next_step_ids ?? []) as string[];
+      for (const nid of nexts) if (nid) hasIncoming.add(nid);
+    }
+    const roots = ids.filter(id => !hasIncoming.has(id));
+    if (roots.length > 0) entryIds.push(roots[0]);
+    else if (ids.length > 0) entryIds.push(ids[0]);
+  }
+
+  for (const entryId of entryIds) {
+    const visited = new Set<string>();
+    const queue: string[] = [entryId];
+    const pathSteps: LifecycleCanvasStep[] = [];
+    while (queue.length > 0) {
+      const cid = queue.shift()!;
+      if (visited.has(cid)) continue;
+      visited.add(cid);
+      const step = stepsMap[cid];
+      if (!step) continue;
+      pathSteps.push(step as LifecycleCanvasStep);
+      const nexts = (step.next_step_ids ?? []) as string[];
+      for (const nid of nexts) if (nid && !visited.has(nid) && stepsMap[nid]) queue.push(nid);
+    }
+    for (const url of collectOrderedTouchpointImageUrls(pathSteps)) {
+      if (!orderedSeen.has(url)) { orderedSeen.add(url); orderedUrls.push(url); }
+    }
+  }
+
+  // --- Unordered fallback (catches images not reachable via entry BFS) ---
+  const fallbackUrls = collectLifecycleStepImageUrls(
+    stepsMap as Record<string, { messages?: Array<{ image_url?: string; html_content?: string; body?: string }> }>,
+  ).filter(u => !orderedSeen.has(u));
+
+  const allUrls = [...orderedUrls, ...fallbackUrls];
+  if (allUrls.length === 0) return;
+
+  // Persist to localStorage so next page visit can warm these images immediately at mount.
+  if (clientId && canvasDbId) {
+    saveLifecycleCanvasImageUrls(clientId, canvasDbId, allUrls);
+  }
+
+  // First 28 get `<link rel="preload">` (highest browser priority); rest warm via new Image().
+  prefetchLifecycleJourneyImageUrls(allUrls, { linkPreloadCount: 28, concurrency: 14 });
 }
 
 const LIFECYCLE_CANVAS_DETAIL_STALE_MS = 60_000;
+/** Keep canvas detail in React Query memory cache for 30 min — survives route changes within the session. */
+const LIFECYCLE_CANVAS_DETAIL_GC_MS = 30 * 60 * 1000;
 
 /** Single source for canvas detail (used by prefetch, hover warm, click-open, and JourneyDetail). */
 async function fetchLifecycleBrazeCanvasDetail(
@@ -284,7 +363,8 @@ async function fetchLifecycleBrazeCanvasDetail(
     .eq('id', journeyDbId)
     .maybeSingle();
   if (error) throw error;
-  preloadJourneyStepImages(data?.raw_steps);
+  // Warm images in path order + persist to localStorage for instant warm on next visit.
+  preloadJourneyStepImages(data?.raw_steps, data?.raw_variants, clientId, journeyDbId);
   return data as Record<string, unknown> | null;
 }
 
@@ -309,6 +389,18 @@ export default function Lifecycle() {
     useBrazeDashboardClientId();
   const { data: platforms } = useDoubleGoodPlatforms();
   const queryClient = useQueryClient();
+
+  // ─── INSTANT IMAGE WARM ───────────────────────────────────────────────────────
+  // At mount (before paint), fire new Image() for every URL we discovered on a
+  // previous visit. They are already in localStorage — no DB call needed.
+  // On first ever visit this is a no-op; from second visit onward cards open
+  // with zero image-load latency.
+  useLayoutEffect(() => {
+    const clientId = brazeReadClientId ?? workspaceClientId;
+    if (!clientId) return;
+    warmAllCachedLifecycleImages(clientId, 16);
+  }, [brazeReadClientId, workspaceClientId]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState('All');
@@ -356,6 +448,9 @@ export default function Lifecycle() {
     hasBrazeOnWorkspace || Boolean(dashboardBrazePlatform?.is_connected);
 
   // Fetch latest synced canvases from normalized table (synced rows only — avoids schema_cache dumps).
+  // raw_steps / raw_variants are intentionally excluded here (BRAZE_CANVASES_LIST_SELECT omits them to
+  // avoid PostgREST payload overload). They are seeded into the query cache via the prefetch useEffect
+  // after this list resolves, and fetched individually on canvas open via fetchLifecycleBrazeCanvasDetail.
   const { data: normalizedCanvases, isLoading: canvasesLoading } = useQuery({
     queryKey: ['braze_canvases', brazeReadClientId],
     queryFn: async () => {
@@ -368,8 +463,10 @@ export default function Lifecycle() {
         // Latest lifecycle cards: newest by activity/sync timestamps.
         .order('last_entry', { ascending: false, nullsFirst: false })
         .order('updated_in_braze', { ascending: false, nullsFirst: false })
-        .order('synced_at', { ascending: false, nullsFirst: false });
+        .order('synced_at', { ascending: false, nullsFirst: false })
+        .limit(30);
       if (error) throw error;
+
       return data ?? [];
     },
     enabled: !!brazeReadClientId && canViewLifecycleFromBraze,
@@ -479,37 +576,87 @@ export default function Lifecycle() {
           entries_last_30d: canvas.entries_last_30d as number | undefined,
           entries_last_60d: canvas.entries_last_60d as number | undefined,
           schedule_type: canvas.schedule_type as string | undefined,
+          raw_steps: canvas.raw_steps,
+          raw_variants: canvas.raw_variants,
         };
       }),
     );
   }, [normalizedCanvases, canViewLifecycleFromBraze]);
 
-  // Prefetch raw_steps/raw_variants for the first page of journeys after the list loads,
-  // so the flow chart AND step images are ready before the user clicks.
+  // ─── S3 image + canvas-detail BATCH prefetch ──────────────────────────────────────────────────
+  // Goal: by the time the user clicks a journey card, both the raw_steps JSON (flow chart data)
+  // AND every touchpoint image are already in the HTTP cache → zero-latency open.
+  //
+  // Approach (same as Campaigns S3/session-cache model):
+  //   1. Fast path: journeys with raw_steps already present get images warmed synchronously.
+  //   2. Batch path: all remaining journey IDs are fetched in ONE DB query via
+  //      fetchLifecycleBrazeCanvasDetailsBatch, then each result is seeded into React Query cache
+  //      and images are warmed via preloadJourneyStepImages → localStorage image session cache.
+  //   3. On subsequent visits, warmAllCachedLifecycleImages (at mount) fires new Image() for every
+  //      previously-discovered URL — images are ready before the user sees the cards.
   useEffect(() => {
     const clientId = brazeReadClientId ?? workspaceClientId;
     if (!clientId || journeys.length === 0) return;
+    let cancelled = false;
+
     const top = journeys.slice(0, JOURNEY_PAGE_SIZE);
-    const journeyDbIds = top
-      .map((j) => String(j.dbId ?? j.id ?? ''))
-      .filter((id) => id.length > 0);
-    if (journeyDbIds.length === 0) return;
-    void (async () => {
-      try {
-        const rows = await fetchLifecycleBrazeCanvasDetailsBatch(clientId, journeyDbIds);
-        rows.forEach((row) => {
-          const journeyDbId = String(row.id ?? '');
-          if (!journeyDbId) return;
-          preloadJourneyStepImages(row.raw_steps);
-          queryClient.setQueryData(
-            ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
-            row,
-          );
-        });
-      } catch (err) {
-        console.warn('[lifecycle] batch prefetch failed', err);
+
+    // Fast path: seed cache for journeys that already have raw_steps (no DB call needed).
+    const needsFetch: string[] = [];
+    for (const journey of top) {
+      const journeyDbId = String(journey.dbId ?? journey.id ?? '');
+      if (!journeyDbId) continue;
+
+      if (journey.raw_steps != null) {
+        preloadJourneyStepImages(journey.raw_steps, journey.raw_variants, clientId, journeyDbId);
+        queryClient.setQueryData(
+          ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
+          {
+            id: journey.dbId,
+            raw_steps: journey.raw_steps,
+            raw_variants: journey.raw_variants,
+            total_steps: journey.db_total_steps,
+          },
+        );
+      } else {
+        // Only fetch if not already in React Query cache.
+        const cached = queryClient.getQueryData(['lifecycle-braze-canvas-detail', clientId, journeyDbId]);
+        if (!cached) needsFetch.push(journeyDbId);
       }
-    })();
+    }
+
+    // Batch fetch: one DB query for all missing canvas details.
+    if (needsFetch.length > 0) {
+      void (async () => {
+        try {
+          const batchResults = await fetchLifecycleBrazeCanvasDetailsBatch(clientId, needsFetch);
+          if (cancelled) return;
+          for (const row of batchResults) {
+            const rowId = String(row.id ?? '');
+            if (!rowId) continue;
+            // Seed React Query cache so individual detail queries resolve instantly.
+            queryClient.setQueryData(
+              ['lifecycle-braze-canvas-detail', clientId, rowId],
+              row,
+            );
+            // Warm images in BFS path order + persist to localStorage for instant warm on next visit.
+            preloadJourneyStepImages(row.raw_steps, row.raw_variants, clientId, rowId);
+          }
+        } catch {
+          // Batch failed — fall back to individual prefetches for remaining IDs.
+          if (cancelled) return;
+          for (const journeyDbId of needsFetch) {
+            void queryClient.prefetchQuery({
+              queryKey: ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
+              queryFn: () => fetchLifecycleBrazeCanvasDetail(clientId, journeyDbId),
+              staleTime: LIFECYCLE_CANVAS_DETAIL_STALE_MS,
+            });
+          }
+        }
+      })();
+    }
+
+    return () => { cancelled = true; };
   }, [journeys, brazeReadClientId, workspaceClientId, queryClient]);
 
   const isItemVisible = useCallback((brazeOrVisibilityId: string) => {
@@ -628,7 +775,7 @@ export default function Lifecycle() {
       const recencyMs = journeyRecencyMs(journey);
       const activityYear = recencyMs ? new Date(recencyMs).getFullYear() : 0;
       const syncYear = journey.synced_at ? new Date(journey.synced_at).getFullYear() : 0;
-      
+
       if (activityYear !== 2026 && syncYear !== 2026) return false;
 
       const matchesSearch =
@@ -737,12 +884,6 @@ export default function Lifecycle() {
                 hdrSteps,
                 (j as { db_total_steps?: number }).db_total_steps,
               );
-              const firstEntry = j.first_entry ? String(j.first_entry) : '';
-              let entryLine = '';
-              if (firstEntry) {
-                const d = new Date(firstEntry);
-                if (!Number.isNaN(d.getTime())) entryLine = ` · First entry ${format(d, 'MMMM d, yyyy')}`;
-              }
               const headerDraft = Boolean(j.draft);
               const headerDisabled = j.enabled === false;
               return (
@@ -771,7 +912,6 @@ export default function Lifecycle() {
                   </h1>
                   <p className="text-muted-foreground text-sm flex items-center gap-2">
                     {hdrBadge.line}
-                    {entryLine}
                   </p>
                 </div>
               );
@@ -789,338 +929,335 @@ export default function Lifecycle() {
             </div>
           </div>
         ) : (
-      <div className="relative mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-        <div
-          className="pointer-events-none absolute inset-x-0 -top-px h-72 max-w-7xl rounded-b-[2rem] bg-gradient-to-b from-teal-500/[0.07] via-violet-500/[0.04] to-transparent dark:from-teal-950/35 dark:via-violet-950/25 dark:to-transparent"
-          aria-hidden
-        />
-
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-          <PageHeader
-            className="min-w-0 flex-1"
-            title="Lifecycle"
-            titleClassName="text-4xl sm:text-5xl text-black dark:text-white"
-            description={
-              canViewLifecycleFromBraze
-                ? 'Preview synced Braze canvases as journeys (steps load per canvas from your workspace DB). Sort by Canvas tags from Braze; open a card for the full flow.'
-                : 'Connect Braze to sync multi-touch journeys into this workspace.'
-            }
-          />
-        </div>
-
-          {!canViewLifecycleFromBraze && (
+          <div className="relative mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
             <div
-              className={cn(
-                'mx-auto w-full max-w-md rounded-3xl border border-border/70',
-                'bg-gradient-to-b from-card to-muted/20',
-                'px-8 py-12 shadow-[0_1px_0_0_hsl(var(--border))] sm:px-10 sm:py-14',
-                'ring-1 ring-black/[0.04] dark:ring-white/[0.06]',
-              )}
-            >
-              <div className="flex flex-col items-center text-center">
-                <div
-                  className={cn(
-                    'mb-8 flex h-12 w-12 items-center justify-center rounded-full',
-                    'bg-primary/[0.07] text-primary shadow-inner',
-                    'ring-1 ring-primary/15',
-                  )}
-                  aria-hidden
-                >
-                  <Workflow className="h-6 w-6" strokeWidth={1.25} />
-                </div>
-                <h2 className="text-balance text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
-                  Lifecycle journeys are hidden until Braze is connected.
-                </h2>
-                <p className="mt-4 max-w-sm text-pretty text-xs leading-relaxed text-muted-foreground sm:text-sm">
-                  Add your Braze API credentials on Platforms. This page only lists canvases after sync—not embedded
-                  schema cache—so this tab stays clean.
-                </p>
-                <Button
-                  asChild
-                  size="lg"
-                  className="mt-9 min-w-[200px] rounded-full px-8 font-medium shadow-sm"
-                >
-                  <Link to="/platforms" className="inline-flex items-center justify-center gap-2">
-                    Connect Braze
-                    <ArrowRight className="h-4 w-4 opacity-90" />
-                  </Link>
-                </Button>
-              </div>
+              className="pointer-events-none absolute inset-x-0 -top-px h-72 max-w-7xl rounded-b-[2rem] bg-gradient-to-b from-teal-500/[0.07] via-violet-500/[0.04] to-transparent dark:from-teal-950/35 dark:via-violet-950/25 dark:to-transparent"
+              aria-hidden
+            />
+
+            <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+              <PageHeader
+                className="min-w-0 flex-1"
+                title="Lifecycle"
+                titleClassName="text-4xl sm:text-5xl text-black dark:text-white"
+                description={
+                  canViewLifecycleFromBraze
+                    ? 'Preview synced Braze canvases as journeys (steps load per canvas from your workspace DB). Sort by Canvas tags from Braze; open a card for the full flow.'
+                    : 'Connect Braze to sync multi-touch journeys into this workspace.'
+                }
+              />
             </div>
-          )}
 
-          {canViewLifecycleFromBraze && (
-            <div
-              className={cn(
-                'flex flex-col justify-between gap-4 rounded-2xl border border-border/60 bg-card/85 p-4 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:p-5',
-                'ring-1 ring-teal-500/[0.06] dark:ring-violet-500/10',
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="relative min-w-[200px] max-w-md flex-1">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-teal-600/70 dark:text-teal-400/70" />
-                  <Input
-                    placeholder="Search journeys..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="border-border/70 pl-10 shadow-inner dark:bg-background/50"
-                    aria-label="Search journeys"
-                  />
-                </div>
-                <Select value={channelFilter} onValueChange={setChannelFilter}>
-                  <SelectTrigger className="w-[140px] border-border/70 bg-background/80">
-                    <SelectValue placeholder="Channel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All">All Channels</SelectItem>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="push">Push</SelectItem>
-                    <SelectItem value="sms">SMS</SelectItem>
-                    <SelectItem value="inapp">In-App</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={lifecycleSortMode}
-                  onValueChange={(v) =>
-                    setLifecycleSortMode(
-                      v as 'recent' | 'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long',
-                    )
-                  }
-                >
-                  <SelectTrigger className="w-[220px] border-border/70 bg-background/80">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="recent">Most recent activity</SelectItem>
-                    <SelectItem value="touchpoints">Touchpoints (most first)</SelectItem>
-                    <SelectItem value="name">Name (A–Z)</SelectItem>
-                    <SelectItem value="tag">Canvas tag (A–Z)</SelectItem>
-                    <SelectItem value="time_running_short">Time running · shortest first</SelectItem>
-                    <SelectItem value="time_running_long">Time running · longest first</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-border/70 bg-background/80 shadow-sm"
-                      aria-label="Choose which canvases to show on this page"
-                    >
-                      <Eye className="mr-2 h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" />
-                      Canvases
-                      {hiddenCanvasDbIds.size > 0 ? (
-                        <Badge
-                          variant="secondary"
-                          className="ml-2 tabular-nums text-[10px] font-normal"
-                        >
-                          {
-                            pickableJourneys.filter((j) => !hiddenCanvasDbIds.has(j.dbId)).length
-                          }
-                          /{pickableJourneys.length}
-                        </Badge>
-                      ) : null}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[min(100vw-2rem,22rem)] p-0"
-                    align="start"
-                    side="bottom"
-                    sideOffset={6}
-                    avoidCollisions={false}
-                  >
-                    <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
-                      <p className="text-sm font-medium text-foreground">Show on page</p>
-                      <div className="flex shrink-0 gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-xs"
-                          onClick={() => setHiddenCanvasDbIds(new Set())}
-                        >
-                          All
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-xs"
-                          onClick={() =>
-                            setHiddenCanvasDbIds(new Set(pickableJourneys.map((j) => j.dbId)))
-                          }
-                        >
-                          None
-                        </Button>
-                      </div>
-                    </div>
-                    {/* Vertical scroll for the whole menu; one shared horizontal scroll for all rows (not per-row). */}
-                    <div
-                      className={cn(
-                        'max-h-[min(50vh,280px)] w-full min-w-0 overflow-y-auto overflow-x-hidden',
-                        '[scrollbar-width:thin]',
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          'w-full min-w-0 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]',
-                          '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
-                        )}
-                      >
-                        <ul className="w-max min-w-full space-y-0.5 p-2" role="list">
-                          {pickableJourneys.map((j) => {
-                            const label = String(j.displayName ?? j.name ?? 'Journey');
-                            const checked = !hiddenCanvasDbIds.has(j.dbId);
-                            return (
-                              <li key={j.dbId}>
-                                <label
-                                  className="flex w-max min-w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
-                                  htmlFor={`lifecycle-canvas-${j.dbId}`}
-                                  title={label}
-                                >
-                                  <Checkbox
-                                    id={`lifecycle-canvas-${j.dbId}`}
-                                    checked={checked}
-                                    onCheckedChange={(v) => {
-                                      const on = v === true;
-                                      setHiddenCanvasDbIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (on) next.delete(j.dbId);
-                                        else next.add(j.dbId);
-                                        return next;
-                                      });
-                                    }}
-                                    className="shrink-0"
-                                    aria-label={label}
-                                  />
-                                  <span className="whitespace-nowrap leading-snug">{label}</span>
-                                </label>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/40 p-1 dark:bg-muted/20">
-                <Button
-                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                  size="icon"
-                  onClick={() => setViewMode('grid')}
-                  aria-label="Grid view"
-                  className={cn(viewMode === 'grid' && 'bg-gradient-to-br from-teal-600 to-emerald-700 text-white shadow-md hover:from-teal-600 hover:to-emerald-700')}
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={viewMode === 'list' ? 'default' : 'ghost'}
-                  size="icon"
-                  onClick={() => setViewMode('list')}
-                  aria-label="List view"
-                  className={cn(viewMode === 'list' && 'bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-md hover:from-violet-600 hover:to-indigo-700')}
-                >
-                  <List className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-
-
-
-          {!canViewLifecycleFromBraze ? null : listLoading ? (
-            <div className="flex min-h-[45vh] flex-col items-center justify-center gap-4 p-6">
-              <LoadingPage message="Loading journeys…" />
-            </div>
-          ) : (
-            <>
+            {!canViewLifecycleFromBraze && (
               <div
                 className={cn(
-                  viewMode === 'grid' ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3',
+                  'mx-auto w-full max-w-md rounded-3xl border border-border/70',
+                  'bg-gradient-to-b from-card to-muted/20',
+                  'px-8 py-12 shadow-[0_1px_0_0_hsl(var(--border))] sm:px-10 sm:py-14',
+                  'ring-1 ring-black/[0.04] dark:ring-white/[0.06]',
                 )}
               >
-                {top30Journeys.length === 0 ? (
-                  <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-white shadow-md ring-2 ring-white/10">
-                      <Icon className="h-6 w-6 text-white drop-shadow" />
-                    </div>
-                    <span className="break-words text-xl sm:text-2xl">{title}</span>
-                    <p className="font-medium text-foreground">No journeys synced yet</p>
-                    <p className="max-w-md text-sm text-muted-foreground">
-                      Run <strong className="font-medium text-foreground">Sync All from Braze</strong> on the Dashboard so rows appear in{' '}
-                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">braze_canvases</code>.
-                    </p>
+                <div className="flex flex-col items-center text-center">
+                  <div
+                    className={cn(
+                      'mb-8 flex h-12 w-12 items-center justify-center rounded-full',
+                      'bg-primary/[0.07] text-primary shadow-inner',
+                      'ring-1 ring-primary/15',
+                    )}
+                    aria-hidden
+                  >
+                    <Workflow className="h-6 w-6" strokeWidth={1.25} />
                   </div>
-                ) : filteredJourneys.length === 0 ? (
-                  <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-                    <Filter className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
-                    <p className="font-medium text-foreground">No journeys match</p>
-                    <p className="max-w-md text-sm text-muted-foreground">
-                      Try adjusting search or filters. Visibility is controlled in Settings.
-                    </p>
-                  </div>
-                ) : (
-                  paginatedJourneys.map((journey) => (
-                    <JourneyCard
-                      key={journey.dbId}
-                      journey={journey}
-                      viewMode={viewMode}
-                      onClick={() => openJourneyDetail(journey)}
-                      onPointerEnter={() => prefetchCanvasDetailForJourney(journey)}
-                      onPointerDown={() => prefetchCanvasDetailForJourney(journey)}
-                    />
-                  ))
-                )}
-              </div>
-              {top30Journeys.length > 0 && journeyTotalPages > 1 && (
-                <div className="flex flex-col items-center justify-between gap-3 border-t border-border/60 pt-5 sm:flex-row">
-                  <p className="text-sm text-muted-foreground">
-                    Showing{' '}
-                    <span className="font-medium text-foreground">
-                      {journeyRangeStart}–{journeyRangeEnd}
-                    </span>{' '}
-                    of {top30Journeys.length}
+                  <h2 className="text-balance text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
+                    Lifecycle journeys are hidden until Braze is connected.
+                  </h2>
+                  <p className="mt-4 max-w-sm text-pretty text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                    Add your Braze API credentials on Platforms. This page only lists canvases after sync—not embedded
+                    schema cache—so this tab stays clean.
                   </p>
-                  <div className="flex items-center gap-2 rounded-full border border-border/70 bg-muted/30 px-2 py-1.5 shadow-inner dark:bg-muted/15">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={journeyPage <= 1}
-                      onClick={() => {
-                        setJourneyPage((p) => Math.max(1, p - 1));
-                        scrollAppMainToTopAfterLayout('smooth');
-                      }}
-                      aria-label="Previous page"
-                      className="h-9 w-9 shrink-0 rounded-full p-0 hover:bg-teal-500/15"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="min-w-[7rem] text-center text-sm tabular-nums font-medium text-muted-foreground">
-                      Page {Math.min(journeyPage, journeyTotalPages)} of {journeyTotalPages}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={journeyPage >= journeyTotalPages}
-                      onClick={() => {
-                        setJourneyPage((p) => Math.min(journeyTotalPages, p + 1));
-                        scrollAppMainToTopAfterLayout('smooth');
-                      }}
-                      aria-label="Next page"
-                      className="h-9 w-9 shrink-0 rounded-full p-0 hover:bg-teal-500/15"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  <Button
+                    asChild
+                    size="lg"
+                    className="mt-9 min-w-[200px] rounded-full px-8 font-medium shadow-sm"
+                  >
+                    <Link to="/platforms" className="inline-flex items-center justify-center gap-2">
+                      Connect Braze
+                      <ArrowRight className="h-4 w-4 opacity-90" />
+                    </Link>
+                  </Button>
                 </div>
-              )}
-            </>
-          )}
-      </div>
+              </div>
+            )}
+
+            {canViewLifecycleFromBraze && (
+              <div
+                className={cn(
+                  'flex flex-col justify-between gap-4 rounded-2xl border border-border/60 bg-card/85 p-4 shadow-sm backdrop-blur-md sm:flex-row sm:items-center sm:p-5',
+                  'ring-1 ring-teal-500/[0.06] dark:ring-violet-500/10',
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="relative min-w-[200px] max-w-md flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-teal-600/70 dark:text-teal-400/70" />
+                    <Input
+                      placeholder="Search journeys..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="border-border/70 pl-10 shadow-inner dark:bg-background/50"
+                      aria-label="Search journeys"
+                    />
+                  </div>
+                  <Select value={channelFilter} onValueChange={setChannelFilter}>
+                    <SelectTrigger className="w-[140px] border-border/70 bg-background/80">
+                      <SelectValue placeholder="Channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All Channels</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="push">Push</SelectItem>
+                      <SelectItem value="sms">SMS</SelectItem>
+                      <SelectItem value="inapp">In-App</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={lifecycleSortMode}
+                    onValueChange={(v) =>
+                      setLifecycleSortMode(
+                        v as 'recent' | 'touchpoints' | 'name' | 'tag' | 'time_running_short' | 'time_running_long',
+                      )
+                    }
+                  >
+                    <SelectTrigger className="w-[220px] border-border/70 bg-background/80">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="recent">Most recent activity</SelectItem>
+                      <SelectItem value="touchpoints">Touchpoints (most first)</SelectItem>
+                      <SelectItem value="name">Name (A–Z)</SelectItem>
+                      <SelectItem value="tag">Canvas tag (A–Z)</SelectItem>
+                      <SelectItem value="time_running_short">Time running · shortest first</SelectItem>
+                      <SelectItem value="time_running_long">Time running · longest first</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-border/70 bg-background/80 shadow-sm"
+                        aria-label="Choose which canvases to show on this page"
+                      >
+                        <Eye className="mr-2 h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" />
+                        Canvases
+                        {hiddenCanvasDbIds.size > 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="ml-2 tabular-nums text-[10px] font-normal"
+                          >
+                            {
+                              pickableJourneys.filter((j) => !hiddenCanvasDbIds.has(j.dbId)).length
+                            }
+                            /{pickableJourneys.length}
+                          </Badge>
+                        ) : null}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[min(100vw-2rem,22rem)] p-0"
+                      align="start"
+                      side="bottom"
+                      sideOffset={6}
+                      avoidCollisions={false}
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
+                        <p className="text-sm font-medium text-foreground">Show on page</p>
+                        <div className="flex shrink-0 gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => setHiddenCanvasDbIds(new Set())}
+                          >
+                            All
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            onClick={() =>
+                              setHiddenCanvasDbIds(new Set(pickableJourneys.map((j) => j.dbId)))
+                            }
+                          >
+                            None
+                          </Button>
+                        </div>
+                      </div>
+                      {/* Vertical scroll for the whole menu; one shared horizontal scroll for all rows (not per-row). */}
+                      <div
+                        className={cn(
+                          'max-h-[min(50vh,280px)] w-full min-w-0 overflow-y-auto overflow-x-hidden',
+                          '[scrollbar-width:thin]',
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            'w-full min-w-0 overflow-x-auto touch-pan-x [-webkit-overflow-scrolling:touch]',
+                            '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+                          )}
+                        >
+                          <ul className="w-max min-w-full space-y-0.5 p-2" role="list">
+                            {pickableJourneys.map((j) => {
+                              const label = String(j.displayName ?? j.name ?? 'Journey');
+                              const checked = !hiddenCanvasDbIds.has(j.dbId);
+                              return (
+                                <li key={j.dbId}>
+                                  <label
+                                    className="flex w-max min-w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60"
+                                    htmlFor={`lifecycle-canvas-${j.dbId}`}
+                                    title={label}
+                                  >
+                                    <Checkbox
+                                      id={`lifecycle-canvas-${j.dbId}`}
+                                      checked={checked}
+                                      onCheckedChange={(v) => {
+                                        const on = v === true;
+                                        setHiddenCanvasDbIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (on) next.delete(j.dbId);
+                                          else next.add(j.dbId);
+                                          return next;
+                                        });
+                                      }}
+                                      className="shrink-0"
+                                      aria-label={label}
+                                    />
+                                    <span className="whitespace-nowrap leading-snug">{label}</span>
+                                  </label>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/40 p-1 dark:bg-muted/20">
+                  <Button
+                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                    size="icon"
+                    onClick={() => setViewMode('grid')}
+                    aria-label="Grid view"
+                    className={cn(viewMode === 'grid' && 'bg-gradient-to-br from-teal-600 to-emerald-700 text-white shadow-md hover:from-teal-600 hover:to-emerald-700')}
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === 'list' ? 'default' : 'ghost'}
+                    size="icon"
+                    onClick={() => setViewMode('list')}
+                    aria-label="List view"
+                    className={cn(viewMode === 'list' && 'bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-md hover:from-violet-600 hover:to-indigo-700')}
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+
+
+            {!canViewLifecycleFromBraze ? null : listLoading ? (
+              <div className="flex min-h-[45vh] flex-col items-center justify-center gap-4 p-6">
+                <LoadingPage message="Loading journeys…" />
+              </div>
+            ) : (
+              <>
+                <div
+                  className={cn(
+                    viewMode === 'grid' ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3',
+                  )}
+                >
+                  {top30Journeys.length === 0 ? (
+                    <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+                      <Workflow className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
+                      <p className="font-medium text-foreground">No journeys synced yet</p>
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        Run <strong className="font-medium text-foreground">Sync All from Braze</strong> on the Dashboard so rows appear in{' '}
+                        <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">braze_canvases</code>.
+                      </p>
+                    </div>
+                  ) : filteredJourneys.length === 0 ? (
+                    <div className="col-span-full flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+                      <Filter className="h-12 w-12 text-muted-foreground opacity-60" aria-hidden />
+                      <p className="font-medium text-foreground">No journeys match</p>
+                      <p className="max-w-md text-sm text-muted-foreground">
+                        Try adjusting search or filters. Visibility is controlled in Settings.
+                      </p>
+                    </div>
+                  ) : (
+                    paginatedJourneys.map((journey) => (
+                      <JourneyCard
+                        key={journey.dbId}
+                        journey={journey}
+                        viewMode={viewMode}
+                        onClick={() => openJourneyDetail(journey)}
+                        onPointerEnter={() => prefetchCanvasDetailForJourney(journey)}
+                        onPointerDown={() => prefetchCanvasDetailForJourney(journey)}
+                      />
+                    ))
+                  )}
+                </div>
+                {top30Journeys.length > 0 && journeyTotalPages > 1 && (
+                  <div className="flex flex-col items-center justify-between gap-3 border-t border-border/60 pt-5 sm:flex-row">
+                    <p className="text-sm text-muted-foreground">
+                      Showing{' '}
+                      <span className="font-medium text-foreground">
+                        {journeyRangeStart}–{journeyRangeEnd}
+                      </span>{' '}
+                      of {top30Journeys.length}
+                    </p>
+                    <div className="flex items-center gap-2 rounded-full border border-border/70 bg-muted/30 px-2 py-1.5 shadow-inner dark:bg-muted/15">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={journeyPage <= 1}
+                        onClick={() => {
+                          setJourneyPage((p) => Math.max(1, p - 1));
+                          scrollAppMainToTopAfterLayout('smooth');
+                        }}
+                        aria-label="Previous page"
+                        className="h-9 w-9 shrink-0 rounded-full p-0 hover:bg-teal-500/15"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <span className="min-w-[7rem] text-center text-sm tabular-nums font-medium text-muted-foreground">
+                        Page {Math.min(journeyPage, journeyTotalPages)} of {journeyTotalPages}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={journeyPage >= journeyTotalPages}
+                        onClick={() => {
+                          setJourneyPage((p) => Math.min(journeyTotalPages, p + 1));
+                          scrollAppMainToTopAfterLayout('smooth');
+                        }}
+                        aria-label="Next page"
+                        className="h-9 w-9 shrink-0 rounded-full p-0 hover:bg-teal-500/15"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
       </TooltipProvider>
 
@@ -1136,23 +1273,23 @@ export default function Lifecycle() {
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
               {selectedTouchpoint?.channel === 'email' ? 'Email creative preview' :
-               selectedTouchpoint?.channel === 'push' ? 'Push notification preview' :
-               selectedTouchpoint?.channel?.includes('in_app') || selectedTouchpoint?.channel?.includes('in-app') ? 'In-app message preview' :
-               'Message preview'}
+                selectedTouchpoint?.channel === 'push' ? 'Push notification preview' :
+                  selectedTouchpoint?.channel?.includes('in_app') || selectedTouchpoint?.channel?.includes('in-app') ? 'In-app message preview' :
+                    'Message preview'}
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedTouchpoint && (() => {
             const messages = selectedTouchpoint.messages || [];
             const channel = (selectedTouchpoint.channel || 'email').toLowerCase();
             const message = messages.find((m: any) => m.channel?.toLowerCase().includes(channel.split('_')[0])) || messages[0];
-            
+
             return (
               <div className="space-y-4 mt-4">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className={getChannelColor(selectedTouchpoint.channel)}>
-                    {selectedTouchpoint.channel === 'in_app_message' || selectedTouchpoint.channel === 'trigger_in_app_message' 
-                      ? 'In-App' 
+                    {selectedTouchpoint.channel === 'in_app_message' || selectedTouchpoint.channel === 'trigger_in_app_message'
+                      ? 'In-App'
                       : selectedTouchpoint.channel}
                   </Badge>
                   {selectedTouchpoint.delay && (
@@ -1234,7 +1371,7 @@ export default function Lifecycle() {
                     {(() => {
                       const bodyContent = message?.body || selectedTouchpoint.body || '';
                       const isHtmlBody = bodyContent.trim().startsWith('<!doctype') || bodyContent.trim().startsWith('<html') || bodyContent.includes('<div');
-                      
+
                       if (isHtmlBody) {
                         return (
                           <div className="border rounded-lg overflow-hidden bg-white">
@@ -1247,7 +1384,7 @@ export default function Lifecycle() {
                           </div>
                         );
                       }
-                      
+
                       return (
                         <div className="max-w-sm mx-auto">
                           <div className="bg-gradient-to-br from-primary/10 to-primary/5 border-2 border-primary/30 rounded-2xl p-6 text-center">
@@ -1612,6 +1749,7 @@ function JourneyDetail({
     if (!detailRow) return journey;
     const rowId = detailRow.id != null ? String(detailRow.id).trim() : '';
     if (rowId && rowId !== journeyDbId) return journey;
+    // journeyDbId intentionally included so merged re-derives when the opened journey changes
     const stepsRecord = normalizeRawSteps(detailRow.raw_steps);
     const variants = (detailRow.raw_variants ?? journey.variants) as CanvasVariant[];
     const priorSteps = normalizeRawSteps(journey.steps);
@@ -1642,7 +1780,7 @@ function JourneyDetail({
       draft: Boolean(detailRow.draft ?? journey.draft),
       enabled: Boolean(detailRow.enabled ?? journey.enabled),
     };
-  }, [journey, detailRow]);
+  }, [journey, detailRow, journeyDbId]);
 
   const stepsRecord = useMemo(
     () => normalizeRawSteps(merged.steps as Record<string, LifecycleCanvasStep> | undefined),
@@ -1670,7 +1808,7 @@ function JourneyDetail({
     setEditableTrigger(String(merged.trigger_event_name ?? '') || '');
     setEditableAudience(String(merged.entry_segment_name ?? '') || '');
   }, [merged]);
-  
+
   const { Icon, gradient, shadow } = getJourneyVisuals(String(merged.name ?? ''));
 
   const stepSummaryBadge = formatLifecycleStepBadge(
@@ -1760,7 +1898,7 @@ function JourneyDetail({
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="font-heading text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl">
-                  {merged.displayName || merged.name}
+                  {String(merged.displayName || merged.name || '')}
                 </h2>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   {[...new Set(Object.keys(channelCounts).map((channel) => {
@@ -1791,7 +1929,7 @@ function JourneyDetail({
                 </Badge>
               ) : null}
             </div>
-            
+
             {/* Trigger Event */}
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -1823,7 +1961,7 @@ function JourneyDetail({
                 </div>
               )}
             </div>
-            
+
             {/* Audience */}
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -1855,7 +1993,7 @@ function JourneyDetail({
                 </div>
               )}
             </div>
-            
+
             {Array.isArray(merged.entry_filters) && merged.entry_filters.length > 0 && (
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">Additional Filters:</p>
@@ -1870,7 +2008,7 @@ function JourneyDetail({
                 </div>
               </div>
             )}
-            
+
             {Array.isArray(merged.exception_events) && merged.exception_events.length > 0 && (
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">Exclusions:</p>
@@ -1881,7 +2019,7 @@ function JourneyDetail({
                 </div>
               </div>
             )}
-            
+
             {Array.isArray(merged.conversion_events) && merged.conversion_events.length > 0 && (
               <div className="space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">Conversion Goals:</p>
@@ -1896,16 +2034,18 @@ function JourneyDetail({
                 </div>
               </div>
             )}
-            
+
             {merged.description && merged.description !== 'Automated lifecycle journey' && (
               <p className="text-sm text-muted-foreground pt-1 border-t">{String(merged.description)}</p>
             )}
           </div>
 
-          {/* Flow chart: list rows omit raw_steps; click-open waits for cache so touchpoints render without a loading step. */}
+          {/* Flow chart: raw_steps are fetched individually after the list loads (BRAZE_CANVASES_LIST_SELECT
+               intentionally omits them). Show a skeleton while the detail query is in-flight so the user
+               never sees the premature "no steps" alert during normal loading. */}
           {flowChartCanvas ? (
             <HorizontalFlowChart canvas={flowChartCanvas} onViewStep={handleFlowViewStep} />
-          ) : inDialog && !detailFetched && !detailIsError ? (
+          ) : !detailFetched && !detailIsError ? (
             <JourneyFlowPreviewSkeleton />
           ) : detailIsError ? (
             <Alert variant="destructive" className="border-destructive/40">
@@ -1918,27 +2058,13 @@ function JourneyDetail({
             <Alert className="border-amber-500/35 bg-amber-500/[0.06]">
               <AlertDescription>
                 This canvas was not found for the current workspace (it may have been removed or the workspace
-                changed). Close the dialog and refresh the Lifecycle list.
+                changed). Go back and refresh the Lifecycle list.
               </AlertDescription>
             </Alert>
-          ) : Object.keys(stepsRecord).length === 0 &&
-            typeof (merged as { db_total_steps?: number }).db_total_steps === 'number' &&
-            ((merged as { db_total_steps?: number }).db_total_steps ?? 0) > 0 ? (
-            <Alert className="border-primary/25 bg-primary/[0.04]">
-              <AlertDescription className="text-muted-foreground">
-                Braze reports {(merged as { db_total_steps?: number }).db_total_steps} steps, but step definitions
-                are not stored in the database yet (empty <code className="rounded bg-muted px-1 py-0.5">raw_steps</code>
-                ). Run <strong className="font-medium text-foreground">Sync from Braze</strong> from the{' '}
-                <Link to="/dashboard" className="font-medium text-primary underline-offset-4 hover:underline">
-                  Dashboard
-                </Link>{' '}
-                so a full sync can load canvas details into this workspace.
-              </AlertDescription>
-            </Alert>
-          ) : Object.keys(stepsRecord).length === 0 ? (
+          ) : detailFetched && Object.keys(stepsRecord).length === 0 ? (
             <Alert>
               <AlertDescription className="text-muted-foreground">
-                No journey steps are recorded for this canvas.
+                No journey steps are recorded for this canvas. Try running Sync All from Braze on the Dashboard.
               </AlertDescription>
             </Alert>
           ) : null}

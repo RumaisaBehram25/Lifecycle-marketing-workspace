@@ -85,7 +85,7 @@ serve(async (req) => {
 
     let campaignsSynced = 0;
     let broadcastsSynced = 0;
-    let messagesSynced = 0;
+    const messagesSynced = 0;
 
     try {
       // Fetch campaigns (automated workflows)

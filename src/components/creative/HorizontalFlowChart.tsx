@@ -41,7 +41,7 @@ interface CanvasStep {
   next_step_ids: string[];
   next_paths?: Array<{ name: string; next_step_id: string; percentage?: number }>;
   messages?: Array<{
-    channel: string;
+    channel?: string;
     subject?: string;
     preheader?: string;
     title?: string;
@@ -210,7 +210,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               height={360}
               loading="eager"
               decoding="async"
-              fetchpriority="high"
+              fetchPriority="high"
               onError={hideTouchpointImageOnError}
               className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
             />
@@ -284,7 +284,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
                 height={360}
                 loading="eager"
                 decoding="async"
-                fetchpriority="high"
+                fetchPriority="high"
                 onError={hideTouchpointImageOnError}
                 className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
               />
@@ -314,7 +314,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
-              fetchpriority="high"
+              fetchPriority="high"
               onError={hideTouchpointImageOnError}
               className="w-20 h-20 object-cover rounded-xl mx-auto mb-5"
             />
@@ -880,7 +880,7 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
 
   useEffect(() => {
     setOpenVariants(new Set(effectiveVariants.map((_, i) => i)));
-  }, [canvas.id, effectiveVariants.length]);
+  }, [canvas.id, effectiveVariants]);
 
   useEffect(() => {
     setSelectedSplit(null);
@@ -909,7 +909,7 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
       }
     }
     return out;
-  }, [canvas.id, canvas.steps, effectiveVariants, hasSteps]);
+  }, [canvas.steps, effectiveVariants, hasSteps]);
 
   useLayoutEffect(() => {
     if (touchpointWarmUrls.length === 0) return;
@@ -1263,7 +1263,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
               height={450}
               loading="eager"
               decoding="async"
-              fetchpriority="high"
+              fetchPriority="high"
               onError={hideTouchpointImageOnError}
               className="h-full min-h-[500px] w-full object-contain object-top bg-muted/20"
             />
@@ -1329,7 +1329,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
                 height={450}
                 loading="eager"
                 decoding="async"
-                fetchpriority="high"
+                fetchPriority="high"
                 onError={hideTouchpointImageOnError}
                 className="h-full min-h-[500px] w-full object-contain object-top bg-muted/20"
               />
@@ -1354,7 +1354,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
-              fetchpriority="high"
+              fetchPriority="high"
               onError={hideTouchpointImageOnError}
               className="w-24 h-24 object-cover rounded-xl mx-auto mb-6"
             />

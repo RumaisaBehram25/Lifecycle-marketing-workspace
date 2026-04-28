@@ -86,7 +86,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_campaign_analytics', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_campaign_analytics')
         .select('*')
         .eq('client_id', clientId);
@@ -116,7 +116,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_segment_analytics', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_segment_analytics')
         .select('*')
         .eq('client_id', clientId)
@@ -132,7 +132,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_usage_analytics', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_usage_analytics')
         .select('*')
         .eq('client_id', clientId)
@@ -148,7 +148,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_kpi_series', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_kpi_series')
         .select('metric,series_date,value')
         .eq('client_id', clientId)
@@ -164,7 +164,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_canvases', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_canvases')
         .select('schedule_type,enabled,entries_last_30d')
         .eq('client_id', clientId);
@@ -179,7 +179,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_segments_sync', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_segments_sync')
         .select('name,raw')
         .eq('client_id', clientId);
@@ -194,7 +194,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_email_events', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_email_events')
         .select('event_type,email,occurred_at')
         .eq('client_id', clientId)
@@ -212,13 +212,13 @@ export function useAnalyticsData() {
       if (!clientId) return { bounces: 0, unsubs: 0 };
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
       const [{ count: bounces, error: e1 }, { count: unsubs, error: e2 }] = await Promise.all([
-        (supabase as any)
+        supabase
           .from('braze_email_events')
           .select('id', { count: 'exact', head: true })
           .eq('client_id', clientId)
           .eq('event_type', 'hard_bounce')
           .gte('occurred_at', since),
-        (supabase as any)
+        supabase
           .from('braze_email_events')
           .select('id', { count: 'exact', head: true })
           .eq('client_id', clientId)
@@ -244,7 +244,7 @@ export function useAnalyticsData() {
     queryKey: ['analytics', 'braze_scheduled_broadcasts', clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('braze_scheduled_broadcasts')
         .select('name,broadcast_type,next_send_time,schedule_type')
         .eq('client_id', clientId)

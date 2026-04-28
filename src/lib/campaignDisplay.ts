@@ -276,8 +276,27 @@ export function sanitizeCampaignDisplayWithMeta(input: string | null | undefined
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u00AD\u034F\u061C]/g, '')
-    .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, ' ');
+    // Remove zero-width and control characters
+    /* eslint-disable no-misleading-character-class */
+    .replace(/[\u200B-\u200F\u2060\uFEFF\u00AD\u034F\u061C]/g, '')
+    .replace(/[\u202A-\u202E]/g, '')
+    /* eslint-enable no-misleading-character-class */
+    // Remove zero-width spaces and various space characters
+    .replace(/\u00A0/g, ' ')
+    .replace(/\u2000/g, ' ')
+    .replace(/\u2001/g, ' ')
+    .replace(/\u2002/g, ' ')
+    .replace(/\u2003/g, ' ')
+    .replace(/\u2004/g, ' ')
+    .replace(/\u2005/g, ' ')
+    .replace(/\u2006/g, ' ')
+    .replace(/\u2007/g, ' ')
+    .replace(/\u2008/g, ' ')
+    .replace(/\u2009/g, ' ')
+    .replace(/\u200A/g, ' ')
+    .replace(/\u202F/g, ' ')
+    .replace(/\u205F/g, ' ')
+    .replace(/\u3000/g, ' ');
   s = s.replace(/\s+/g, ' ').trim();
   s = stripBrazeLiquidForDisplay(s);
   return { text: s, hadLiquid };

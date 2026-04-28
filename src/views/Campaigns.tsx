@@ -763,17 +763,17 @@ export default function Campaigns() {
         from += pageSize;
       }
       // Duplicate rows per `braze_campaign_id` — keep the row with `image_url` (S3 screenshot), else richest `raw_details`
-        const seen = new Map<string, Record<string, unknown>>();
-        for (const row of allRows) {
+      const seen = new Map<string, Record<string, unknown>>();
+      for (const row of allRows) {
         const key = brazeCampaignListId(row as BrazeCampaignRow);
-          const existing = seen.get(key);
-          if (!existing) {
-            seen.set(key, row);
-          } else {
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, row);
+        } else {
           seen.set(key, pickBetterBrazeCampaignDuplicate(row, existing));
-          }
         }
-        return Array.from(seen.values());
+      }
+      return Array.from(seen.values());
     },
     enabled: showLiveCampaigns,
     staleTime: 10 * 60 * 1000,

@@ -2888,7 +2888,7 @@ Deno.serve(async (req) => {
     let campaignsProcessedCount = 0;
     let campaignsEnabledCount = 0;
     let campaignAnalyticsRowsUpserted = 0;
-    let allCampaignList: CampaignListItem[] = [];
+    const allCampaignList: CampaignListItem[] = [];
     let kpiSeriesPoints = 0;
     let kpiLatestDau = 0;
     let kpiLatestMau = 0;
@@ -3904,13 +3904,13 @@ Deno.serve(async (req) => {
           let entryFilters: ProcessedCanvas['entry_filters'] = [];
 
           // Activity metrics (canvas/data_series — also persisted for Analytics revenue merge)
-          let entries_last_30d = 0;
-          let entries_last_60d = 0;
-          let sends_last_30d = 0;
-          let revenue_last_30d = 0;
-          let conversions_last_30d = 0;
-          let opens_last_30d = 0;
-          let clicks_last_30d = 0;
+          const entries_last_30d = 0;
+          const entries_last_60d = 0;
+          const sends_last_30d = 0;
+          const revenue_last_30d = 0;
+          const conversions_last_30d = 0;
+          const opens_last_30d = 0;
+          const clicks_last_30d = 0;
           let last_activity_at: string | undefined;
 
           try {
@@ -4423,8 +4423,8 @@ Deno.serve(async (req) => {
     }
 
     // Resumable sync: skip campaigns synced in the last 10 minutes (same sync session), skip details API for already-enriched ones
-    let alreadyEnrichedIds = new Set<string>();
-    let recentlySyncedIds = new Set<string>();
+    const alreadyEnrichedIds = new Set<string>();
+    const recentlySyncedIds = new Set<string>();
     try {
       const { data: rows } = await supabase
         .from('braze_campaigns')

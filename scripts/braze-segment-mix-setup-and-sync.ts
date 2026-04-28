@@ -215,7 +215,7 @@ async function fetchAllSegmentRows(restEndpoint: string, apiKey: string): Promis
       `${restEndpoint}/segments/list?page=${segPage}&sort_direction=desc&limit=100`,
       apiKey,
     );
-    let segs = getBrazeListArray(json, ['segments', 'items', 'data']) as Array<Record<string, unknown>>;
+    const segs = getBrazeListArray(json, ['segments', 'items', 'data']) as Array<Record<string, unknown>>;
     if (segPage === 0 && segs.length === 0) {
       segPage = 1;
       continue;

@@ -166,7 +166,6 @@ function extractCreativeFromDetails(details: Record<string, unknown>): {
   push_body?: string;
   messages_truncated?: Record<string, unknown>;
 } {
-  let preview_image_url: string | undefined;
   const imageCandidates: string[] = [];
   let emailHtmlPreview: string | undefined;
   let subject: string | undefined;
@@ -251,7 +250,7 @@ function extractCreativeFromDetails(details: Record<string, unknown>): {
 
   const jsonPick = pickBestPreviewImageFromCandidateUrls(imageCandidates);
   const htmlPick = emailHtmlPreview ? pickBestImageUrlFromHtml(emailHtmlPreview) : undefined;
-  preview_image_url = mergePreviewImagePicks(jsonPick, htmlPick);
+  const preview_image_url = mergePreviewImagePicks(jsonPick, htmlPick);
 
   if (
     details.messages &&
