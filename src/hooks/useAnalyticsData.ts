@@ -892,15 +892,24 @@ export function useAnalyticsData(period: string = 'default') {
 
   const getSegmentCategory = (name: string): string => {
     if (!name) return 'OTHER_MISC';
-    
-    // 1. Bracket or Parentheses Format (e.g. [SOCO] or (SOCO))
-    const wrapMatch = name.match(/(\[|\()(.*?)(\]|\))/) 
-    if (wrapMatch && wrapMatch[1]) {
-      const extracted = wrapMatch[1].trim().toUpperCase().replace(/[^A-Z0-9_\s]/g, '');
-      if (extracted) return extracted;
-    }
 
     const n = name.trim().toUpperCase();
+
+    // Normalize legacy/open-state naming first so chart buckets remain stable.
+    // Examples: "Active Subscribers (opened in 90d)", "Churned (no open in 180d)".
+    if (n.includes('CHURNED')) return 'NO_OPEN';
+    if (n.includes('ACTIVE SUBSCRIBER')) return 'OPEN';
+    if (n.includes('NO OPEN') || n.includes('NO_OPEN') || n.includes('UNOPEN')) return 'NO_OPEN';
+    if (n.includes('OPENED') || n.includes('OPEN')) return 'OPEN';
+    if (n.includes('ALL EMAIL SUBSCRIBER') || n.includes('ALL MAILABLE USERS')) return 'OTHER_MISC';
+
+    // 1. Bracket or Parentheses Format (e.g. [SOCO] or (SOCO))
+    // Capture the wrapped text, not the bracket character itself.
+    const wrapMatch = name.match(/[\[(]([^\])]+)[\])]/);
+    if (wrapMatch && wrapMatch[1]) {
+      const extracted = wrapMatch[1].trim().toUpperCase().replace(/[^A-Z0-9\s]/g, '').replace(/\s+/g, '_');
+      if (extracted) return extracted;
+    }
 
     // 2. Keyword Fallback (Prioritized)
     if (n.includes('SOCO')) return 'SOCO';

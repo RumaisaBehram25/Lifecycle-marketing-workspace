@@ -300,7 +300,6 @@ export default function Analytics() {
     segmentChartDataByDate,
     segmentNames,
     segmentCategoryChartDataByDate,
-    segmentCategories,
     segmentSunburstData,
     channelMix,
     flowRevenueByCampaign,
@@ -1035,6 +1034,8 @@ export default function Analytics() {
     });
   }, [segmentCategoryChartDataByDate, segmentRange.startDate, segmentRange.endDate]);
 
+  const segmentSizeCategoryOrder = useMemo(() => ['OTHER_MISC', 'NO_OPEN', 'OPEN'], []);
+
   const latestCategoryRow = trackedCategoryChartData.length > 0
     ? (trackedCategoryChartData[trackedCategoryChartData.length - 1] as Record<string, string | number>)
     : null;
@@ -1044,8 +1045,7 @@ export default function Analytics() {
 
   const trackedCategoryMetrics = useMemo(() => {
     const rangeHasRows = trackedCategoryChartData.length > 0;
-    // We only want to show the top 3-5 categories as cards to match the user's reference UI
-    return segmentCategories.slice(0, 6).map((name) => {
+    return segmentSizeCategoryOrder.map((name) => {
       if (rangeHasRows && latestCategoryRow && firstCategoryRow) {
         const current = Number(latestCategoryRow[name] ?? 0);
         const first = Number(firstCategoryRow[name] ?? 0);
@@ -1055,7 +1055,7 @@ export default function Analytics() {
       }
       return { name, current: 0, netGrowth: 0, growthPct: 0, rangeEmpty: true };
     });
-  }, [segmentCategories, trackedCategoryChartData, latestCategoryRow, firstCategoryRow]);
+  }, [segmentSizeCategoryOrder, trackedCategoryChartData, latestCategoryRow, firstCategoryRow]);
 
   const segmentTotal = segmentCurrentSizes.reduce((sum, s) => sum + s.value, 0);
 
@@ -1809,7 +1809,7 @@ export default function Analytics() {
                           labelStyle={analyticsTooltipLabelStyle}
                         />
                         <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} iconType="circle" iconSize={8} />
-                        {segmentCategories.map((seg, i) => (
+                        {segmentSizeCategoryOrder.map((seg, i) => (
                           <Line
                             key={seg}
                             type="monotone"
