@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,7 +37,43 @@ type Props = {
   clientId: string | undefined;
 };
 
-/** Supabase `invoke` often sets a generic message on non-2xx; read JSON `{ error }` from the response body when present. */
+/** Parse `{ error }` from Edge Function HTTP response body — invoke often only exposes a generic non-2xx message. */
+async function readEdgeFunctionErrorPayload(invokeError: unknown): Promise<string> {
+  const ctx =
+    invokeError && typeof invokeError === 'object' && 'context' in invokeError
+      ? (invokeError as { context?: unknown }).context
+      : undefined;
+  if (!ctx || !(typeof Response !== 'undefined' && ctx instanceof Response)) {
+    return '';
+  }
+  try {
+    const text = await ctx.clone().text();
+    if (!text.trim()) return '';
+    try {
+      const j = JSON.parse(text) as { error?: string; message?: string };
+      if (typeof j.error === 'string' && j.error.trim()) return j.error.trim();
+      if (typeof j.message === 'string' && j.message.trim()) return j.message.trim();
+    } catch {
+      return text.trim().slice(0, 500);
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function httpStatusFromInvokeError(invokeError: unknown): number | undefined {
+  const ctx =
+    invokeError && typeof invokeError === 'object' && 'context' in invokeError
+      ? (invokeError as { context?: unknown }).context
+      : undefined;
+  if (ctx && typeof Response !== 'undefined' && ctx instanceof Response) {
+    return ctx.status;
+  }
+  return undefined;
+}
+
+/** Supabase `invoke` often sets a generic message on non-2xx; prefer JSON `{ error }` from the response body. */
 async function describeAiReportInvokeFailure(
   invokeError: unknown,
   data: { error?: string } | null,
@@ -49,25 +84,18 @@ async function describeAiReportInvokeFailure(
       : '';
   if (fromPayload) return fromPayload;
 
-  if (invokeError instanceof FunctionsHttpError && invokeError.context) {
-    try {
-      const text = await invokeError.context.clone().text();
-      if (text) {
-        try {
-          const j = JSON.parse(text) as { error?: string };
-          if (typeof j.error === 'string' && j.error.trim()) return j.error.trim();
-        } catch {
-          return text.slice(0, 500);
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
+  const fromBody = await readEdgeFunctionErrorPayload(invokeError);
+  if (fromBody) return fromBody;
+
+  const status = httpStatusFromInvokeError(invokeError);
 
   if (invokeError instanceof Error) {
-    const m = invokeError.message;
+    const m = invokeError.message?.trim() ?? '';
     if (m && !/Edge Function returned a non-2xx/i.test(m)) return m;
+    if (m && status != null) {
+      return `${m} (HTTP ${status}). For Anthropic errors check the message above; for access errors verify your workspace mapping. Edge logs: Supabase Dashboard → Edge Functions → ai-analytics-report → Logs.`;
+    }
+    if (m) return m;
   }
 
   return 'The AI report edge function failed or returned an error. Deploy supabase/functions/ai-analytics-report and set the ANTHROPIC_API_KEY secret for this project (Dashboard → Edge Functions → Secrets).';

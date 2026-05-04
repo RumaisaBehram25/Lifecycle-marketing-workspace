@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { validateAuth, validateClientAccess, authErrorResponse } from "../_shared/auth.ts";
+import { validateAuth, validateClientAccessForEdge, authErrorResponse } from "../_shared/auth.ts";
 import { AI_REPORTS_ANSWER_CONTRACT_SUMMARY } from "../_shared/ai-copilot-behavior.ts";
 import { logger } from "../_shared/logger.ts";
 
@@ -14,7 +14,6 @@ const ROW_CAP = 200;
 /** More rows for time-series tables used in month-over-month math */
 const SERIES_ROW_CAP = 500;
 const JSONB_MAX = 1200;
-const MODEL = "claude-sonnet-4-20250514";
 const MAX_TOKENS = 4000;
 
 function clipJson(v: unknown, maxLen: number): unknown {
@@ -163,11 +162,6 @@ serve(async (req) => {
       });
     }
 
-    const accessResult = await validateClientAccess(authResult.userClient!, clientId);
-    if (!accessResult.success) {
-      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
-    }
-
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -180,6 +174,15 @@ serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    const accessResult = await validateClientAccessForEdge(
+      supabase,
+      authResult.userId!,
+      clientId,
+    );
+    if (!accessResult.success) {
+      return authErrorResponse(accessResult.error!, accessResult.status!, corsHeaders);
+    }
 
     const { data: clientRow, error: clientErr } = await supabase
       .from("clients")
@@ -488,6 +491,8 @@ Respond in clean markdown: headings, bullet lists, and markdown tables when comp
           "\n\n[SYSTEM CONTEXT TRUNCATED FOR API SIZE — prioritize samples above; mention gaps if needed.]"
         : system;
 
+    const model = Deno.env.get("ANTHROPIC_MODEL")?.trim() || "claude-sonnet-4-20250514";
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -496,7 +501,7 @@ Respond in clean markdown: headings, bullet lists, and markdown tables when comp
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         max_tokens: MAX_TOKENS,
         system: systemFinal,
         messages: [{ role: "user", content: userPrompt }],
@@ -525,7 +530,7 @@ Respond in clean markdown: headings, bullet lists, and markdown tables when comp
         ? String(data.content[0].text ?? "")
         : "";
 
-    return new Response(JSON.stringify({ report_markdown: text, model: MODEL }), {
+    return new Response(JSON.stringify({ report_markdown: text, model }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: unknown) {

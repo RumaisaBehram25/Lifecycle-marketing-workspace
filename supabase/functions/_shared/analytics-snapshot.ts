@@ -163,13 +163,13 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
     block += `- **Sum entries_last_60d** (all canvases): **${Number(cvTot.sum_entries_last_60d ?? 0).toLocaleString()}**\n`;
     block += `- **Sum entries_last_30d** (all canvases): **${Number(cvTot.sum_entries_last_30d ?? 0).toLocaleString()}**\n`;
     block += `- **Sum sends_last_30d** (all canvases): **${Number(cvTot.sum_sends_last_30d ?? 0).toLocaleString()}**\n`;
-    block += `- Rows below are a **sample** (≤50) ordered by **entries_last_60d** descending — not the full directory.\n`;
+    block += `- Rows below are a **sample** (up to 500) ordered by **entries_last_60d** descending — not the full directory.\n`;
   }
 
   block += formatJsonRows(
-    "braze_canvases (top ≤50 by entries_last_60d)",
+    "braze_canvases (top by entries_last_60d, expanded sample)",
     bundle.braze_canvases as unknown[],
-    25,
+    60,
   );
 
   const kpiSum = bundle.braze_kpi_summary as Record<string, unknown> | undefined;
@@ -194,15 +194,29 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
     block += `\n### braze_campaigns (workspace totals — matches Campaigns tab “Showing 1–N of N” when channel = All)\n`;
     block += `- **Campaign rows** in \`braze_campaigns\`: **${Number(campTot.row_count ?? 0).toLocaleString()}**\n`;
     block += `- **Email channel rows** (normalized like Campaigns filter “Email”): **${Number(campTot.email_row_count ?? 0).toLocaleString()}**\n`;
-    block += `- Rows below are a **sample** (≤50) ordered by **sent_date** descending — not the full directory.\n`;
+    block += `- Rows below are a **sample** (up to 500) ordered by **sent_date** descending — not the full directory.\n`;
   }
 
   if (Array.isArray(bundle.braze_campaigns)) {
     block += formatJsonRows(
-      "braze_campaigns (top ≤50 by sent_date — Campaigns tab sample)",
+      "braze_campaigns (by sent_date — expanded Campaigns sample)",
       bundle.braze_campaigns as unknown[],
-      35,
+      50,
     );
+  }
+
+  if (bundle.braze_custom_events_count != null) {
+    block += `\n### braze_custom_events (Braze custom event directory — use for “is event X defined?”)\n`;
+    block += `- Row count in **braze_custom_events**: **${Number(bundle.braze_custom_events_count).toLocaleString()}**\n`;
+  }
+  if (Array.isArray(bundle.braze_custom_events) && (bundle.braze_custom_events as unknown[]).length > 0) {
+    block += formatJsonRows(
+      "braze_custom_events (event_name list from sync; includes trigger-style names)",
+      bundle.braze_custom_events as unknown[],
+      120,
+    );
+  } else if (bundle.braze_custom_events_count != null && Number(bundle.braze_custom_events_count) === 0) {
+    block += `\n### braze_custom_events\n- No custom events synced yet (run **Sync All from Braze** on the Dashboard).\n`;
   }
 
   if (bundle.braze_segments_sync_count != null) {
@@ -239,8 +253,9 @@ function bundleToMarkdown(bundle: Record<string, unknown>): string {
   block +=
     "\nFor **Overview** / email performance, prefer **braze_campaign_totals** and **braze_usage**. " +
     "For **DAU/MAU/new users**, prefer **braze_kpi_summary** and **braze_usage**. " +
-    "For **named one-off campaign counts**, use **braze_campaigns_totals** (full directory); the **braze_campaigns** list is a capped sample. " +
-    "For **lifecycle entry volume**, use **braze_canvases_totals** (workspace sums); per-canvas lines are a capped sample.\n";
+    "For **named one-off campaign counts**, use **braze_campaigns_totals** (full directory); the **braze_campaigns** list is a large sample (not every row if you have thousands). " +
+    "For **lifecycle entry volume**, use **braze_canvases_totals** (workspace sums); per-canvas lines are a large sample. " +
+    "For **custom event / trigger names** (e.g. `48h-link-health-check`), search **braze_custom_events** in this bundle — if absent after sync, the name is not in the Braze events directory for this workspace.\n";
 
   return block;
 }
@@ -252,7 +267,7 @@ async function buildAnalyticsSnapshotFallback(
   let block =
     `\n## ANALYTICS & CRM DATA (client_id: \`${clientId}\`) — fallback reader\n` +
     `**Note:** RPC \`analytics_bundle_for_copilot\` unavailable; using paged reads (may be slower / capped). ` +
-    `Apply latest \`analytics_bundle_for_copilot\` migration (e.g. \`20260410120000_analytics_bundle_braze_campaigns_totals.sql\`) for RPC-backed totals.\n`;
+    `Apply latest \`analytics_bundle_for_copilot\` migration (e.g. \`20260505140000_analytics_bundle_v5_copilot_full_samples.sql\`) for RPC-backed totals and custom events.\n`;
 
   const { totals, error: brazeErr } = await aggregateBrazeCampaignAnalyticsPaged(
     supabase,
@@ -317,11 +332,11 @@ async function buildAnalyticsSnapshotFallback(
         const t = new Date(String(d)).getTime();
         return Number.isNaN(t) ? 0 : t;
       };
-      const top = [...rows].sort((a, b) => sentMs(b) - sentMs(a)).slice(0, 50);
+      const top = [...rows].sort((a, b) => sentMs(b) - sentMs(a)).slice(0, 500);
       block += formatJsonRows(
-        "braze_campaigns (top 50 by sent_date, fallback)",
+        "braze_campaigns (top by sent_date, fallback — expanded sample)",
         top as unknown[],
-        35,
+        50,
       );
     }
   } catch (e) {
@@ -359,12 +374,55 @@ async function buildAnalyticsSnapshotFallback(
           (a, b) =>
             (Number(b.entries_last_60d ?? 0) || 0) - (Number(a.entries_last_60d ?? 0) || 0),
         )
-        .slice(0, 50);
-      block += formatJsonRows("braze_canvases (top 50 by entries_last_60d, fallback)", top as unknown[], 25);
+        .slice(0, 500);
+      block += formatJsonRows(
+        "braze_canvases (top by entries_last_60d, fallback — expanded sample)",
+        top as unknown[],
+        60,
+      );
     }
   } catch (e) {
     block += `\n### braze_canvases (fallback)\n- Error: ${String(e).slice(0, 200)}\n`;
   }
+
+  try {
+    const { count: ceCount, error: ceCountErr } = await supabase
+      .from("braze_custom_events")
+      .select("*", { count: "exact", head: true })
+      .eq("client_id", clientId);
+    if (ceCountErr) {
+      block += `\n### braze_custom_events (fallback)\n- Error (count): ${ceCountErr.message}\n`;
+    } else {
+      const n = ceCount ?? 0;
+      block += `\n### braze_custom_events (Braze custom event directory — fallback)\n`;
+      block += `- Row count in **braze_custom_events**: **${n.toLocaleString()}**\n`;
+      if (n === 0) {
+        block += `- No custom events synced yet (run **Sync All from Braze** on the Dashboard).\n`;
+      } else {
+        const { data: ceRows, error: ceErr } = await supabase
+          .from("braze_custom_events")
+          .select("event_name, event_description, event_type, category, synced_at")
+          .eq("client_id", clientId)
+          .order("event_name", { ascending: true })
+          .limit(3000);
+        if (ceErr) {
+          block += `- Error loading rows: ${ceErr.message}\n`;
+        } else {
+          block += formatJsonRows(
+            "braze_custom_events (event_name list from sync; fallback)",
+            (ceRows ?? []) as unknown[],
+            120,
+          );
+        }
+      }
+    }
+  } catch (e) {
+    block += `\n### braze_custom_events (fallback)\n- Error: ${String(e).slice(0, 200)}\n`;
+  }
+
+  block +=
+    "\nFor **custom event / trigger names**, search **braze_custom_events** above. " +
+    "Prefer deploying RPC **analytics_bundle_for_copilot** (v5) for consistent caps with the main app.\n";
 
   return block;
 }

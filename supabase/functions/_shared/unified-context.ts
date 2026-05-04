@@ -526,7 +526,7 @@ ${ex.content.slice(0, 500)}${ex.content.length > 500 ? '...' : ''}
 **Last Sync**: ${syncAge}
 
 ### Events/Metrics (${platform.metrics.length} total)
-${platform.metrics.slice(0, 50).map(m => m.name).join(', ')}${platform.metrics.length > 50 ? ` ... and ${platform.metrics.length - 50} more` : ''}
+${platform.metrics.slice(0, 200).map(m => m.name).join(', ')}${platform.metrics.length > 200 ? ` ... and ${platform.metrics.length - 200} more` : ''}
 
 ### Lists (${platform.lists.length} total)
 ${platform.lists.map(l => `- ${l.name}${l.profile_count ? ` (${l.profile_count.toLocaleString()} profiles)` : ''}`).join('\n')}
