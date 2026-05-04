@@ -641,8 +641,8 @@ export function ClientChat({
                 </h2>
                 <p className="text-muted-foreground text-sm sm:text-base max-w-md mx-auto leading-relaxed">
                   {variant === 'embedded'
-                    ? 'I read your briefs, Drive sync, brand voice, and connected platforms (when synced). Ask for analysis, copy, or priorities.'
-                    : 'Generate on-brand copy, plan journeys, segmentation, and platform answers — grounded in your workspace when data is synced.'}
+                    ? 'I use your briefs, Drive sync, brand voice, analytics bundle, and connected platforms when synced. Ask specifics—even small details—and I will stick to what is in your data.'
+                    : 'On-brand copy, journeys, and answers from your workspace data and docs. If something is not in the database, I will say so clearly—no made-up metrics.'}
                 </p>
               </div>
             ) : (
@@ -676,7 +676,7 @@ export function ClientChat({
             <p className="text-xs text-center text-muted-foreground mt-3">
               {variant === 'embedded'
                 ? 'Replies use live workspace data when available. Conversations are stored securely.'
-                : 'CRM Copilot uses AI to help you create on-brand lifecycle marketing.'}
+                : 'Answers follow your synced data and resources—friendly tone, no filler numbers. Conversations are stored securely.'}
             </p>
           </div>
         </div>

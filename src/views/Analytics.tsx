@@ -69,6 +69,7 @@ import {
   dashboardEmptyWarningCard,
 } from '@/lib/dashboard-surface';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AnalyticsAiReportBuilder } from '@/components/analytics/AnalyticsAiReportBuilder';
 
 /** Match Dashboard section titles (e.g. Performance & connections). */
 const analyticsSectionHeadingClass = cn(
@@ -79,9 +80,12 @@ const analyticsSectionHeadingClass = cn(
 const analyticsCardClass = cn(dashboardSurfaceCard, 'shadow-md');
 
 const analyticsCardHeaderClass = cn(
-  'pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent',
+  'pb-2 pt-6 bg-gradient-to-r from-primary/[0.07] via-card to-transparent',
   dashSectionTitleBorder,
 );
+
+/** Card default is `pt-0` — add breathing room below the gradient header so inputs/charts feel centered in the section. */
+const analyticsCardContentClass = 'pt-5 sm:pt-6';
 
 const analyticsSubtitleClass = cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule);
 
@@ -276,6 +280,7 @@ const ANALYTICS_CARD_OPTION_IDS = ANALYTICS_CARD_OPTIONS.map((option) => option.
 export default function Analytics() {
   const { data: client } = useActiveClientRow();
   const { clientId: workspaceClientId } = useResolvedClientId();
+  const aiReportClientId = workspaceClientId ?? client?.id;
   const { data: platforms } = useDoubleGoodPlatforms();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -300,6 +305,7 @@ export default function Analytics() {
     segmentChartDataByDate,
     segmentNames,
     segmentCategoryChartDataByDate,
+    segmentSizeOverTimeExportLabel,
     segmentSunburstData,
     channelMix,
     flowRevenueByCampaign,
@@ -1364,7 +1370,7 @@ export default function Analytics() {
               Account managers can choose which analytics cards to show for this client. Layout is saved per client.
             </p>
           </CardHeader>
-          <CardContent className="space-y-3 pb-5 bg-muted/10">
+          <CardContent className="pt-4 space-y-3 pb-5 bg-muted/10">
             <div className="flex flex-wrap gap-2">
               {ANALYTICS_CARD_OPTIONS.map((option) => {
                 const enabled = selectedAnalyticsCards.includes(option.id);
@@ -1408,6 +1414,8 @@ export default function Analytics() {
             </div>
           </CardContent>
         </Card>
+
+        <AnalyticsAiReportBuilder clientId={aiReportClientId} />
 
         {/* Lifecycle Flow Performance — merged campaign analytics (CSV) + Braze canvas sync metrics */}
         {isAnalyticsCardEnabled('lifecycleFlow') &&
@@ -1501,7 +1509,7 @@ export default function Analytics() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pb-6 bg-muted/10">
+              <CardContent className={cn(analyticsCardContentClass, 'pb-6 bg-muted/10')}>
                 {brazeCanvasFlowMetricsIsLoading && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
                     <Loader2 className="h-4 w-4 animate-spin shrink-0" />
@@ -1605,7 +1613,7 @@ export default function Analytics() {
               Compare {benchmarkType === 'campaign' ? 'campaign' : 'canvas'} revenue to the 25% CRM benchmark within the selected date range.
             </p>
           </CardHeader>
-          <CardContent className="pt-2 pb-6 space-y-4 bg-muted/10">
+          <CardContent className={cn(analyticsCardContentClass, 'pb-6 space-y-4 bg-muted/10')}>
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-card/40 p-3">
               <Select
                 value={benchmarkRangePreset}
@@ -1737,8 +1745,13 @@ export default function Analytics() {
               </span>
               Segment Size Over Time
             </CardTitle>
+            {segmentSizeOverTimeExportLabel ? (
+              <p className={analyticsSubtitleClass}>
+                Export updated {segmentSizeOverTimeExportLabel}
+              </p>
+            ) : null}
           </CardHeader>
-          <CardContent className="pb-6 bg-muted/10">
+          <CardContent className={cn(analyticsCardContentClass, 'pb-6 bg-muted/10')}>
             {isLoading ? (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/70" />
@@ -1841,11 +1854,11 @@ export default function Analytics() {
             {isAnalyticsCardEnabled('dailyEngagement') && (
             <Card className={cn(analyticsCardClass, 'min-w-0 w-full')}>
               <div className={dashboardTopAccentClass} aria-hidden />
-              <CardHeader className={analyticsCardHeaderClass}>
+              <CardHeader className={cn(analyticsCardHeaderClass, 'pt-8')}>
                 <CardTitle className={cn(analyticsSectionHeadingClass, 'text-foreground/95')}>Daily Email Engagement</CardTitle>
                 <p className={analyticsSubtitleClass}>Opens and clicks by day (campaign analytics when available, otherwise Braze usage).</p>
               </CardHeader>
-              <CardContent className="pb-6 bg-muted/10">
+              <CardContent className={cn(analyticsCardContentClass, 'pb-6 bg-muted/10')}>
                 <div className={cn('h-[min(360px,42vh)] min-h-[280px]', analyticsChartPanelClass, '[&_.recharts-cartesian-axis-tick_value]:fill-[hsl(var(--muted-foreground))]')}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={dailyEmailEngagementData} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
@@ -1875,7 +1888,7 @@ export default function Analytics() {
                   Toggle top campaigns vs daily totals; filter by campaign name and date range. Benchmark lines show the average among rows in view.
                 </p>
               </CardHeader>
-              <CardContent className="space-y-3 overflow-visible pb-6 bg-muted/10">
+              <CardContent className={cn(analyticsCardContentClass, 'space-y-3 overflow-visible pb-6 bg-muted/10')}>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="inline-flex h-8 flex-wrap gap-0.5 rounded-md border border-primary/15 bg-card/80 p-0.5">
                     <button

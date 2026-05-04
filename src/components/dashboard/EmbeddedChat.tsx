@@ -256,7 +256,8 @@ export function EmbeddedChat() {
           {messages.length === 0 ? (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground text-center">
-                Ask about campaigns, lifecycle, segments, or get copy suggestions
+                Uses your workspace data and resources—ask specifics. If it does not have something in the database, it
+                will say so and suggest next steps.
               </p>
               <div className="flex flex-wrap gap-2 justify-center">
                 {quickPrompts.map((prompt) => (

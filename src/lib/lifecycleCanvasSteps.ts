@@ -1,3 +1,5 @@
+import { parseCampaignTaxonomy } from '@/lib/campaign-taxonomy';
+
 /**
  * Normalize Braze canvas steps for Lifecycle UI. Sync stores `raw_steps` as a JSON object
  * keyed by step id; some payloads may use arrays or id-keyed objects without `id` on each value.
@@ -56,11 +58,67 @@ function isMessagingChannel(raw: string): boolean {
   if (c === 'email') return true;
   if (c.includes('push')) return true;
   if (c.includes('sms')) return true;
+  if (c.includes('whatsapp')) return true;
   if (c.includes('in_app') || c.includes('in-app')) return true;
   if (c === 'trigger_in_app_message') return true;
   if (c.includes('content_card')) return true;
   if (c === 'iam' || c.startsWith('iam_')) return true;
   return false;
+}
+
+/** When `step.channel` is empty, infer from Braze composite step types (e.g. full/sms, full/android_push). */
+function channelFromStepType(type: string): string | null {
+  const t = type.toLowerCase();
+  if (!t) return null;
+  if (t.includes('whatsapp')) return 'whatsapp';
+  if (t.includes('sms') || t.includes('mms')) return 'sms';
+  if (t.includes('email')) return 'email';
+  if (t.includes('in_app') || t.includes('in-app')) return 'in_app_message';
+  if (t.includes('content_card')) return 'content_card';
+  if (t.includes('push') && !t.includes('in_app') && !t.includes('in-app')) return 'push';
+  return null;
+}
+
+/**
+ * Infer canvas-level channel pills / filters from `raw_steps` + canvas name.
+ * List queries often omit `raw_steps`; call again after loading full canvas rows.
+ * Never defaults to email — that mislabeled SMS/Push journeys when steps were not yet loaded.
+ */
+export function inferLifecycleCanvasChannels(rawSteps: unknown, canvasName: string): string[] {
+  const taxonomy = parseCampaignTaxonomy(canvasName);
+  const stepsRecord = normalizeRawSteps(rawSteps);
+  const stepsList = Object.values(stepsRecord) as LifecycleCanvasStep[];
+
+  const collected = new Set<string>();
+  for (const s of stepsList) {
+    const direct = getLifecycleStepChannel(s);
+    if (direct && isMessagingChannel(direct)) {
+      collected.add(direct);
+      continue;
+    }
+    const fromType = channelFromStepType(s.type || '');
+    if (fromType) {
+      collected.add(fromType);
+      continue;
+    }
+    const fromMsg = s.messages?.map((m) => m.channel).find(Boolean);
+    if (fromMsg && isMessagingChannel(String(fromMsg))) {
+      collected.add(String(fromMsg).trim());
+    }
+  }
+
+  if (collected.size > 0) {
+    return [...collected];
+  }
+
+  const nameLower = canvasName.toLowerCase();
+  const inferred: string[] = [];
+  if (nameLower.includes('email') || taxonomy.channel === 'email') inferred.push('email');
+  if (nameLower.includes('push')) inferred.push('push');
+  if (nameLower.includes('sms') || nameLower.includes('mms')) inferred.push('sms');
+  if (nameLower.includes('whatsapp')) inferred.push('whatsapp');
+  if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferred.push('in_app_message');
+  return inferred;
 }
 
 function messageHasCreativePayload(m: NonNullable<LifecycleCanvasStep['messages']>[number]): boolean {

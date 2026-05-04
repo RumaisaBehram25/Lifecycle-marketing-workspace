@@ -33,17 +33,25 @@ export function useBrazeCustomEvents(options: UseBrazeCustomEventsOptions = {}) 
     queryFn: async () => {
       if (!clientId) return [] as BrazeCustomEvent[];
 
-      const { data, error } = await supabase
-        .from('braze_custom_events')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('event_name', { ascending: true });
+      const pageSize = 1000;
+      const out: BrazeCustomEvent[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase
+          .from('braze_custom_events')
+          .select('*')
+          .eq('client_id', clientId)
+          .order('event_name', { ascending: true })
+          .range(from, from + pageSize - 1);
 
-      if (error) throw error;
-      return (data ?? []) as BrazeCustomEvent[];
+        if (error) throw error;
+        const chunk = (data ?? []) as BrazeCustomEvent[];
+        out.push(...chunk);
+        if (chunk.length < pageSize) break;
+      }
+      return out;
     },
     enabled: !!clientId && enabled,
-    staleTime: 30 * 60 * 1000, // 30 minutes
+    staleTime: 60_000,
   });
 }
 

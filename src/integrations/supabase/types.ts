@@ -23,6 +23,7 @@ export type Database = {
           created_at: string
           created_in_braze: string | null
           description: string | null
+          details_synced_at: string | null
           draft: boolean | null
           enabled: boolean | null
           entries_last_30d: number | null
@@ -36,6 +37,7 @@ export type Database = {
           last_activity_at: string | null
           last_entry: string | null
           name: string
+          raw_details: Json | null
           raw_steps: Json | null
           raw_variants: Json | null
           schedule_type: string | null
@@ -59,6 +61,7 @@ export type Database = {
           created_at?: string
           created_in_braze?: string | null
           description?: string | null
+          details_synced_at?: string | null
           draft?: boolean | null
           enabled?: boolean | null
           entries_last_30d?: number | null
@@ -72,6 +75,7 @@ export type Database = {
           last_activity_at?: string | null
           last_entry?: string | null
           name: string
+          raw_details?: Json | null
           raw_steps?: Json | null
           raw_variants?: Json | null
           schedule_type?: string | null
@@ -95,6 +99,7 @@ export type Database = {
           created_at?: string
           created_in_braze?: string | null
           description?: string | null
+          details_synced_at?: string | null
           draft?: boolean | null
           enabled?: boolean | null
           entries_last_30d?: number | null
@@ -108,6 +113,7 @@ export type Database = {
           last_activity_at?: string | null
           last_entry?: string | null
           name?: string
+          raw_details?: Json | null
           raw_steps?: Json | null
           raw_variants?: Json | null
           schedule_type?: string | null
@@ -132,6 +138,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      braze_canvas_steps: {
+        Row: {
+          id: string
+          client_id: string
+          braze_canvas_id: string
+          step_id: string
+          step_name: string | null
+          step_type: string | null
+          messages: Json | null
+          raw: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          braze_canvas_id: string
+          step_id: string
+          step_name?: string | null
+          step_type?: string | null
+          messages?: Json | null
+          raw?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          braze_canvas_id?: string
+          step_id?: string
+          step_name?: string | null
+          step_type?: string | null
+          messages?: Json | null
+          raw?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       braze_sync_runs: {
         Row: {
@@ -493,6 +538,41 @@ export type Database = {
           website_url?: string | null
         }
         Relationships: []
+      }
+      dashboard_ai_reports: {
+        Row: {
+          id: string
+          client_id: string
+          prompt: string
+          report_markdown: string
+          created_at: string
+          posted_by: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          prompt: string
+          report_markdown: string
+          created_at?: string
+          posted_by?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          prompt?: string
+          report_markdown?: string
+          created_at?: string
+          posted_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_ai_reports_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       customerio_broadcasts: {
         Row: {

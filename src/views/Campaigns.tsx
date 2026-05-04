@@ -1752,17 +1752,10 @@ export default function Campaigns() {
                       <Badge className={cn('text-xs font-normal', channelColors[campaign.channel])}>
                         {channelLabels[campaign.channel]}
                       </Badge>
-                      <div className="flex items-center gap-2">
                       <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
                         <CalendarIcon className="h-3 w-3 shrink-0" aria-hidden />
                         {format(parseCampaignCalendarDay(campaign.sent_date, new Date()) ?? new Date(), 'MMM d')}
                       </span>
-                        {viewMode === 'grid' && (
-                          <span className="font-medium text-primary" aria-hidden>
-                            Read
-                          </span>
-                        )}
-                      </div>
                     </div>
                   </CardContent>
                 </Card>

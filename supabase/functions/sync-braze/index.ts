@@ -62,15 +62,26 @@ const LIFECYCLE_TOUCHPOINTS_RECENT_DAYS_DEFAULT = clampIntEnv(
   30,
   1095,
 );
+
+/** canvas/list pages when canvas_only runs (caps Braze list crawl). */
+const BRAZE_SYNC_MAX_CANVAS_PAGES = clampIntEnv("BRAZE_SYNC_MAX_CANVAS_PAGES", 10, 1, 50);
+/** Per Edge invoke: max GET canvas/details calls (prompt default 25; env max 100). */
+const BRAZE_SYNC_CANVAS_DETAILS_PER_RUN = clampIntEnv("BRAZE_SYNC_CANVAS_DETAILS_PER_RUN", 25, 1, 100);
+const CANVAS_DETAILS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+const CANVAS_DETAILS_API_DELAY_MS = 300;
 const MAX_CAMPAIGNS_TO_PROCESS = clampIntEnv("BRAZE_SYNC_MAX_CAMPAIGNS", 5000, 1, 10000);
 /** Rolled-up daily row from campaigns/data_series (one row per campaign per day; merges with CSV by conflict key). */
 const BRAZE_SYNC_CAMPAIGN_ANALYTICS_VARIATION = "__braze_sync_aggregate__";
 const MAX_SEGMENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_PAGES", 40, 1, 200);
 /** When `segments/list` has no size (normal per Braze docs), call `/segments/data_series` for tracked segments. 0 = skip. */
-const MAX_SEGMENT_DATA_SERIES_LOOKUPS = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_DATA_SERIES", 120, 0, 500);
+const MAX_SEGMENT_DATA_SERIES_LOOKUPS = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_DATA_SERIES", 300, 0, 500);
+/** After list sync, enrich rows from GET `/segments/details` (requires `segments.details`). 0 = skip. */
+const MAX_SEGMENT_DETAILS_LOOKUPS = clampIntEnv("BRAZE_SYNC_MAX_SEGMENT_DETAILS", 400, 0, 2000);
 const MAX_EMAIL_EVENT_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EMAIL_PAGES", 35, 1, 120);
 /** Max pages for /events/list endpoint. Default 20 pages. Override via BRAZE_SYNC_MAX_EVENTS_PAGES. */
 const MAX_EVENTS_PAGES = clampIntEnv("BRAZE_SYNC_MAX_EVENTS_PAGES", 20, 1, 100);
+/** Max GET /events/data_series calls per sync (one per custom event name). 0 = skip series. */
+const MAX_EVENT_DATA_SERIES_CALLS = clampIntEnv("BRAZE_SYNC_MAX_EVENT_DATA_SERIES", 40, 0, 120);
 /** Per-client retention deletes at start of each sync (0 = disabled). Frees rows in braze_email_events / braze_sync_runs / braze_kpi_series. */
 const PRUNE_EMAIL_EVENTS_DAYS = clampIntEnv("BRAZE_SYNC_PRUNE_EMAIL_EVENTS_DAYS", 90, 0, 1095);
 const PRUNE_SYNC_RUN_DAYS = clampIntEnv("BRAZE_SYNC_PRUNE_SYNC_RUN_DAYS", 45, 0, 1095);
@@ -249,6 +260,50 @@ async function brazeFetch(endpoint: string, apiKey: string, restEndpoint: string
   });
 }
 
+/** GET with access to `Link: ...; rel="next"` for Braze cursor pagination (`GET /events`). */
+async function brazeFetchJsonWithLinkHeader(
+  pathQuery: string,
+  apiKey: string,
+  restEndpoint: string,
+): Promise<{ json: Record<string, unknown>; nextPath: string | null }> {
+  const base = String(restEndpoint).replace(/\/+$/, "");
+  const pq = pathQuery.replace(/^\/+/, "");
+  const url = `${base}/${pq}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 18000);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Braze API error ${response.status}: ${errorText.slice(0, 200)}`);
+    }
+    const linkHeader = response.headers.get("Link");
+    let nextPath: string | null = null;
+    if (linkHeader) {
+      const m = linkHeader.match(/<([^>]+)>\s*;\s*rel="next"/i);
+      if (m) {
+        const href = m[1].trim();
+        try {
+          const u = new URL(href, `${base}/`);
+          nextPath = u.pathname.replace(/^\//, "") + u.search;
+        } catch {
+          nextPath = href.replace(`${base}/`, "").replace(/^\//, "");
+        }
+      }
+    }
+    const json = (await response.json()) as Record<string, unknown>;
+    return { json, nextPath };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function formatDelay(seconds: number | undefined): string {
   if (!seconds || seconds === 0) return '0h';
   if (seconds >= 86400) return `${Math.floor(seconds / 86400)}d`;
@@ -340,6 +395,82 @@ const toIso = (v: unknown): string | undefined => {
   return ms ? new Date(ms).toISOString() : undefined;
 };
 
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Map Braze canvas/details (and nested canvas) fields into a single last_entry for DB. */
+function pickLastEntryFromCanvasDetailsPayload(details: Record<string, unknown>): string | null {
+  const canvasNested = details.canvas as Record<string, unknown> | undefined;
+  const dataObj = details.data as Record<string, unknown> | undefined;
+  const dataCanvas = dataObj?.canvas as Record<string, unknown> | undefined;
+  const candidates: unknown[] = [
+    details.last_entry,
+    details.last_entry_at,
+    details.last_sent_at,
+    details.last_sent,
+    details.updated_at,
+    canvasNested?.last_entry,
+    canvasNested?.last_entry_at,
+    canvasNested?.last_sent_at,
+    canvasNested?.last_sent,
+    dataCanvas?.last_entry,
+    dataCanvas?.last_sent_at,
+    dataCanvas?.last_sent,
+  ];
+  for (const c of candidates) {
+    const iso = toIso(c);
+    if (iso) return iso;
+  }
+  return null;
+}
+
+/**
+ * Throttled canvas/details for canvas_only: no withRetry; 429 → 2s + one retry; then null.
+ * Full success/fail logged for Supabase Edge logs.
+ */
+async function brazeFetchCanvasDetailsCanvasOnly(
+  canvasId: string,
+  nameForLog: string,
+  apiKey: string,
+  restEndpoint: string,
+): Promise<Record<string, unknown> | null> {
+  const endpoint = `canvas/details?canvas_id=${encodeURIComponent(canvasId)}`;
+  const url = `${String(restEndpoint).replace(/\/+$/, "")}/${endpoint}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+  const runOnce = async (): Promise<Response> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 18000);
+    try {
+      return await fetch(url, { headers, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+  let response = await runOnce();
+  if (response.status === 429) {
+    console.warn(`[canvas_only] 429 id=${canvasId} name=${JSON.stringify(nameForLog)} — sleep 2s, retry once`);
+    await sleepMs(2000);
+    response = await runOnce();
+    if (response.status === 429) {
+      console.warn(`[canvas_only] 429 again, skip id=${canvasId}`);
+      return null;
+    }
+  }
+  if (!response.ok) {
+    const t = await response.text();
+    console.error(
+      `[canvas_only] canvas/details HTTP ${response.status} id=${canvasId} name=${JSON.stringify(nameForLog)} — ${t.slice(0, 240)}`,
+    );
+    return null;
+  }
+  const body = (await response.json()) as Record<string, unknown>;
+  return body;
+}
+
 interface CanvasListItem {
   id: string;
   name: string;
@@ -419,7 +550,8 @@ interface ProcessedCampaign {
   tags?: string[];
   /** Short line for dashboard cards (subject, push title, or description). */
   creative_preview?: string;
-  raw_details?: Record<string, unknown>;
+  /** Always passed through for upsert (seeded from DB when skipping details fetch). */
+  raw_details: Record<string, unknown>;
 }
 
 /** Braze push `alert` may be a string or nested object. */
@@ -844,6 +976,43 @@ function campaignIdFromListItem(c: Record<string, unknown>): string {
     c.campaign_api_id;
   if (raw == null) return "";
   return String(raw).trim();
+}
+
+/** Braze campaign list rows sometimes include channel(s); details fetch may be skipped for enriched rows. */
+function inferChannelFromCampaignListRow(row: Record<string, unknown>): string | undefined {
+  const ch = row.channel ?? row.primary_channel;
+  if (typeof ch === "string" && ch.trim()) return ch.trim();
+  const arr = row.channels;
+  if (Array.isArray(arr) && arr.length > 0) {
+    const first = arr[0];
+    if (typeof first === "string" && first.trim()) return first.trim();
+  }
+  return undefined;
+}
+
+/** Next-send / first-send timestamps when `last_sent` is absent (scheduled campaigns, API quirks). */
+function extractCampaignScheduleOrSendIso(details: Record<string, unknown>): string | undefined {
+  const direct =
+    toIso(details.scheduled_at) ||
+    toIso(details.send_at) ||
+    toIso(details.first_sent);
+  if (direct) return direct;
+  const sch = details.schedule;
+  if (sch && typeof sch === "object" && !Array.isArray(sch)) {
+    const o = sch as Record<string, unknown>;
+    const t = toIso(o.time) || toIso(o.scheduled_at) || toIso(o.send_at);
+    if (t) return t;
+  }
+  const msgs = details.messages;
+  if (msgs && typeof msgs === "object" && !Array.isArray(msgs)) {
+    for (const mv of Object.values(msgs as Record<string, unknown>)) {
+      if (!mv || typeof mv !== "object" || Array.isArray(mv)) continue;
+      const m = mv as Record<string, unknown>;
+      const t = toIso(m.send_time) || toIso(m.scheduled_at) || toIso(m.time) || toIso(m.first_sent);
+      if (t) return t;
+    }
+  }
+  return undefined;
 }
 
 /** Braze export endpoints sometimes nest arrays as `data` or `data.data`. */
@@ -2165,6 +2334,23 @@ function getBrazeListArray(
   return fromExport;
 }
 
+/**
+ * Braze `/events/list` and GET `/events` directory payloads usually include `name` but often omit `id`.
+ * We need a stable `braze_event_id` for `braze_custom_events` (unique per client).
+ */
+function brazeCustomEventRowIdFromPayload(event: Record<string, unknown>): string | null {
+  const fromApi = String(event.id ?? event.event_id ?? "").trim();
+  if (fromApi) return fromApi;
+  const nm = String(event.name ?? event.event_name ?? "").trim();
+  if (!nm) return null;
+  const slug = nm
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 200);
+  return `name:${slug || "event"}`;
+}
+
 function normalizeStringArray(v: unknown): string[] {
   if (v == null) return [];
   if (Array.isArray(v)) return v.map((x) => String(x));
@@ -2299,6 +2485,26 @@ function segmentAnalyticsTrackingEnabled(seg: Record<string, unknown>): boolean 
  * Braze `/segments/list` does not document a current audience size; `/segments/data_series` does
  * (requires `segments.data_series` on the API key and Segment analytics tracking in-dashboard).
  */
+function extractSizeFromDataSeriesPoint(row: Record<string, unknown>): number | null {
+  const keys = [
+    "size",
+    "unique_users",
+    "users",
+    "user_count",
+    "audience",
+    "value",
+    "count",
+    "total",
+    "num_users",
+    "segment_size",
+  ];
+  for (const k of keys) {
+    const n = finiteNonNegativeInt(row[k]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 async function fetchSegmentSizeFromDataSeries(
   segmentId: string,
   apiKey: string,
@@ -2310,16 +2516,51 @@ async function fetchSegmentSizeFromDataSeries(
     `segments/data_series?segment_id=${enc}&length=14&ending_at=${encodeURIComponent(endingAtIso)}`;
   try {
     const json = (await brazeFetch(path, apiKey, brazeRestEndpoint)) as Record<string, unknown>;
-    const data = json.data;
+    let data: unknown = json.data;
+    if (!Array.isArray(data) && data && typeof data === "object" && !Array.isArray(data)) {
+      const d = data as Record<string, unknown>;
+      if (Array.isArray(d.data)) data = d.data;
+      else if (Array.isArray(d.values)) data = d.values;
+      else if (Array.isArray(d.series)) data = d.series;
+      else if (Array.isArray(d.results)) data = d.results;
+    }
     if (!Array.isArray(data) || data.length === 0) return null;
     for (let i = data.length - 1; i >= 0; i--) {
       const row = data[i] as Record<string, unknown>;
-      const n = finiteNonNegativeInt(row.size);
+      const n = extractSizeFromDataSeriesPoint(row);
       if (n != null) return n;
     }
     return null;
   } catch (e) {
     console.warn(`[Braze Sync] segments/data_series failed id=${segmentId}:`, e);
+    return null;
+  }
+}
+
+/**
+ * Braze GET `/segments/details?segment_id=` — full export payload (requires `segments.details` on API key).
+ * https://www.braze.com/docs/api/endpoints/export/segments/get_segment_details/
+ */
+async function fetchSegmentDetailsExport(
+  segmentId: string,
+  apiKey: string,
+  brazeRestEndpoint: string,
+): Promise<Record<string, unknown> | null> {
+  const enc = encodeURIComponent(segmentId);
+  try {
+    const json = (await brazeFetch(
+      `segments/details?segment_id=${enc}`,
+      apiKey,
+      brazeRestEndpoint,
+    )) as Record<string, unknown>;
+    if (!json || typeof json !== "object") return null;
+    const msg = json.message;
+    if (typeof msg === "string" && msg.length > 0 && !/^success$/i.test(String(msg).trim())) {
+      console.warn(`[Braze Sync] segments/details non-success message id=${segmentId}:`, msg);
+    }
+    return json;
+  } catch (e) {
+    console.warn(`[Braze Sync] segments/details failed id=${segmentId}:`, e);
     return null;
   }
 }
@@ -2550,14 +2791,22 @@ Deno.serve(async (req) => {
       platformId?: string;
       restEndpoint?: string;
       force_canvas_ids?: unknown;
+      /** Continuation pass: merge /segments/details export for rows still missing `raw.braze_export_segment_details`. */
+      segment_details_resume?: unknown;
       touchpoints_only?: unknown;
       campaigns_only?: unknown;
       segments_only?: unknown;
+      /** Only sync custom events: events/list + GET /events + /events/data_series; skips KPI, canvas, campaigns, segments. */
+      events_only?: unknown;
       auto_star_segments?: unknown;
       lifecycle_only?: unknown;
       lifecycle_recent_days?: unknown;
       skip_canvas_sync?: unknown;
+      /** When true with skip_canvas_sync (metrics pass): skip braze_custom_events + segment directory early blocks — caller ran segments_only/events_only already. */
+      skip_early_segments_and_events?: unknown;
       canvas_offset?: unknown;
+      /** Only sync canvas list + chunked canvas/details + step rows (skips campaigns, segments, KPI, email, events). */
+      canvas_only?: unknown;
       /** Test mode: parse a single canvas and return debug data without writing to DB. */
       mode?: string;
       canvas_id?: string;
@@ -2587,6 +2836,7 @@ Deno.serve(async (req) => {
     const touchpointsOnly = body.touchpoints_only === true;
     const campaignsOnly = body.campaigns_only === true;
     const segmentsOnly = body.segments_only === true;
+    const eventsOnly = body.events_only === true;
     const autoStarSegments = body.auto_star_segments === true;
     const lifecycleOnly = body.lifecycle_only === true;
     const lifecycleRecentDays =
@@ -2594,11 +2844,14 @@ Deno.serve(async (req) => {
         ? Math.max(30, Math.min(1095, Math.floor(body.lifecycle_recent_days)))
         : LIFECYCLE_TOUCHPOINTS_RECENT_DAYS_DEFAULT;
     const skipCanvasSync = body.skip_canvas_sync === true;
+    const skipEarlySegmentsAndEvents = body.skip_early_segments_and_events === true;
     const forceCanvasIds: string[] = Array.isArray(body.force_canvas_ids)
       ? body.force_canvas_ids.map((x) => String(x).trim()).filter(Boolean)
       : [];
 
-    console.log(`[Braze Sync] Mode: ${segmentsOnly ? 'SEGMENTS_ONLY' : campaignsOnly ? 'CAMPAIGNS_ONLY' : touchpointsOnly ? 'TOUCHPOINTS_ONLY' : 'FULL'} | clientId=${clientId} | platformId=${platformId}`);
+    console.log(
+      `[Braze Sync] Mode: ${eventsOnly ? "EVENTS_ONLY" : segmentsOnly ? "SEGMENTS_ONLY" : campaignsOnly ? "CAMPAIGNS_ONLY" : touchpointsOnly ? "TOUCHPOINTS_ONLY" : "FULL"} | clientId=${clientId} | platformId=${platformId}`,
+    );
 
     if (!clientId || !platformId) {
       throw new Error('clientId and platformId are required');
@@ -2671,6 +2924,404 @@ Deno.serve(async (req) => {
     // scopes KPI too low vs workspace totals the user sees in Braze).
     const brazeKpiAppId = String(addCfg.braze_kpi_app_id ?? "").trim();
     const kpiAppQuery = brazeKpiAppId ? `&app_id=${encodeURIComponent(brazeKpiAppId)}` : "";
+
+    /**
+     * Continuation: enrich `braze_segments_sync` rows still missing `raw.braze_export_segment_details`
+     * (Edge wall / per-invoke budget). Client loops while `segment_details_resume_pending_approx` > 0
+     * and each batch makes progress (`segment_details_resume_processed` > 0).
+     */
+    const segmentDetailsResume = body.segment_details_resume === true;
+    if (segmentDetailsResume) {
+      const nowIsoResume = new Date().toISOString();
+      const resumeBatch = clampIntEnv("BRAZE_SYNC_SEGMENT_DETAILS_RESUME_BATCH", 400, 50, 800);
+      const { data: allRows, error: listErr } = await supabase
+        .from("braze_segments_sync")
+        .select("braze_segment_id, name, raw")
+        .eq("client_id", clientId)
+        .limit(12000);
+      if (listErr) {
+        return new Response(
+          JSON.stringify({ success: false, error: listErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const pending = (allRows ?? []).filter((r) => {
+        const raw = r.raw as Record<string, unknown> | null | undefined;
+        return raw == null || raw.braze_export_segment_details == null;
+      });
+      if (pending.length === 0) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            partial: false,
+            data: {
+              saved_at: nowIsoResume,
+              counts: {
+                segment_details_resume_processed: 0,
+                segment_details_resume_pending_approx: 0,
+              },
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const slice = pending.slice(0, resumeBatch);
+      let resumeUpserted = 0;
+      const batch: Array<Record<string, unknown>> = [];
+      const flushResume = async () => {
+        if (batch.length === 0) return;
+        const ch = batch.splice(0, batch.length);
+        const { error: uerr } = await supabase.from("braze_segments_sync").upsert(ch, {
+          onConflict: "client_id,braze_segment_id",
+        });
+        if (uerr) {
+          console.warn("[Braze Sync] segment_details_resume upsert:", uerr.message);
+        } else {
+          resumeUpserted += ch.length;
+        }
+      };
+      for (const r of slice) {
+        const sid = String((r as { braze_segment_id?: string }).braze_segment_id ?? "").trim();
+        if (!sid) continue;
+        const rawRaw = (r as { raw?: unknown }).raw;
+        const listRow: Record<string, unknown> =
+          rawRaw && typeof rawRaw === "object" && !Array.isArray(rawRaw)
+            ? (rawRaw as Record<string, unknown>)
+            : {};
+        const detailJson = await fetchSegmentDetailsExport(sid, apiKey, brazeRestEndpoint);
+        if (!detailJson) {
+          await new Promise((res) => setTimeout(res, 40));
+          continue;
+        }
+        const nm = String(
+          (detailJson as { name?: string }).name ??
+            listRow.name ??
+            (r as { name?: string }).name ??
+            "Segment",
+        );
+        const tagsCombined = (detailJson as { tags?: unknown }).tags ?? listRow.tags;
+        const mergedRaw = { ...listRow, braze_export_segment_details: detailJson } as Record<string, unknown>;
+        batch.push({
+          client_id: clientId,
+          braze_segment_id: sid,
+          name: nm,
+          tags: normalizeStringArray(tagsCombined),
+          raw: mergedRaw,
+          synced_at: nowIsoResume,
+        });
+        if (batch.length >= 30) await flushResume();
+        await new Promise((res) => setTimeout(res, 40));
+      }
+      await flushResume();
+      const stillMissingApprox = Math.max(0, pending.length - resumeUpserted);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          partial: stillMissingApprox > 0,
+          data: {
+            saved_at: nowIsoResume,
+            counts: {
+              segment_details_resume_processed: resumeUpserted,
+              segment_details_resume_pending_approx: stillMissingApprox,
+            },
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── CANVAS ONLY (list + chunked /canvas/details + braze_canvas_steps) ─────
+    if ((body as { canvas_only?: unknown }).canvas_only === true) {
+      const nowIsoCo = new Date().toISOString();
+      const syncStartCo = Date.now();
+      const maxWallCo = maxSyncWallMs();
+      const overBudgetCo = () => Date.now() - syncStartCo > maxWallCo;
+
+      let canvasListSynced = 0;
+      let canvasDetailsFetched = 0;
+      let canvasStepsUpserted = 0;
+
+      console.log(
+        `[Braze Sync] CANVAS_ONLY start clientId=${clientId} max_canvas_pages=${BRAZE_SYNC_MAX_CANVAS_PAGES} details_per_run=${BRAZE_SYNC_CANVAS_DETAILS_PER_RUN}`,
+      );
+
+      const allCanvasListCo: CanvasListItem[] = [];
+      const seenIdsCo = new Set<string>();
+      let canvasPageCo = 0;
+      while (canvasPageCo < BRAZE_SYNC_MAX_CANVAS_PAGES && !overBudgetCo()) {
+        try {
+          const canvasesData = (await brazeFetch(
+            `canvas/list?page=${canvasPageCo}&include_archived=false&limit=100`,
+            apiKey,
+            brazeRestEndpoint,
+          )) as Record<string, unknown>;
+          const canvases = getBrazeListArray(canvasesData, ["canvases", "canvas", "items"]) as CanvasListItem[];
+          if (canvases.length === 0) break;
+          for (const rawC of canvases) {
+            const c = rawC as CanvasListItem;
+            const cid = String(c?.id ?? (rawC as Record<string, unknown>)?.canvas_id ?? "").trim();
+            if (!cid) continue;
+            const normalized: CanvasListItem = { ...c, id: cid, name: c?.name || "Canvas" };
+            if (!seenIdsCo.has(cid)) {
+              seenIdsCo.add(cid);
+              allCanvasListCo.push(normalized);
+            }
+          }
+          canvasPageCo++;
+          await sleepMs(100);
+        } catch (err) {
+          console.warn("[canvas_only] canvas/list failed:", err);
+          break;
+        }
+      }
+
+      const minimalChunksCo: CanvasListItem[][] = [];
+      for (let i = 0; i < allCanvasListCo.length; i += 40) {
+        minimalChunksCo.push(allCanvasListCo.slice(i, i + 40));
+      }
+      for (const chunk of minimalChunksCo) {
+        if (overBudgetCo()) break;
+        const minimalRows = chunk.map((c) => {
+          const enabledList = inferCanvasEnabledFromListItem(c);
+          return {
+            client_id: clientId,
+            braze_canvas_id: c.id,
+            name: c.name || "Canvas",
+            description: c.description ?? null,
+            draft: c.draft ?? false,
+            enabled: enabledList,
+            archived: c.archived ?? false,
+            tags: normalizeStringArray(c.tags),
+            created_in_braze: c.created_at || null,
+            updated_in_braze: c.updated_at || null,
+            synced_at: nowIsoCo,
+          };
+        });
+        if (minimalRows.length === 0) continue;
+        const { error: minErr } = await supabase
+          .from("braze_canvases")
+          .upsert(minimalRows, { onConflict: "client_id,braze_canvas_id" });
+        if (!minErr) canvasListSynced += minimalRows.length;
+        else console.warn("[canvas_only] minimal upsert:", minErr.message);
+        await sleepMs(50);
+      }
+
+      const staleCutoffMs = Date.now() - CANVAS_DETAILS_STALE_MS;
+      const { data: dbCanvasRows, error: dbListErr } = await supabase
+        .from("braze_canvases")
+        .select(
+          "braze_canvas_id, name, last_entry, total_steps, details_synced_at, archived, draft, description, tags, created_in_braze, updated_in_braze, enabled",
+        )
+        .eq("client_id", clientId);
+      if (dbListErr) {
+        return new Response(
+          JSON.stringify({ success: false, error: dbListErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const needsDetail = (r: {
+        archived?: boolean | null;
+        details_synced_at?: string | null;
+      }) => {
+        if (r.archived) return false;
+        const ds = r.details_synced_at;
+        if (ds == null || ds === "") return true;
+        const t = Date.parse(String(ds));
+        return !Number.isFinite(t) || t < staleCutoffMs;
+      };
+
+      type DbCanvasRow = {
+        braze_canvas_id: string;
+        name: string;
+        last_entry: string | null;
+        total_steps: number | null;
+        details_synced_at: string | null;
+        archived?: boolean | null;
+        draft?: boolean | null;
+        description?: string | null;
+        tags?: string[] | null;
+        created_in_braze?: string | null;
+        updated_in_braze?: string | null;
+        enabled?: boolean | null;
+      };
+
+      const pool = ((dbCanvasRows ?? []) as DbCanvasRow[]).filter(needsDetail);
+      pool.sort((a, b) => {
+        const aHasLast = !!a.last_entry;
+        const bHasLast = !!b.last_entry;
+        if (aHasLast !== bHasLast) return aHasLast ? -1 : 1;
+        if (aHasLast && bHasLast && a.last_entry && b.last_entry) {
+          return new Date(b.last_entry).getTime() - new Date(a.last_entry).getTime();
+        }
+        const aSteps = Number(a.total_steps ?? 0) > 0;
+        const bSteps = Number(b.total_steps ?? 0) > 0;
+        if (aSteps !== bSteps) return aSteps ? -1 : 1;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+
+      const detailBatch = pool.slice(0, BRAZE_SYNC_CANVAS_DETAILS_PER_RUN);
+      let detailIdx = 0;
+      for (const row of detailBatch) {
+        if (overBudgetCo()) {
+          console.warn("[canvas_only] wall budget — stopping detail batch early");
+          break;
+        }
+        if (detailIdx > 0) await sleepMs(CANVAS_DETAILS_API_DELAY_MS);
+        detailIdx++;
+
+        const brazeCanvasId = String(row.braze_canvas_id ?? "").trim();
+        if (!brazeCanvasId) continue;
+
+        const details = await brazeFetchCanvasDetailsCanvasOnly(
+          brazeCanvasId,
+          row.name || brazeCanvasId,
+          apiKey,
+          brazeRestEndpoint,
+        );
+        if (!details) continue;
+
+        const canvasNested = details.canvas as Record<string, unknown> | undefined;
+        const detailStepRows = collectCanvasDetailStepRowsExpanded(details, canvasNested);
+        const stepsObj = buildRawStepsFromDetailRows(detailStepRows, new Map(), brazeCanvasId);
+        const stepKeys = Object.keys(stepsObj);
+        const entryMeta = extractCanvasEntryMetadataFromDetails(details);
+
+        const lastEntryNew = pickLastEntryFromCanvasDetailsPayload(details);
+        const firstEntryIso =
+          toIso(details.first_entry ?? details.first_entry_at) ??
+          (canvasNested ? toIso(canvasNested.first_entry ?? canvasNested.first_entry_at) : undefined);
+
+        const enabledFromDetails = isTruthy(
+          details.enabled ??
+            canvasNested?.enabled ??
+            canvasNested?.is_active ??
+            details.is_active ??
+            details.active,
+        );
+
+        const totalStepsVal =
+          stepKeys.length > 0 ? stepKeys.length : Math.max(0, Number(row.total_steps ?? 0));
+        const rowPayload: Record<string, unknown> = {
+          client_id: clientId,
+          braze_canvas_id: brazeCanvasId,
+          name: row.name || "Canvas",
+          description: row.description ?? null,
+          draft: row.draft ?? false,
+          enabled: enabledFromDetails,
+          archived: row.archived ?? false,
+          schedule_type: entryMeta.schedule_type ?? null,
+          entry_type: entryMeta.entry_type ?? null,
+          trigger_event_name: entryMeta.trigger_event_name ?? null,
+          entry_segment_name: entryMeta.entry_segment_name ?? null,
+          tags: normalizeStringArray(row.tags),
+          first_entry: firstEntryIso ?? null,
+          last_entry: lastEntryNew ?? row.last_entry ?? null,
+          created_in_braze: row.created_in_braze ?? null,
+          updated_in_braze: row.updated_in_braze ?? null,
+          total_steps: totalStepsVal,
+          raw_details: details,
+          details_synced_at: nowIsoCo,
+          synced_at: nowIsoCo,
+        };
+        if (stepKeys.length > 0) {
+          rowPayload.raw_steps = stepsObj;
+        }
+
+        const { error: upCanvasErr } = await supabase
+          .from("braze_canvases")
+          .upsert(rowPayload, { onConflict: "client_id,braze_canvas_id" });
+        if (upCanvasErr) {
+          console.warn(`[canvas_only] braze_canvases upsert failed id=${brazeCanvasId}`, upCanvasErr.message);
+          continue;
+        }
+
+        canvasDetailsFetched++;
+        console.log(
+          `[canvas_only] detail OK id=${brazeCanvasId} name=${JSON.stringify(row.name)} steps=${detailStepRows.length} parsed_keys=${stepKeys.length}`,
+        );
+
+        await supabase
+          .from("braze_canvas_steps")
+          .delete()
+          .eq("client_id", clientId)
+          .eq("braze_canvas_id", brazeCanvasId);
+
+        const stepRowsDb: Array<Record<string, unknown>> = [];
+        for (const sr of detailStepRows) {
+          const sid = String(
+            sr.id ??
+              (sr as { step_id?: unknown }).step_id ??
+              (sr as { api_id?: unknown }).api_id ??
+              "",
+          ).trim();
+          if (!sid) continue;
+          stepRowsDb.push({
+            client_id: clientId,
+            braze_canvas_id: brazeCanvasId,
+            step_id: sid,
+            step_name: typeof sr.name === "string" ? sr.name : String(sr.name ?? ""),
+            step_type: typeof sr.type === "string"
+              ? sr.type
+              : String((sr as { step_type?: unknown }).step_type ?? sr.channel ?? ""),
+            messages: sr.messages != null ? sr.messages : null,
+            raw: sr as unknown as Record<string, unknown>,
+          });
+        }
+
+        if (stepRowsDb.length > 0) {
+          const STEP_CHUNK = 80;
+          for (let si = 0; si < stepRowsDb.length; si += STEP_CHUNK) {
+            const sl = stepRowsDb.slice(si, si + STEP_CHUNK);
+            const { error: stErr } = await supabase.from("braze_canvas_steps").upsert(sl, {
+              onConflict: "client_id,braze_canvas_id,step_id",
+            });
+            if (stErr) console.warn("[canvas_only] braze_canvas_steps upsert:", stErr.message);
+            else canvasStepsUpserted += sl.length;
+          }
+        }
+      }
+
+      const { data: pendingScan } = await supabase
+        .from("braze_canvases")
+        .select("details_synced_at, archived")
+        .eq("client_id", clientId);
+      let canvasDetailsPendingApprox = 0;
+      for (const pr of pendingScan ?? []) {
+        const ar = pr as { archived?: boolean | null; details_synced_at?: string | null };
+        if (ar.archived) continue;
+        const ds = ar.details_synced_at;
+        if (ds == null || ds === "") {
+          canvasDetailsPendingApprox++;
+          continue;
+        }
+        const t = Date.parse(String(ds));
+        if (!Number.isFinite(t) || t < staleCutoffMs) canvasDetailsPendingApprox++;
+      }
+
+      const durationMs = Date.now() - syncStartCo;
+      console.log(
+        `[canvas_only] done list=${canvasListSynced} details=${canvasDetailsFetched} steps=${canvasStepsUpserted} pending≈${canvasDetailsPendingApprox} ${durationMs}ms`,
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          partial: canvasDetailsPendingApprox > 0,
+          data: {
+            saved_at: nowIsoCo,
+            duration_ms: durationMs,
+            counts: {
+              canvas_list_synced: canvasListSynced,
+              canvas_details_fetched: canvasDetailsFetched,
+              canvas_details_pending_approx: canvasDetailsPendingApprox,
+              canvas_steps_upserted: canvasStepsUpserted,
+            },
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // ── TEST MODE ──────────────────────────────────────────────────────────────
     // Pass { mode: "test", canvas_id: "<id>" } to parse one canvas and return
@@ -2785,6 +3436,11 @@ Deno.serve(async (req) => {
         "[Braze Sync] SEGMENTS_ONLY: syncing segments/list (+ optional data_series sizes) and skipping KPI, email, canvases, campaigns, and scheduled broadcasts",
       );
     }
+    if (eventsOnly) {
+      console.log(
+        "[Braze Sync] EVENTS_ONLY: syncing events/list, GET /events, events/data_series — skipping KPI, email, canvases, campaigns, segments, scheduled broadcasts",
+      );
+    }
     if (forceCanvasIds.length > 0) {
       console.log(
         "[Braze Sync] force_canvas_ids:",
@@ -2808,7 +3464,8 @@ Deno.serve(async (req) => {
       !touchpointsOnly && forceCanvasIds.length > 0 && forceCanvasIds.length < 10;
 
     /** KPI, Phase 1b, email, Phase 4+ — skipped for fast path or touchpoints-only sync. */
-    const skipHeavySyncPhases = FORCE_CANVAS_FAST_PATH || touchpointsOnly || campaignsOnly || segmentsOnly;
+    const skipHeavySyncPhases =
+      FORCE_CANVAS_FAST_PATH || touchpointsOnly || campaignsOnly || segmentsOnly || eventsOnly;
 
     if (!skipHeavySyncPhases) {
       await pruneBrazeStorageForClient(supabase, String(clientId));
@@ -2902,7 +3559,12 @@ Deno.serve(async (req) => {
     let emailUnsubRows = 0;
     let emailEventsSynced = 0;
     let customEventsSynced = 0;
+    let customEventsGetUpdated = 0;
+    let customEventSeriesPointsUpserted = 0;
+    let customEventDataSeriesApiCalls = 0;
     let segmentAnalyticsRowsUpserted = 0;
+    let segmentDetailsRowsUpdated = 0;
+    let segmentDataSeriesApiCalls = 0;
     const dbWriteErrors: string[] = [];
     const pushDbErr = (label: string, err: { message?: string } | null | undefined) => {
       const m = err?.message;
@@ -3033,12 +3695,14 @@ Deno.serve(async (req) => {
     const seenIds = new Set<string>();
     let canvasPage = 0;
 
-    if (campaignsOnly || segmentsOnly || skipCanvasSync) {
+    if (campaignsOnly || segmentsOnly || eventsOnly || skipCanvasSync) {
       console.log(
         campaignsOnly
           ? '[Braze Sync] CAMPAIGNS_ONLY: skipping canvas list fetch and all canvas phases'
           : segmentsOnly
             ? '[Braze Sync] SEGMENTS_ONLY: skipping canvas list fetch and all canvas phases'
+            : eventsOnly
+              ? '[Braze Sync] EVENTS_ONLY: skipping canvas list fetch and all canvas phases'
           : '[Braze Sync] skip_canvas_sync=true: skipping canvas list fetch and all canvas phases',
       );
     } else {
@@ -3098,7 +3762,7 @@ Deno.serve(async (req) => {
 
     // === PHASE 1b: Upsert every canvas from list (minimal row) so DB count matches Braze ===
     // Runs even when FORCE_CANVAS_FAST_PATH (so canvas/data_series .update has rows to target).
-    if (!touchpointsOnly && !campaignsOnly && !segmentsOnly && !skipCanvasSync) {
+    if (!touchpointsOnly && !campaignsOnly && !segmentsOnly && !eventsOnly && !skipCanvasSync) {
     const minimalChunks: CanvasListItem[][] = [];
     for (let i = 0; i < allCanvasList.length; i += 40) {
       minimalChunks.push(allCanvasList.slice(i, i + 40));
@@ -3276,13 +3940,18 @@ Deno.serve(async (req) => {
      * Custom events directory — runs **early** so events are available for campaign/canvas targeting logic.
      * Fetches from /events/list endpoint and stores event metadata (name, description, properties).
      */
-    if (!touchpointsOnly && !campaignsOnly) {
+    if (
+      !touchpointsOnly &&
+      !campaignsOnly &&
+      (eventsOnly || !segmentsOnly) &&
+      !skipEarlySegmentsAndEvents
+    ) {
       console.log("[SYNC] Starting: custom events (early)");
       console.log("[START] events/list → braze_custom_events");
       try {
         let eventsPage = 0;
         const eventRows: Array<Record<string, unknown>> = [];
-        
+
         while (eventsPage < MAX_EVENTS_PAGES) {
           if (syncOverBudget() && eventsPage > 0) {
             console.warn(
@@ -3292,38 +3961,64 @@ Deno.serve(async (req) => {
             syncStoppedReason = "time_budget";
             break;
           }
-          
+
           try {
             const eventsJson = (await brazeFetch(
               `events/list?page=${eventsPage}&limit=100`,
               apiKey,
               brazeRestEndpoint,
             )) as Record<string, unknown>;
-            
+
             const events = getBrazeListArray(eventsJson, [
               "events",
               "items",
               "data",
             ]) as Array<Record<string, unknown>>;
-            
+
             console.log(
               `[API] custom events page ${eventsPage}: ${events.length} event(s)`,
             );
-            
+
             if (events.length === 0 && eventsPage === 0) {
               console.log("[Braze Sync] Custom events page 0 empty; skipping events sync");
               break;
             }
-            
+
             if (events.length === 0) break;
-            
-            for (const event of events) {
-              const eventId = String(event.id ?? event.event_id ?? "").trim();
+
+            for (const rawEv of events) {
+              if (typeof rawEv === "string") {
+                const eventName = rawEv.trim();
+                if (!eventName) continue;
+                const eventId = brazeCustomEventRowIdFromPayload({
+                  name: eventName,
+                });
+                if (!eventId) continue;
+                eventRows.push({
+                  client_id: clientId,
+                  braze_event_id: eventId,
+                  event_name: eventName,
+                  event_description: "",
+                  event_type: "custom",
+                  category: "",
+                  platform: "",
+                  properties: null,
+                  properties_count: 0,
+                  raw: { name: eventName } as Record<string, unknown>,
+                  synced_at: nowIso,
+                });
+                continue;
+              }
+
+              const event = rawEv as Record<string, unknown>;
+              const eventName = String(
+                event.name ?? event.event_name ?? "",
+              ).trim() || "Custom Event";
+              const eventId = brazeCustomEventRowIdFromPayload(event);
               if (!eventId) continue;
-              
-              const eventName = String(event.name ?? event.event_name ?? "Custom Event");
+
               const properties = event.properties as Array<Record<string, unknown>> | undefined;
-              
+
               eventRows.push({
                 client_id: clientId,
                 braze_event_id: eventId,
@@ -3334,11 +4029,11 @@ Deno.serve(async (req) => {
                 platform: String(event.platform ?? ""),
                 properties: properties ? JSON.stringify(properties) : null,
                 properties_count: Array.isArray(properties) ? properties.length : 0,
-                raw: event as Record<string, unknown>,
+                raw: event,
                 synced_at: nowIso,
               });
             }
-            
+
             eventsPage++;
             await new Promise((r) => setTimeout(r, 50));
           } catch (e) {
@@ -3346,7 +4041,8 @@ Deno.serve(async (req) => {
             break;
           }
         }
-        
+
+        let listDirectoryUpserted = 0;
         if (eventRows.length > 0) {
           console.log(
             "[DB WRITE] braze_custom_events attempting to write:",
@@ -3360,10 +4056,146 @@ Deno.serve(async (req) => {
             console.warn("[Braze Sync] braze_custom_events upsert:", eventsErr.message);
             pushDbErr("braze_custom_events", eventsErr);
           } else {
+            listDirectoryUpserted = eventRows.length;
             customEventsSynced = eventRows.length;
             console.log(`[Braze Sync] Custom events: synced ${customEventsSynced} event(s)`);
           }
         }
+
+        // GET /events (events.get) — same catalog as `/events/list`; upsert rows + `events_get_json`
+        // (Braze payloads usually omit `id`, so `/events/list` alone produced 0 rows until we derive ids from `name`.)
+        let nextEventsPath: string | null = "events";
+        let getPages = 0;
+        let getExportUpserts = 0;
+        while (nextEventsPath != null && getPages < 200) {
+          if (syncOverBudget()) {
+            syncPartial = true;
+            syncStoppedReason = "time_budget";
+            break;
+          }
+          try {
+            const { json: evJson, nextPath } = await brazeFetchJsonWithLinkHeader(
+              nextEventsPath,
+              apiKey,
+              brazeRestEndpoint,
+            );
+            getPages++;
+            nextEventsPath = nextPath;
+            const evList = getBrazeListArray(evJson, [
+              "events",
+              "items",
+              "data",
+            ]) as Array<Record<string, unknown>>;
+            const batchRows: Array<Record<string, unknown>> = [];
+            for (const ev of evList) {
+              const n = String(ev.name ?? ev.event_name ?? "").trim();
+              if (!n) continue;
+              const bid = brazeCustomEventRowIdFromPayload(ev);
+              if (!bid) continue;
+              const desc = String(ev.description ?? ev.event_description ?? "").slice(0, 20000);
+              const props = ev.properties as Array<Record<string, unknown>> | undefined;
+              batchRows.push({
+                client_id: clientId,
+                braze_event_id: bid,
+                event_name: n,
+                event_description: desc,
+                event_type: String(ev.type ?? ev.event_type ?? "custom"),
+                category: String(ev.category ?? ""),
+                platform: String(ev.platform ?? ""),
+                properties: Array.isArray(props) ? JSON.stringify(props) : null,
+                properties_count: Array.isArray(props) ? props.length : 0,
+                events_get_json: ev as Record<string, unknown>,
+                raw: ev as Record<string, unknown>,
+                synced_at: nowIso,
+                updated_at: nowIso,
+              });
+            }
+            if (batchRows.length > 0) {
+              const { error: upErr } = await supabase.from("braze_custom_events").upsert(batchRows, {
+                onConflict: "client_id,braze_event_id",
+              });
+              if (upErr) {
+                pushDbErr("braze_custom_events(events.get)", upErr);
+              } else {
+                const n = batchRows.length;
+                getExportUpserts += n;
+                customEventsGetUpdated += n;
+              }
+            }
+          } catch (e) {
+            console.warn("[Braze Sync] GET /events page failed:", e);
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 60));
+          if (!nextEventsPath) break;
+        }
+        if (listDirectoryUpserted === 0 && getExportUpserts > 0) {
+          customEventsSynced = getExportUpserts;
+        }
+        console.log(
+          `[Braze Sync] events.get: pages=${getPages} upserted_rows=${getExportUpserts} list_rows=${listDirectoryUpserted}`,
+        );
+
+        // GET /events/data_series — one call per event name (cap)
+        if (MAX_EVENT_DATA_SERIES_CALLS > 0) {
+          const { data: nameRows } = await supabase
+            .from("braze_custom_events")
+            .select("event_name")
+            .eq("client_id", clientId)
+            .order("event_name", { ascending: true })
+            .limit(MAX_EVENT_DATA_SERIES_CALLS);
+          const endingAt = encodeURIComponent(nowIso);
+          for (const row of nameRows ?? []) {
+            if (syncOverBudget()) {
+              syncPartial = true;
+              syncStoppedReason = "time_budget";
+              break;
+            }
+            const eventName = String((row as { event_name?: string }).event_name ?? "").trim();
+            if (!eventName) continue;
+            customEventDataSeriesApiCalls++;
+            try {
+              const dsPath =
+                `events/data_series?event=${encodeURIComponent(eventName)}&length=14&unit=day&ending_at=${endingAt}`;
+              const dsJson = (await brazeFetch(dsPath, apiKey, brazeRestEndpoint)) as Record<
+                string,
+                unknown
+              >;
+              const pts = getBrazeListArray(dsJson, ["data", "series"]) as Array<
+                Record<string, unknown>
+              >;
+              const seriesRows: Array<Record<string, unknown>> = [];
+              for (const pt of pts) {
+                const t = String((pt as { time?: string }).time ?? "").trim();
+                if (!t) continue;
+                const cnt = Number((pt as { count?: number }).count ?? 0);
+                seriesRows.push({
+                  client_id: clientId,
+                  event_name: eventName,
+                  unit: "day",
+                  bucket_at: t,
+                  event_count: Number.isFinite(cnt) ? Math.round(cnt) : 0,
+                  series_ending_at: nowIso,
+                  synced_at: nowIso,
+                });
+              }
+              if (seriesRows.length > 0) {
+                const { error: srErr } = await supabase.from("braze_custom_event_series").upsert(
+                  seriesRows,
+                  { onConflict: "client_id,event_name,unit,bucket_at" },
+                );
+                if (!srErr) customEventSeriesPointsUpserted += seriesRows.length;
+                else pushDbErr("braze_custom_event_series", srErr);
+              }
+            } catch (e) {
+              console.warn(`[Braze Sync] events/data_series failed for ${eventName}:`, e);
+            }
+            await new Promise((r) => setTimeout(r, 80));
+          }
+        }
+        console.log(
+          `[Braze Sync] events.data_series: api_calls=${customEventDataSeriesApiCalls} series_points_upserted=${customEventSeriesPointsUpserted}`,
+        );
       } catch (e) {
         console.error("[Braze Sync] Custom events sync failed:", e);
       }
@@ -3373,16 +4205,20 @@ Deno.serve(async (req) => {
      * Segment directory + daily size snapshot — runs **before** heavy canvas/campaign phases so partial
      * syncs (Edge wall budget) still refresh `braze_segment_analytics` for Analytics subscriber mix.
      */
-    if (!touchpointsOnly && !campaignsOnly) {
+    if (!touchpointsOnly && !campaignsOnly && !eventsOnly && !skipEarlySegmentsAndEvents) {
       console.log("[SYNC] Starting: segments (early — before canvas Phase 3 / campaigns)");
       console.log("[START] segments/list → braze_segments_sync + braze_segment_analytics snapshot");
       try {
         const syncedSegmentIds = new Set<string>();
+        /** List payload per id — used to merge `segments/details` into `raw` without a second list pass. */
+        const segmentListRowById = new Map<string, Record<string, unknown>>();
         let segPage = 0;
         const segmentAnalyticsByKeyEarly = new Map<string, Record<string, unknown>>();
         const segmentSnapshotDayEarly = nowIso.slice(0, 10);
         const segmentsForDataSeries: Array<{ id: string; name: string; trackingEnabled: boolean }> = [];
         const queuedDataSeriesSegmentIds = new Set<string>();
+        /** Decremented per `/segments/details` attempt — interleaved after each list page so SEGMENTS_ONLY hits budget less often. */
+        let detailsBudgetRemaining = MAX_SEGMENT_DETAILS_LOOKUPS;
         while (segPage < MAX_SEGMENT_PAGES) {
           if (syncOverBudget() && segPage > 0) {
             console.warn(
@@ -3451,6 +4287,7 @@ Deno.serve(async (req) => {
                 "",
             ).trim();
             if (!id) continue;
+            segmentListRowById.set(id, s as Record<string, unknown>);
             const name = String(s.name ?? s.segment_name ?? s.title ?? "Segment");
             const size = extractSegmentCurrentSize(s);
             if (size != null) {
@@ -3487,6 +4324,61 @@ Deno.serve(async (req) => {
             }
           }
 
+          /** GET `/segments/details` interleaved with list pagination (needs `segments.details`). */
+          if (detailsBudgetRemaining > 0 && MAX_SEGMENT_DETAILS_LOOKUPS > 0) {
+            const detailBatch: Array<Record<string, unknown>> = [];
+            const flushPageDetails = async () => {
+              if (detailBatch.length === 0) return;
+              const chunk = detailBatch.splice(0, detailBatch.length);
+              const { error: dErr } = await supabase.from("braze_segments_sync").upsert(chunk, {
+                onConflict: "client_id,braze_segment_id",
+              });
+              if (dErr) {
+                console.warn("[Braze Sync] braze_segments_sync upsert (details, page):", dErr.message);
+                pushDbErr("braze_segments_sync(details-page)", dErr);
+              } else {
+                segmentDetailsRowsUpdated += chunk.length;
+              }
+            };
+            for (const s of segs) {
+              if (detailsBudgetRemaining <= 0 || syncOverBudget()) break;
+              const sid = String(
+                s.id ?? s.segment_id ?? s.api_id ?? s.segment_api_id ?? "",
+              ).trim();
+              if (!sid) continue;
+              const listRow = segmentListRowById.get(sid);
+              if (!listRow) continue;
+              detailsBudgetRemaining--;
+              const detailJson = await fetchSegmentDetailsExport(sid, apiKey, brazeRestEndpoint);
+              if (!detailJson) {
+                await new Promise((r) => setTimeout(r, 40));
+                continue;
+              }
+              const nm = String(
+                (detailJson as { name?: string }).name ??
+                  listRow.name ??
+                  listRow.segment_name ??
+                  "Segment",
+              );
+              const tagsCombined = (detailJson as { tags?: unknown }).tags ?? listRow.tags;
+              const mergedRaw = {
+                ...listRow,
+                braze_export_segment_details: detailJson,
+              } as Record<string, unknown>;
+              detailBatch.push({
+                client_id: clientId,
+                braze_segment_id: sid,
+                name: nm,
+                tags: normalizeStringArray(tagsCombined),
+                raw: mergedRaw,
+                synced_at: nowIso,
+              });
+              if (detailBatch.length >= 25) await flushPageDetails();
+              await new Promise((r) => setTimeout(r, 45));
+            }
+            await flushPageDetails();
+          }
+
           segPage++;
           await new Promise((r) => setTimeout(r, 100));
         }
@@ -3499,6 +4391,7 @@ Deno.serve(async (req) => {
           const seriesCap = Math.min(MAX_SEGMENT_DATA_SERIES_LOOKUPS, segmentsForDataSeries.length);
           const endingAtForSeries = `${segmentSnapshotDayEarly}T23:59:59.000Z`;
           let dataSeriesHits = 0;
+          let dataSeriesFetchAttempts = 0;
           console.log(
             `[Braze Sync] segments/data_series fallback: up to ${seriesCap} segment(s) with missing size (tracking-enabled segments prioritized)`,
           );
@@ -3509,6 +4402,7 @@ Deno.serve(async (req) => {
               syncStoppedReason = "time_budget";
               break;
             }
+            dataSeriesFetchAttempts++;
             const { id, name } = segmentsForDataSeries[i];
             const dsSize = await fetchSegmentSizeFromDataSeries(
               id,
@@ -3534,6 +4428,7 @@ Deno.serve(async (req) => {
               `[Braze Sync] segments/data_series fallback: wrote ${dataSeriesHits} size snapshot(s) for ${segmentSnapshotDayEarly}`,
             );
           }
+          segmentDataSeriesApiCalls = dataSeriesFetchAttempts;
         }
 
         if (segmentAnalyticsByKeyEarly.size > 0) {
@@ -3753,7 +4648,7 @@ Deno.serve(async (req) => {
 
     // Build template map first (limited to 30 templates for memory). Touchpoints_only fetches templates per canvas instead.
     const templateHtmlMap = new Map<string, { subject: string; preheader: string; html: string }>();
-    if (!touchpointsOnly && !campaignsOnly && !segmentsOnly) {
+    if (!touchpointsOnly && !campaignsOnly && !segmentsOnly && !eventsOnly) {
       try {
         const templatesData = await brazeFetch('templates/email/list?limit=30', apiKey, brazeRestEndpoint);
         const templateList = templatesData.templates || [];
@@ -4332,7 +5227,7 @@ Deno.serve(async (req) => {
 
     // Campaigns / segments / scheduled broadcasts: run on any non–touchpoints-only invocation,
     // even when FORCE_CANVAS_FAST_PATH skips KPI + email + canvas minimal upsert.
-    if (!touchpointsOnly && !segmentsOnly) {
+    if (!touchpointsOnly && !segmentsOnly && !eventsOnly) {
     // === PHASE 4: Fetch and process campaigns ===
     console.log('Phase 4: Fetching all campaign IDs...');
     const seenCampaignIds = new Set<string>();
@@ -4483,6 +5378,35 @@ Deno.serve(async (req) => {
 
       const batchCampaignAnalyticsRows: Record<string, unknown>[] = [];
 
+      const batchIds = batch
+        .map((row) => campaignIdFromListItem(row as unknown as Record<string, unknown>))
+        .filter((id) => id.length > 0);
+      type ExistingCampaignRow = {
+        braze_campaign_id: string;
+        channel: string | null;
+        sent_date: string | null;
+        subject: string | null;
+        preheader: string | null;
+        segment: string | null;
+        raw_details: unknown;
+      };
+      let existingCampaignRows: ExistingCampaignRow[] = [];
+      if (batchIds.length > 0) {
+        const { data: exRows, error: exErr } = await supabase
+          .from("braze_campaigns")
+          .select("braze_campaign_id,channel,sent_date,subject,preheader,segment,raw_details")
+          .eq("client_id", clientId)
+          .in("braze_campaign_id", batchIds);
+        if (exErr) {
+          console.warn("[Braze Sync] Could not load existing braze_campaigns for merge:", exErr.message);
+        } else if (exRows) {
+          existingCampaignRows = exRows as ExistingCampaignRow[];
+        }
+      }
+      const existingCampaignMap = new Map(
+        existingCampaignRows.map((r) => [r.braze_campaign_id, r]),
+      );
+
       const batchResults = await Promise.allSettled(
         batch.map(async (c): Promise<ProcessedCampaign | null> => {
           const listRow = c as unknown as Record<string, unknown>;
@@ -4491,6 +5415,7 @@ Deno.serve(async (req) => {
             console.warn("Skipping campaign list row with no id", listRow);
             return null;
           }
+          const existingRow = existingCampaignMap.get(campaignId);
           const displayName =
             (typeof c.name === "string" && c.name.trim()) ||
             `Campaign ${campaignId}`;
@@ -4514,10 +5439,18 @@ Deno.serve(async (req) => {
           let details: Record<string, unknown> | null = null;
           try {
             if (skipDetails) {
-              // Already have details — set minimal fields from list data, analytics will be refreshed below
+              // Already have rich creative in DB — refresh analytics only; merge columns below so we don't NULL them out.
               status = c.last_sent ? 'sent' : 'scheduled';
-              sentDate = c.last_sent;
+              sentDate = toIso(c.last_sent);
               tags = c.tags || [];
+              channel = inferChannelFromCampaignListRow(listRow);
+              if (
+                existingRow?.raw_details &&
+                typeof existingRow.raw_details === "object" &&
+                !Array.isArray(existingRow.raw_details)
+              ) {
+                rawDetails = { ...(existingRow.raw_details as Record<string, unknown>) };
+              }
             }
             details = skipDetails
               ? null
@@ -4645,15 +5578,24 @@ Deno.serve(async (req) => {
               }
             }
 
-            // Determine status
+            // Determine status + sent_date (Braze may omit last_sent; use first_sent / schedule / message times)
             const lastSent = details.last_sent || c.last_sent;
             if (lastSent) {
               status = 'sent';
               sentDate = toIso(lastSent);
-            } else if (details.schedule_type) {
-              status = 'scheduled';
+            } else if (toIso(details.first_sent)) {
+              status = 'sent';
+              sentDate = toIso(details.first_sent);
             } else {
-              status = 'draft';
+              const schedIso = extractCampaignScheduleOrSendIso(details);
+              if (schedIso) {
+                sentDate = schedIso;
+                status = details.schedule_type ? 'scheduled' : 'sent';
+              } else if (details.schedule_type) {
+                status = 'scheduled';
+              } else {
+                status = 'draft';
+              }
             }
 
             // Extract segment
@@ -4670,6 +5612,14 @@ Deno.serve(async (req) => {
             if (c.last_sent) {
               status = 'sent';
               sentDate = toIso(c.last_sent);
+            }
+          }
+
+          if (!channel) {
+            const fromList = inferChannelFromCampaignListRow(listRow);
+            if (fromList) channel = fromList;
+            else if (existingRow?.channel && String(existingRow.channel).trim()) {
+              channel = String(existingRow.channel).trim();
             }
           }
 
@@ -4713,6 +5663,7 @@ Deno.serve(async (req) => {
           let unsubs = 0;
 
           if (status === 'sent' || status === 'scheduled') {
+            let earliestSeriesDay: string | null = null;
             try {
               const analyticsData = (await brazeFetch(
                 `campaigns/data_series?campaign_id=${encodeURIComponent(campaignId)}&length=60&ending_at=${campaignDataSeriesEndingAt}`,
@@ -4736,6 +5687,11 @@ Deno.serve(async (req) => {
                   unsubs += m.unsubs;
                   const dateStr = campaignDataSeriesDayDate(day);
                   if (!dateStr) continue;
+                  if (m.sends > 0 || m.deliveries > 0 || m.opens > 0) {
+                    if (!earliestSeriesDay || dateStr < earliestSeriesDay) {
+                      earliestSeriesDay = dateStr;
+                    }
+                  }
                   const rc = canvasDayRevenueAndConversions(day);
                   batchCampaignAnalyticsRows.push({
                     client_id: clientId,
@@ -4763,11 +5719,25 @@ Deno.serve(async (req) => {
             } catch (err) {
               console.warn(`Failed to fetch analytics for campaign ${campaignId}:`, err);
             }
+            if (!sentDate && earliestSeriesDay) {
+              sentDate = toIso(earliestSeriesDay);
+            }
+            if (status === 'scheduled' && (sends > 0 || deliveries > 0 || opens > 0)) {
+              status = 'sent';
+            }
           }
 
           // Compute rates
           const open_rate = deliveries > 0 ? Math.round((opens / deliveries) * 10000) / 10000 : null;
           const click_rate = deliveries > 0 ? Math.round((clicks / deliveries) * 10000) / 10000 : null;
+
+          if (!sentDate && existingRow?.sent_date) {
+            const sd = existingRow.sent_date;
+            if (sd != null && String(sd).trim() !== "") sentDate = String(sd);
+          }
+          if (!subject && existingRow?.subject) subject = existingRow.subject ?? undefined;
+          if (!preheader && existingRow?.preheader) preheader = existingRow.preheader ?? undefined;
+          if (!segment && existingRow?.segment) segment = existingRow.segment ?? undefined;
 
           return {
             id: campaignId,
@@ -4789,8 +5759,7 @@ Deno.serve(async (req) => {
             segment,
             tags,
             creative_preview,
-            // Don't overwrite raw_details when we skipped the details API call
-            ...(skipDetails ? {} : { raw_details: rawDetails }),
+            raw_details: rawDetails,
           };
         })
       );
@@ -4804,15 +5773,16 @@ Deno.serve(async (req) => {
         }
         if (!result.value) continue;
         const c = result.value;
+        const exUp = existingCampaignMap.get(c.id);
         rowsToUpsert.push({
           client_id: clientId,
           braze_campaign_id: c.id,
           name: c.name,
-          channel: c.channel || null,
-          subject: c.subject || null,
-          preheader: c.preheader || null,
+          channel: c.channel || exUp?.channel || null,
+          subject: c.subject || exUp?.subject || null,
+          preheader: c.preheader || exUp?.preheader || null,
           status: c.status,
-          sent_date: c.sent_date || null,
+          sent_date: c.sent_date || exUp?.sent_date || null,
           opens: c.opens,
           clicks: c.clicks,
           deliveries: c.deliveries,
@@ -4822,10 +5792,15 @@ Deno.serve(async (req) => {
           open_rate: c.open_rate,
           click_rate: c.click_rate,
           unsubs: c.unsubs,
-          segment: c.segment || null,
+          segment: c.segment || exUp?.segment || null,
           tags: c.tags || [],
           creative_preview: c.creative_preview || null,
-          raw_details: c.raw_details || {},
+          raw_details:
+            c.raw_details != null && typeof c.raw_details === "object"
+              ? c.raw_details
+              : (exUp?.raw_details && typeof exUp.raw_details === "object"
+                  ? exUp.raw_details
+                  : {}),
           synced_at: nowIso,
         });
       }
@@ -4911,11 +5886,13 @@ Deno.serve(async (req) => {
 
     // Segment directory + segment analytics are synced **early** (after KPI/email, before heavy canvas/campaign work)
     // so partial syncs still refresh subscriber mix. Scheduled broadcasts remain here after campaigns.
-    if (campaignsOnly || segmentsOnly) {
+    if (campaignsOnly || segmentsOnly || eventsOnly) {
       console.log(
         campaignsOnly
           ? '[Braze Sync] CAMPAIGNS_ONLY: skipping scheduled broadcasts'
-          : '[Braze Sync] SEGMENTS_ONLY: skipping scheduled broadcasts',
+          : segmentsOnly
+            ? '[Braze Sync] SEGMENTS_ONLY: skipping scheduled broadcasts'
+            : '[Braze Sync] EVENTS_ONLY: skipping scheduled broadcasts',
       );
     } else {
     console.log("[Braze Sync] Segments: directory + analytics already synced early; continuing with scheduled broadcasts");
@@ -5022,15 +5999,15 @@ Deno.serve(async (req) => {
       last_sent: c.last_sent,
     }));
 
-    const preserveCanvasSummary = skipCanvasSync || campaignsOnly || segmentsOnly;
-    const preserveCampaignSummary = campaignsOnly || segmentsOnly;
+    const preserveCanvasSummary = skipCanvasSync || campaignsOnly || segmentsOnly || eventsOnly;
+    const preserveCampaignSummary = campaignsOnly || segmentsOnly || eventsOnly;
 
     const schemaCacheCampaigns = preserveCampaignSummary
       ? ((previousSchemaCache.campaigns as Array<Record<string, unknown>> | undefined) ?? [])
       : schemaCacheCampaignsCurrent;
 
     const schemaCache = {
-      cache_version: 11,
+      cache_version: 12,
       saved_at: nowIso,
       rest_endpoint: brazeRestEndpoint,
       force_canvas_fast_path: FORCE_CANVAS_FAST_PATH,
@@ -5063,8 +6040,14 @@ Deno.serve(async (req) => {
       kpi_series_points: kpiSeriesPoints,
       segments_synced: segmentsSynced,
       segment_analytics_rows_upserted: segmentAnalyticsRowsUpserted,
+      segment_details_enriched: segmentDetailsRowsUpdated,
+      segment_data_series_api_calls: segmentDataSeriesApiCalls,
       email_events_ingested: emailEventsSynced,
       scheduled_broadcasts: scheduledBroadcastsCount,
+      custom_events_directory_rows: customEventsSynced,
+      custom_events_get_rows_updated: customEventsGetUpdated,
+      custom_event_series_points_upserted: customEventSeriesPointsUpserted,
+      custom_event_data_series_api_calls: customEventDataSeriesApiCalls,
       last_sync: nowIso,
     };
 
@@ -5118,6 +6101,8 @@ Deno.serve(async (req) => {
         campaigns_found: allCampaignList.length,
         campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
         segment_analytics_rows_upserted: segmentAnalyticsRowsUpserted,
+        segment_details_rows_updated: segmentDetailsRowsUpdated,
+        segment_data_series_calls: segmentDataSeriesApiCalls,
         kpi_series_points_upserted: kpiSeriesPoints,
         scheduled_broadcasts_inserted: scheduledBroadcastsCount,
         segments_synced: segmentsSynced,
@@ -5131,13 +6116,17 @@ Deno.serve(async (req) => {
       canvasMinimalUpserted > 0 ||
       segmentsSynced > 0 ||
       segmentAnalyticsRowsUpserted > 0 ||
+      segmentDetailsRowsUpdated > 0 ||
       emailEventsSynced > 0 ||
       scheduledBroadcastsCount > 0 ||
       campaignsProcessedCount > 0 ||
       processedCount > 0 ||
       canvasDataSeriesUpdatedTotal > 0 ||
       campaignAnalyticsRowsUpserted > 0 ||
-      s3BrazePayloadUploads > 0;
+      s3BrazePayloadUploads > 0 ||
+      customEventsSynced > 0 ||
+      customEventsGetUpdated > 0 ||
+      customEventSeriesPointsUpserted > 0;
 
     const apiParsedAny =
       apiKpiPointsParsed > 0 ||
@@ -5145,7 +6134,10 @@ Deno.serve(async (req) => {
       allCampaignList.length > 0 ||
       apiEmailRecordsSeen > 0 ||
       apiSegmentsListed > 0 ||
-      apiScheduledListed > 0;
+      apiScheduledListed > 0 ||
+      customEventsSynced > 0 ||
+      customEventsGetUpdated > 0 ||
+      customEventDataSeriesApiCalls > 0;
 
     if (!apiParsedAny) {
       syncPartial = true;
@@ -5213,8 +6205,13 @@ Deno.serve(async (req) => {
             campaign_analytics_rows_upserted: campaignAnalyticsRowsUpserted,
             kpi_series_points: schemaCache.kpi_series_points,
             custom_events_synced: customEventsSynced,
+            custom_events_get_rows_updated: customEventsGetUpdated,
+            custom_event_series_points_upserted: customEventSeriesPointsUpserted,
+            custom_event_data_series_api_calls: customEventDataSeriesApiCalls,
             segments_synced: schemaCache.segments_synced,
             segment_analytics_rows_upserted: schemaCache.segment_analytics_rows_upserted,
+            segment_details_rows_updated: segmentDetailsRowsUpdated,
+            segment_data_series_calls: segmentDataSeriesApiCalls,
             email_events_ingested: schemaCache.email_events_ingested,
             scheduled_broadcasts: schemaCache.scheduled_broadcasts,
             s3_braze_payload_uploads: s3BrazePayloadUploads,

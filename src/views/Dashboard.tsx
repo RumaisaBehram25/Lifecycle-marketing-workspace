@@ -22,13 +22,13 @@ import {
   clearImplicitDashboardBrazeSyncSuppress,
 } from '@/lib/brazeDashboardBackgroundSync';
 import { useDashboardBrazeSyncHud } from '@/components/braze/BrazeDashboardSyncHud';
-import { runDashboardBrazeSegmentSync } from '@/lib/runDashboardBrazeFullSync';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { format } from 'date-fns';
 import { BriefDetailModal } from '@/components/briefs/BriefDetailModal';
 import { useDriveBriefs, countSyncedDriveFiles } from '@/hooks/useDriveBriefs';
 import { GoogleDriveBriefsPanel } from '@/components/briefs/GoogleDriveBriefsPanel';
 import { DashboardSegmentsPanel } from '@/components/dashboard/DashboardSegmentsPanel';
+import { DashboardCustomEventsPanel } from '@/components/dashboard/DashboardCustomEventsPanel';
 import { BRCGLogo } from '@/components/BRCGLogo';
 import { cn } from '@/lib/utils';
 
@@ -58,6 +58,7 @@ import {
   dashboardTopAccentClass,
 } from '@/lib/dashboard-surface';
 import { UserGrowthHeroCard } from '@/components/dashboard/UserGrowthHeroCard';
+import { DashboardAiReportsSection } from '@/components/dashboard/DashboardAiReportsSection';
 
 function trendIconFromLabel(trend: string) {
   if (/\+[\d.]+%?/.test(trend)) return TrendingUp;
@@ -355,12 +356,10 @@ export default function Dashboard() {
   const { clientId } = useResolvedClientId();
   const { clientId: brazeMetricsClientId } = useBrazeDashboardClientId();
   const { data: platforms } = useDoubleGoodPlatforms();
-  const brazePlatform = platforms?.find((p) => p.platform === 'braze');
+  const brazePlatform = platforms?.find((p) => p.platform === 'braze' && p.is_connected);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const brazeSyncHud = useDashboardBrazeSyncHud();
-  const [segmentSyncing, setSegmentSyncing] = useState(false);
-
   const { data: dashboardStarredSegmentNames = [] } = useQuery({
     queryKey: ['dashboard-starred-segments', brazeMetricsClientId],
     queryFn: async () => {
@@ -374,14 +373,15 @@ export default function Dashboard() {
       if (starErr) throw starErr;
       const ids = new Set((starRows ?? []).map((r) => String((r as { item_id: string }).item_id ?? '').trim()).filter(Boolean));
       if (ids.size === 0) return [] as string[];
-      const { data: segRows, error: segErr } = await supabase
+      const { data: segRows, error: segErr } = await (supabase as any)
         .from('braze_segments_sync')
         .select('braze_segment_id,name')
         .eq('client_id', brazeMetricsClientId);
       if (segErr) throw segErr;
-      return (segRows ?? [])
-        .filter((r) => ids.has(String((r as { braze_segment_id: string }).braze_segment_id ?? '').trim()))
-        .map((r) => String((r as { name: string }).name ?? '').trim())
+      type SegRow = { braze_segment_id?: string | null; name?: string | null };
+      return ((segRows ?? []) as SegRow[])
+        .filter((r) => ids.has(String(r.braze_segment_id ?? '').trim()))
+        .map((r) => String(r.name ?? '').trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     },
@@ -403,15 +403,25 @@ export default function Dashboard() {
         toast({
           title: 'Sync stopped',
           description:
-            result.campaignRounds === 0 && result.touchpointChunks === 0
+            result.campaignRounds === 0
               ? 'Stopped before the first sync step finished. The Dashboard will not auto-sync again until you use “Sync All from Braze”.'
-              : `Stopped between steps after ${result.campaignRounds} campaign round${result.campaignRounds === 1 ? '' : 's'} and ${result.touchpointChunks} touchpoint chunk${result.touchpointChunks === 1 ? '' : 's'} (KPI/metrics may be skipped). Reopening the Dashboard will not restart sync until you run “Sync All from Braze”.`,
+              : `Stopped between steps after ${result.campaignRounds} campaign round${result.campaignRounds === 1 ? '' : 's'} (segments, events, KPI, or canvas steps may be incomplete). Reopening the Dashboard will not restart sync until you run “Sync All from Braze”.`,
         });
         return;
       }
       toast({
         title: 'Sync complete',
-        description: `Campaigns (${result.campaignRounds} rounds) + touchpoints (${result.touchpointChunks} chunks) + KPI/metrics synced.`,
+        description: [
+          `Campaigns (${result.campaignRounds} rounds), segments + custom events, KPI/metrics, and canvas details batches.`,
+          result.segmentDetailsResumeTotalProcessed > 0 ?
+            `Segment details resume: +${result.segmentDetailsResumeTotalProcessed} row(s) in ${result.segmentDetailsResumeRounds} batch(es).`
+          : '',
+          result.canvasDetailsFetchedTotal > 0 || result.canvasStepsUpsertedTotal > 0 ?
+            `Canvases: ${result.canvasDetailsFetchedTotal} detail fetch(es) · ${result.canvasStepsUpsertedTotal} step row(s) (${result.canvasDetailsResumeRounds} batch(es)).`
+          : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
       });
     } catch (err: unknown) {
       console.error('[Sync All] Error:', err);
@@ -426,30 +436,6 @@ export default function Dashboard() {
     }
     void handleSyncAll();
   }, [brazeSyncHud.running, handleSyncAll]);
-
-  const handleSyncSegments = useCallback(async () => {
-    if (!clientId || !brazePlatform?.id || brazeSyncHud.running || segmentSyncing) return;
-    setSegmentSyncing(true);
-    try {
-      const result = await runDashboardBrazeSegmentSync({
-        clientId,
-        platformId: brazePlatform.id,
-        queryClient,
-      });
-      toast({
-        title: 'Segments synced',
-        description: `${result.segmentsSynced} segment(s) synced and starred in Dashboard.`,
-      });
-    } catch (err: unknown) {
-      toast({
-        title: 'Segment sync failed',
-        description: err instanceof Error ? err.message : 'Unknown error',
-        variant: 'destructive',
-      });
-    } finally {
-      setSegmentSyncing(false);
-    }
-  }, [clientId, brazePlatform?.id, brazeSyncHud.running, segmentSyncing, queryClient, toast]);
 
   // DISABLED: Re-entering the Dashboard no longer starts throttled background Braze sync.
   // Sync only when the user clicks “Sync All from Braze”.
@@ -562,29 +548,18 @@ export default function Dashboard() {
               </div>
               {brazePlatform && (
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      onClick={handleSyncSegments}
-                      variant="outline"
-                      size="sm"
-                      disabled={brazeSyncHud.running || segmentSyncing}
-                      aria-label="Sync segments from Braze"
-                    >
-                      {segmentSyncing ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <Layers className="h-4 w-4 mr-2" />
-                      )}
-                      Sync Segments
-                    </Button>
+                  <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
                     <Button
                       type="button"
                       onClick={handleBrazeSyncButtonClick}
                       variant={brazeSyncHud.running ? 'secondary' : 'outline'}
                       size="sm"
                       aria-label={brazeSyncHud.running ? 'Stop Braze sync' : 'Sync all from Braze'}
-                      title={brazeSyncHud.running ? 'Click to stop (finishes the current step first)' : undefined}
+                      title={
+                        brazeSyncHud.running
+                          ? 'Click to stop (finishes the current step first)'
+                          : 'Campaigns, segments, custom events, KPI/metrics, and canvases (same logic as the former separate syncs)'
+                      }
                     >
                       {brazeSyncHud.running ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -595,7 +570,7 @@ export default function Dashboard() {
                     </Button>
                   </div>
                   {brazeSyncHud.running && brazeSyncHud.status && (
-                    <p className="text-xs text-muted-foreground animate-pulse max-w-[250px] text-right">
+                    <p className="text-xs text-muted-foreground animate-pulse max-w-[min(100%,22rem)] text-right leading-snug">
                       {brazeSyncHud.status}
                     </p>
                   )}
@@ -611,7 +586,7 @@ export default function Dashboard() {
         {/* Client-facing metrics */}
         <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
           <div className={dashboardTopAccentClass} aria-hidden />
-          <CardHeader className={cn('pb-2 pt-4 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
+          <CardHeader className={cn('pb-2 pt-6 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h2 className={cn(dashboardSectionHeadingClass, 'text-2xl sm:text-3xl font-bold tracking-tight')}>
@@ -627,7 +602,7 @@ export default function Dashboard() {
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="pt-4 pb-5 space-y-4 bg-muted/10">
+          <CardContent className="pt-5 sm:pt-6 pb-5 space-y-4 bg-muted/10">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             <ClientProminentMetric
               icon={MailWarning}
@@ -672,7 +647,7 @@ export default function Dashboard() {
               footnote={
                 brazeSegmentDirectorySource === 'csv'
                   ? 'Distinct segments from segment analytics CSV (Resources)'
-                  : 'Directory from Braze segments/list sync (or CSV if sync not run yet)'
+                  : 'Segment directory from segments/list; sizes use segments/data_series when needed; full export fields merged via segments/details when key permissions are enabled'
               }
               railClass={dashRailWarning}
               accentClass={cn(dashIconChipWarning, 'h-10 w-10 rounded-xl')}
@@ -700,10 +675,12 @@ export default function Dashboard() {
           isFetching={driveBriefsLoading}
         />
 
+        <DashboardAiReportsSection clientId={clientId} />
+
         {/* Segments — star/unstar, search, filter */}
         <DashboardSegmentsPanel />
 
-
+        <DashboardCustomEventsPanel />
 
         {/* Closed Briefs — now grouped by type */}
         <ClosedBriefsSection

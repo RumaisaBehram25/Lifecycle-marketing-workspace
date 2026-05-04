@@ -256,6 +256,17 @@ async function fetchKnowledgeContext(
   queryType: string,
   userQuery?: string
 ): Promise<KnowledgeContext> {
+  const isChat = queryType === "chat";
+  /** AI Chat: broader doc pulls so Copilot can answer granular questions from ingested files. */
+  const vendorLimit = isChat ? 120 : 60;
+  const clientLimit = isChat ? 80 : 30;
+  const primaryCount = isChat ? 12 : 5;
+  const supportingFrom = isChat ? 12 : 5;
+  const supportingTo = isChat ? 34 : 15;
+  const availableTo = isChat ? 55 : 40;
+  const primaryContentMax = isChat ? 3500 : 1000;
+  const summaryMax = isChat ? 480 : 300;
+
   // Priority categories based on query type
   const priorityCategories: Record<string, string[]> = {
     chat: ['liquid_templating', 'flows_journeys', 'api_reference', 'email', 'segmentation'],
@@ -272,13 +283,13 @@ async function fetchKnowledgeContext(
       .select('title, content, platform, category, source_url, is_vendor_doc')
       .eq('is_vendor_doc', true)
       .order('updated_at', { ascending: false })
-      .limit(60),
+      .limit(vendorLimit),
     supabase
       .from('knowledge_documents')
       .select('title, content, category, source_url, is_vendor_doc, platform')
       .eq('client_id', clientId)
       .order('updated_at', { ascending: false })
-      .limit(30),
+      .limit(clientLimit),
     supabase
       .from('knowledge_documents')
       .select('platform, category, is_vendor_doc, client_id'),
@@ -292,7 +303,7 @@ async function fetchKnowledgeContext(
   const scoredDocs = scoreDocs(allDocs, priorities, userQuery);
   
   // Build tiered context
-  const primaryDocs = scoredDocs.slice(0, 5).map(d => ({
+  const primaryDocs = scoredDocs.slice(0, primaryCount).map(d => ({
     title: d.title || 'Untitled',
     content: d.content,
     platform: d.platform,
@@ -301,14 +312,14 @@ async function fetchKnowledgeContext(
     is_vendor_doc: d.is_vendor_doc,
   }));
   
-  const supportingDocs = scoredDocs.slice(5, 15).map(d => ({
+  const supportingDocs = scoredDocs.slice(supportingFrom, supportingTo).map(d => ({
     title: d.title || 'Untitled',
     platform: d.platform,
     category: d.category,
-    summary: d.content?.slice(0, 300) || '',
+    summary: d.content?.slice(0, summaryMax) || '',
   }));
   
-  const availableDocs = scoredDocs.slice(15, 40).map(d => ({
+  const availableDocs = scoredDocs.slice(supportingTo, availableTo).map(d => ({
     title: d.title || 'Untitled',
     platform: d.platform,
     category: d.category,
@@ -530,13 +541,15 @@ ${platform.profile_properties.slice(0, 30).join(', ')}${platform.profile_propert
   });
 
   // Knowledge context - tiered approach
+  const primaryDocCharCap = purpose === "chat" ? 3500 : 1000;
+
   if (knowledge.primaryDocs.length > 0) {
     prompt += `## KNOWLEDGE BASE
 
 ### PRIMARY REFERENCE DOCS (Full Content)
 ${knowledge.primaryDocs.map(doc => `
 **${doc.title}** [${doc.platform || 'general'}/${doc.category || 'general'}]
-${doc.content.slice(0, 1000)}${doc.content.length > 1000 ? '...' : ''}
+${doc.content.slice(0, primaryDocCharCap)}${doc.content.length > primaryDocCharCap ? '...' : ''}
 `).join('\n')}
 
 `;

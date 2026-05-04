@@ -9,6 +9,7 @@ import { validateAuth, validateClientAccess, authErrorResponse } from "../_share
 import { buildAnalyticsSnapshotBlock } from "../_shared/analytics-snapshot.ts";
 import { logger } from '../_shared/logger.ts';
 import { serializeUnknownError } from '../_shared/errors.ts';
+import { AI_COPILOT_ANSWER_CONTRACT } from "../_shared/ai-copilot-behavior.ts";
 
 type ChatProvider = {
   kind: 'anthropic';
@@ -152,6 +153,12 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
         .select('name, content_type, description, subject_line, preview_text, body_preview')
         .eq('client_id', clientId)
         .limit(8),
+      supabase
+        .from('dashboard_ai_reports')
+        .select('prompt, report_markdown, created_at, posted_by')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false })
+        .limit(10),
     ]);
 
     type Pg = { data: unknown; error: { message?: string } | null };
@@ -169,6 +176,7 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
     const briefs = take(0, 'briefs');
     const files = take(1, 'client_drive_files');
     const templates = take(2, 'template_library');
+    const aiReports = take(3, 'dashboard_ai_reports');
 
     let block =
       '\n## LIVE WORKSPACE SNAPSHOT (this account)\nGround answers in this data when relevant. If something is empty, say so clearly.\n';
@@ -236,6 +244,22 @@ async function buildWorkspaceSnapshot(supabase: ReturnType<typeof createClient>,
           },
         )
         .join('\n')}\n`;
+    }
+
+    if (aiReports.length) {
+      block += `\n### AI Reports (saved to Dashboard — recent)\n${aiReports
+        .map((r: { prompt?: string; report_markdown?: string; created_at?: string; posted_by?: string }) => {
+          const pr = clip(r.prompt, 200);
+          const body = clip(r.report_markdown, 420);
+          return [
+            `- **${r.created_at ?? "?"}**${r.posted_by ? ` (${r.posted_by})` : ""}`,
+            pr ? `  prompt: ${pr}` : "",
+            body ? `  excerpt: ${body}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        })
+        .join("\n")}\n`;
     }
 
     block +=
@@ -361,14 +385,17 @@ serve(async (req) => {
     systemPrompt += await buildWorkspaceSnapshot(supabase, client.id);
     systemPrompt += await buildAnalyticsSnapshotBlock(supabase, analyticsClientId);
 
-    systemPrompt += `\n## DATA ACCURACY & SUPABASE ACCESS (mandatory)\n` +
-      `- **Snapshot time:** ${unifiedContext.generatedAt} (UTC). Numbers are a point-in-time read for this chat request.\n` +
-      `- **Client scope:** \`clients.id\` = \`${client.id}\`. **Analytics / Braze bundle** uses \`analyticsClientId\` = \`${analyticsClientId}\` (aligned with Dashboard Braze tiles when that ID matches your synced workspace).\n` +
-      `- **How this is loaded:** This Edge Function uses the Supabase **service role** to **read** rows for those IDs (same underlying tables as in-app Analytics, Campaigns, KPIs). That is **not** “no access” — it is the server-side, API-grounded snapshot injected into your context.\n` +
-      `- **Answer rules (metrics vs copy):** For **sends, opens, revenue, segment sizes, campaign stats**, use only what appears in **ANALYTICS & CRM DATA**, **LIVE WORKSPACE SNAPSHOT**, and **PLATFORM**. **Do not invent** those numbers. If missing, say so and suggest sync/import. **Separately:** **brand voice**, **do/don't rules**, and **Copy Rules** (character limits) under **CLIENT CONTEXT** are workspace settings from Supabase — apply them whenever drafting copy **even when** PLATFORM lists/templates/events are empty (that emptiness is not missing copy rules).\n` +
-      `- **Forbidden claims:** Do **not** say you lack “API access”, “Supabase access”, or “can’t see the Analytics tab” — this prompt already contains what the app exposed for this turn.\n`;
+    systemPrompt += `\n## DATA SNAPSHOT (technical)\n` +
+      `- **Snapshot time (UTC):** ${unifiedContext.generatedAt}\n` +
+      `- **Workspace \`clients.id\`:** \`${client.id}\`\n` +
+      `- **Analytics bundle \`client_id\`:** \`${analyticsClientId}\`\n` +
+      `- **How loaded:** Supabase **service role** read for this request — same tables as Analytics / Dashboard when synced. Everything above this line is what exists for this turn.\n`;
 
-    systemPrompt += `\n## COPILOT VOICE\nYou are **CRM Copilot** for lifecycle marketersâ€”warm, decisive, and concise. Prefer short sections and bullet points. Be actionable and slightly catchy without being cheesy. If a metric is missing from the snapshots above, say it is not synced or not in the database yetâ€”do not invent numbersâ€”and still give strong best-practice guidance.\n`;
+    systemPrompt += AI_COPILOT_ANSWER_CONTRACT;
+
+    systemPrompt += `\n## COPILOT VOICE\n` +
+      `You are **CRM Copilot** for lifecycle marketers — warm, decisive, and easy to read. Prefer short sections and bullets. ` +
+      `If a metric or entity is missing from the snapshots, say it plainly (no invented numbers) and suggest sync or next steps when helpful.\n`;
 
     console.log('Context built:', {
       clientName: unifiedContext.client.name,

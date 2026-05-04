@@ -16,6 +16,10 @@ verify_jwt = false
 [functions.sync-braze]
 verify_jwt = false
 
+# JWT verified in validateAuth (JWKS), same as generate-analytics-insights.
+[functions.ai-analytics-report]
+verify_jwt = false
+
 [functions.braze-campaign-creative]
 verify_jwt = false
 

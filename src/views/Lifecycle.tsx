@@ -81,6 +81,7 @@ import {
   computeLifecycleDisplayTouchpoints,
   formatLifecycleStepBadge,
   getLifecycleStepChannel,
+  inferLifecycleCanvasChannels,
   isLifecycleMessagingChannel,
   isMessagingTouchpointStep,
   normalizeRawSteps,
@@ -237,6 +238,16 @@ function sortJourneysByRecentDesc<
   },
 >(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
+    /** Prefer Braze last_entry so Lifecycle matches sync order (newest activity first). */
+    const ale = toDateMs(a.last_entry);
+    const ble = toDateMs(b.last_entry);
+    const aHasLe = ale != null;
+    const bHasLe = ble != null;
+    if (aHasLe || bHasLe) {
+      if (!aHasLe) return 1;
+      if (!bHasLe) return -1;
+      if (ble !== ale) return ble - ale;
+    }
     const am = journeyRecencyMs(a);
     const bm = journeyRecencyMs(b);
     if (am == null && bm == null) {
@@ -402,6 +413,10 @@ export default function Lifecycle() {
   }, [brazeReadClientId, workspaceClientId]);
   // ─────────────────────────────────────────────────────────────────────────────
 
+  useEffect(() => {
+    setCanvasChannelHints({});
+  }, [brazeReadClientId]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState('All');
   const [launchDateFilter, setLaunchDateFilter] = useState<string>('All');
@@ -409,6 +424,8 @@ export default function Lifecycle() {
   const [journeyPage, setJourneyPage] = useState(1);
   /** Page-only: hide journeys by DB row id (Settings visibility is separate). */
   const [hiddenCanvasDbIds, setHiddenCanvasDbIds] = useState<Set<string>>(() => new Set());
+  /** Per-canvas channels from full `raw_steps` (list query omits steps — avoids labelling every journey as email). */
+  const [canvasChannelHints, setCanvasChannelHints] = useState<Record<string, string[]>>({});
   /** After localStorage hydrate for this workspace — avoids save effect wiping LS before load. */
   const [lifecycleCanvasPrefsReady, setLifecycleCanvasPrefsReady] = useState(false);
   const [lifecycleSortMode, setLifecycleSortMode] = useState<
@@ -460,7 +477,7 @@ export default function Lifecycle() {
         .from('braze_canvases')
         .select(BRAZE_CANVASES_LIST_SELECT)
         .eq('client_id', brazeReadClientId)
-        // Latest lifecycle cards: newest by activity/sync timestamps.
+        // Newest last_entry first (nulls last); tie-break for stable pagination.
         .order('last_entry', { ascending: false, nullsFirst: false })
         .order('updated_in_braze', { ascending: false, nullsFirst: false })
         .order('synced_at', { ascending: false, nullsFirst: false })
@@ -502,39 +519,26 @@ export default function Lifecycle() {
 
     if (rawSource.length === 0) return [];
 
-    return sortJourneysByNameAsc(
-      rawSource.map((canvasRaw) => {
+    /** Keep Supabase order: `braze_canvases` query uses last_entry DESC (nulls last). */
+    return rawSource.map((canvasRaw) => {
         const canvas = canvasRaw as Record<string, unknown>;
         const name = (canvas.name as string) ?? '';
         const taxonomy = parseCampaignTaxonomy(name);
 
         const stepsRecord = normalizeRawSteps(canvas.raw_steps ?? canvas.steps);
 
-        const stepsList = Object.values(stepsRecord);
-
-        let inferredChannels: string[] = [];
-        if (stepsList.length > 0) {
-          const channels = stepsList
-            .map((s) => getLifecycleStepChannel(s as LifecycleCanvasStep))
-            .filter((ch): ch is string => Boolean(ch))
-            .filter((ch) => isLifecycleMessagingChannel(ch));
-          inferredChannels = [...new Set(channels)];
-        }
-        if (inferredChannels.length === 0) {
-          const nameLower = name.toLowerCase();
-          if (nameLower.includes('email') || taxonomy.channel === 'email') inferredChannels.push('email');
-          if (nameLower.includes('push')) inferredChannels.push('push');
-          if (nameLower.includes('sms')) inferredChannels.push('sms');
-          if (nameLower.includes('in-app') || nameLower.includes('in_app')) inferredChannels.push('in_app_message');
-          if (inferredChannels.length === 0) inferredChannels.push('email');
-        }
+        const dbRowId = String(canvas.id ?? '');
+        const hinted = canvasChannelHints[dbRowId];
+        const inferredChannels =
+          hinted && hinted.length > 0
+            ? hinted
+            : inferLifecycleCanvasChannels(canvas.raw_steps ?? canvas.steps, name);
 
         const dbTotalRaw =
           typeof canvas.total_steps === 'number' && !Number.isNaN(canvas.total_steps)
             ? canvas.total_steps
             : undefined;
 
-        const dbRowId = String(canvas.id ?? '');
         const brazeCanvasIdRaw = canvas.braze_canvas_id;
         const brazeCanvasId =
           brazeCanvasIdRaw != null && String(brazeCanvasIdRaw).trim() !== ''
@@ -579,9 +583,8 @@ export default function Lifecycle() {
           raw_steps: canvas.raw_steps,
           raw_variants: canvas.raw_variants,
         };
-      }),
-    );
-  }, [normalizedCanvases, canViewLifecycleFromBraze]);
+      });
+  }, [normalizedCanvases, canViewLifecycleFromBraze, canvasChannelHints]);
 
   // ─── S3 image + canvas-detail BATCH prefetch ──────────────────────────────────────────────────
   // Goal: by the time the user clicks a journey card, both the raw_steps JSON (flow chart data)
@@ -596,54 +599,87 @@ export default function Lifecycle() {
   //      previously-discovered URL — images are ready before the user sees the cards.
   useEffect(() => {
     const clientId = brazeReadClientId ?? workspaceClientId;
-    if (!clientId || journeys.length === 0) return;
+    if (!clientId || !normalizedCanvases?.length) return;
     let cancelled = false;
 
-    const top = journeys.slice(0, JOURNEY_PAGE_SIZE);
+    const rawSource = normalizedCanvases as Array<Record<string, unknown>>;
+    const top = rawSource.slice(0, JOURNEY_PAGE_SIZE);
+    const nameById = new Map(rawSource.map((c) => [String(c.id ?? ''), String(c.name ?? '')]));
 
-    // Fast path: seed cache for journeys that already have raw_steps (no DB call needed).
+    const mergeHints = (partial: Record<string, string[]>) => {
+      setCanvasChannelHints((prev) => {
+        let changed = false;
+        const merged = { ...prev };
+        for (const [id, ch] of Object.entries(partial)) {
+          if (!id) continue;
+          const prevCh = prev[id];
+          const same =
+            prevCh &&
+            prevCh.length === ch.length &&
+            prevCh.every((v, i) => v === ch[i]);
+          if (!same) {
+            merged[id] = ch;
+            changed = true;
+          }
+        }
+        return changed ? merged : prev;
+      });
+    };
+
+    const hintsFromList: Record<string, string[]> = {};
     const needsFetch: string[] = [];
-    for (const journey of top) {
-      const journeyDbId = String(journey.dbId ?? journey.id ?? '');
-      if (!journeyDbId) continue;
 
-      if (journey.raw_steps != null) {
-        preloadJourneyStepImages(journey.raw_steps, journey.raw_variants, clientId, journeyDbId);
+    for (const canvas of top) {
+      const journeyDbId = String(canvas.id ?? '');
+      if (!journeyDbId) continue;
+      const name = String(canvas.name ?? '');
+      if (canvas.raw_steps != null) {
+        preloadJourneyStepImages(canvas.raw_steps, canvas.raw_variants, clientId, journeyDbId);
         queryClient.setQueryData(
           ['lifecycle-braze-canvas-detail', clientId, journeyDbId],
           {
-            id: journey.dbId,
-            raw_steps: journey.raw_steps,
-            raw_variants: journey.raw_variants,
-            total_steps: journey.db_total_steps,
+            id: canvas.id,
+            raw_steps: canvas.raw_steps,
+            raw_variants: canvas.raw_variants,
+            total_steps: canvas.total_steps,
           },
         );
+        hintsFromList[journeyDbId] = inferLifecycleCanvasChannels(canvas.raw_steps, name);
       } else {
-        // Only fetch if not already in React Query cache.
-        const cached = queryClient.getQueryData(['lifecycle-braze-canvas-detail', clientId, journeyDbId]);
-        if (!cached) needsFetch.push(journeyDbId);
+        const cached = queryClient.getQueryData<Record<string, unknown>>([
+          'lifecycle-braze-canvas-detail',
+          clientId,
+          journeyDbId,
+        ]);
+        if (cached?.raw_steps != null) {
+          hintsFromList[journeyDbId] = inferLifecycleCanvasChannels(cached.raw_steps, name);
+        } else if (!cached) {
+          needsFetch.push(journeyDbId);
+        }
       }
     }
 
-    // Batch fetch: one DB query for all missing canvas details.
+    if (Object.keys(hintsFromList).length > 0) mergeHints(hintsFromList);
+
     if (needsFetch.length > 0) {
       void (async () => {
         try {
           const batchResults = await fetchLifecycleBrazeCanvasDetailsBatch(clientId, needsFetch);
           if (cancelled) return;
+          const batchHints: Record<string, string[]> = {};
           for (const row of batchResults) {
             const rowId = String(row.id ?? '');
             if (!rowId) continue;
-            // Seed React Query cache so individual detail queries resolve instantly.
             queryClient.setQueryData(
               ['lifecycle-braze-canvas-detail', clientId, rowId],
               row,
             );
-            // Warm images in BFS path order + persist to localStorage for instant warm on next visit.
             preloadJourneyStepImages(row.raw_steps, row.raw_variants, clientId, rowId);
+            const nm = nameById.get(rowId) ?? '';
+            batchHints[rowId] = inferLifecycleCanvasChannels(row.raw_steps, nm);
           }
+          mergeHints(batchHints);
         } catch {
-          // Batch failed — fall back to individual prefetches for remaining IDs.
           if (cancelled) return;
           for (const journeyDbId of needsFetch) {
             void queryClient.prefetchQuery({
@@ -657,7 +693,7 @@ export default function Lifecycle() {
     }
 
     return () => { cancelled = true; };
-  }, [journeys, brazeReadClientId, workspaceClientId, queryClient]);
+  }, [normalizedCanvases, brazeReadClientId, workspaceClientId, queryClient]);
 
   const isItemVisible = useCallback((brazeOrVisibilityId: string) => {
     const explicitSetting = visibilityMap.get(brazeOrVisibilityId);
@@ -788,6 +824,9 @@ export default function Lifecycle() {
           journey.channels?.some((ch) => {
             const normalizedCh = ch.toLowerCase().replace(/[-_]/g, '');
             const normalizedFilter = channelFilter.toLowerCase().replace(/[-_]/g, '');
+            if (normalizedFilter === 'sms' && (normalizedCh.includes('sms') || normalizedCh.includes('whatsapp'))) {
+              return true;
+            }
             return (
               normalizedCh === normalizedFilter ||
               normalizedCh.includes(normalizedFilter) ||
@@ -1462,6 +1501,9 @@ function journeyCardChannelPillList(channels: string[] | undefined): Array<{
     if (normalized.includes('email')) {
       label = 'Email';
       colorArg = 'email';
+    } else if (normalized.includes('whatsapp')) {
+      label = 'WhatsApp';
+      colorArg = 'sms';
     } else if (normalized.includes('sms')) {
       label = 'SMS';
       colorArg = 'sms';
@@ -1478,7 +1520,7 @@ function journeyCardChannelPillList(channels: string[] | undefined): Array<{
     if (!seen.has(label)) seen.set(label, { label, colorArg });
   }
   if (seen.size === 0) {
-    return [{ key: 'email', label: 'Email', colorArg: 'email' }];
+    return [{ key: 'journey', label: 'Journey', colorArg: null }];
   }
   const order = ['Email', 'SMS', 'Push', 'In-App'];
   return [...seen.entries()]

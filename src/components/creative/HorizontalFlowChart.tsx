@@ -210,7 +210,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
               height={360}
               loading="eager"
               decoding="async"
-              fetchPriority="high"
+              fetchpriority="high"
               onError={hideTouchpointImageOnError}
               className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
             />
@@ -284,7 +284,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
                 height={360}
                 loading="eager"
                 decoding="async"
-                fetchPriority="high"
+                fetchpriority="high"
                 onError={hideTouchpointImageOnError}
                 className="absolute inset-0 z-[1] h-full w-full bg-muted/30 object-contain object-top"
               />
@@ -314,7 +314,7 @@ function CreativePreview({ step }: { step: CanvasStep }) {
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
-              fetchPriority="high"
+              fetchpriority="high"
               onError={hideTouchpointImageOnError}
               className="w-20 h-20 object-cover rounded-xl mx-auto mb-5"
             />
@@ -598,6 +598,17 @@ const BRANCHING_TYPES = [
   'routing_split',
 ];
 
+function dedupeOutgoingIdsStable(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 function getOutgoingStepIds(step: CanvasStep): string[] {
   const out: string[] = [];
   if (Array.isArray(step.next_step_ids)) {
@@ -617,7 +628,9 @@ function getOutgoingStepIds(step: CanvasStep): string[] {
       if (id) out.push(id);
     }
   }
-  return out;
+  // Braze often duplicates targets in both next_step_ids and next_paths — harmless for BFS
+  // but deduping keeps downstream logic predictable.
+  return dedupeOutgoingIdsStable(out);
 }
 
 /**
@@ -711,6 +724,58 @@ function isNonMessagingStep(step: CanvasStep): boolean {
     if (rawType === key || rawType.endsWith('/' + key)) return true;
   }
   return !step.channel && (!step.messages || step.messages.length === 0);
+}
+
+/** Stable fingerprint of messaging cards reachable from a variant entry (order-sensitive along BFS path). */
+function messagingTouchpointSignature(
+  firstStepId: string | null,
+  allSteps: Record<string, CanvasStep>,
+): string {
+  if (!firstStepId || !allSteps[firstStepId]) return '';
+  const path = buildAllReachableSteps(firstStepId, allSteps);
+  const ids: string[] = [];
+  for (const s of path) {
+    if (isDelayOnlyStep(s) || isBranchOnlyStep(s) || isNonMessagingStep(s)) continue;
+    ids.push(String(s.id));
+  }
+  return ids.join('\u001f');
+}
+
+/**
+ * Multiple Braze variants can converge (same downstream messaging). Rendering one row per variant
+ * duplicates every shared touchpoint card — collapse variants whose messaging sequences match.
+ */
+function collapseVariantsWithSameMessagingPath(
+  variants: CanvasVariant[],
+  allSteps: Record<string, CanvasStep>,
+): CanvasVariant[] {
+  const groups = new Map<string, CanvasVariant[]>();
+  for (const v of variants) {
+    const sig =
+      messagingTouchpointSignature(v.first_step_id, allSteps) ||
+      `__fallback:${String(v.first_step_id ?? '')}:${String(v.name ?? '')}`;
+    const list = groups.get(sig);
+    if (list) list.push(v);
+    else groups.set(sig, [v]);
+  }
+
+  const out: CanvasVariant[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      out.push(group[0]);
+      continue;
+    }
+    const names = [...new Set(group.map((g) => String(g.name ?? '').trim()).filter(Boolean))];
+    const sumPct = group.reduce((acc, g) => acc + (typeof g.percentage === 'number' ? g.percentage : 0), 0);
+    const mergedPct = Number.isFinite(sumPct) ? Math.min(100, Math.round(sumPct)) : group[0].percentage;
+    out.push({
+      ...group[0],
+      name: names.length ? names.join(' · ') : group[0].name,
+      percentage: mergedPct,
+      first_step_id: group[0].first_step_id ?? null,
+    });
+  }
+  return out;
 }
 
 // Variant row with horizontal scroll - EXPANDED BY DEFAULT
@@ -852,13 +917,14 @@ export function HorizontalFlowChart({ canvas, onViewStep }: HorizontalFlowChartP
 
     if (hasVariants) {
       const filtered = canvas.variants.filter((v) => !v.name.toLowerCase().includes('control'));
-      return filtered.map((v) => ({
+      const mapped = filtered.map((v) => ({
         ...v,
         first_step_id:
           v.first_step_id ||
           (filtered.length === 1 ? entryFallback : null) ||
           null,
       }));
+      return collapseVariantsWithSameMessagingPath(mapped, canvas.steps);
     }
 
     if (hasSteps && entryFallback) {
@@ -1263,7 +1329,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
               height={450}
               loading="eager"
               decoding="async"
-              fetchPriority="high"
+              fetchpriority="high"
               onError={hideTouchpointImageOnError}
               className="h-full min-h-[500px] w-full object-contain object-top bg-muted/20"
             />
@@ -1329,7 +1395,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
                 height={450}
                 loading="eager"
                 decoding="async"
-                fetchPriority="high"
+                fetchpriority="high"
                 onError={hideTouchpointImageOnError}
                 className="h-full min-h-[500px] w-full object-contain object-top bg-muted/20"
               />
@@ -1354,7 +1420,7 @@ function LargeCreativePreview({ step }: { step: CanvasStep }) {
             <img
               src={campaignImageDisplayUrl(resolvedCardImage, 'thumbnail') ?? resolvedCardImage}
               alt=""
-              fetchPriority="high"
+              fetchpriority="high"
               onError={hideTouchpointImageOnError}
               className="w-24 h-24 object-cover rounded-xl mx-auto mb-6"
             />

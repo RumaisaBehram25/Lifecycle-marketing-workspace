@@ -95,6 +95,15 @@ function seriesDateMs(seriesDate: string): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+/** Same source as Dashboard segment detail (`raw.braze_export_segment_details`). */
+function pickExportUpdatedIsoFromSegmentRaw(raw: Record<string, unknown> | null): string | null {
+  const d = raw?.braze_export_segment_details;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const o = d as Record<string, unknown>;
+  const u = o.updated_at ?? o.created_at;
+  return typeof u === 'string' && u.trim() ? u.trim() : null;
+}
+
 function normalizeLifecycleFlowKey(name: string): string {
   return name.trim().toLowerCase();
 }
@@ -521,7 +530,7 @@ export function useAnalyticsData(period: string = 'default') {
       if (!clientId) return [];
       const { data, error } = await (supabase as any)
         .from('braze_segments_sync')
-        .select('name,raw')
+        .select('braze_segment_id,name,raw')
         .eq('client_id', clientId);
       if (error) throw error;
       return (data ?? []) as Row[];
@@ -1028,6 +1037,47 @@ export function useAnalyticsData(period: string = 'default') {
     return row;
   });
 
+  /**
+   * Latest Braze “Export updated” time among segments that appear in analytics data
+   * (Dashboard `/segments/details` payload + optional `export_updated_at` on analytics rows).
+   */
+  const segmentSizeOverTimeExportLabel = useMemo(() => {
+    if (segmentRows.length === 0) return null;
+
+    let bestMs = -Infinity;
+    const bump = (iso: string | null | undefined) => {
+      if (!iso || !String(iso).trim()) return;
+      const ms = Date.parse(String(iso).trim());
+      if (!Number.isNaN(ms) && ms > bestMs) bestMs = ms;
+    };
+
+    for (const r of segmentRows) {
+      bump((r as Row).export_updated_at as string | undefined);
+    }
+
+    const idSet = new Set(
+      segmentRows.map((r) => String((r as Row).segment_id ?? '').trim()).filter(Boolean),
+    );
+    const nameSet = new Set(
+      segmentRows.map((r) => String((r as Row).segment_name ?? '').trim()).filter(Boolean),
+    );
+
+    for (const r of segmentSyncRows) {
+      const id = String((r as Row).braze_segment_id ?? '').trim();
+      const nm = String((r as Row).name ?? '').trim();
+      const inChart =
+        (Boolean(id) && idSet.has(id)) || (Boolean(nm) && nameSet.has(nm));
+      if (!inChart) continue;
+      const raw = (r.raw ?? null) as Record<string, unknown> | null;
+      bump(pickExportUpdatedIsoFromSegmentRaw(raw));
+    }
+
+    if (!Number.isFinite(bestMs) || bestMs <= 0) return null;
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+      new Date(bestMs),
+    );
+  }, [segmentRows, segmentSyncRows]);
+
   const csvCampaignAggMap = buildCsvCampaignAggByNormalizedKey(canvases);
   // Analytics uses only campaign analytics data, not pre-aggregated canvas columns
   const campaignTableRows = campaignTableRowsFromAggMap(csvCampaignAggMap);
@@ -1141,6 +1191,8 @@ export function useAnalyticsData(period: string = 'default') {
     segmentNames,
     segmentCategoryChartDataByDate,
     segmentCategories,
+    /** Dashboard-aligned “Export updated” (latest among segments in this chart). */
+    segmentSizeOverTimeExportLabel,
     segmentSunburstData,
     channelMix,
     /** Sum of merged campaign + canvas revenue (per normalized name). */
