@@ -38,7 +38,6 @@ import {
   dashIconChipDestructive,
   dashIconChipSuccess,
   dashIconChipWarning,
-  dashPill,
   dashRailAccent,
   dashRailDestructive,
   dashRailPrimary,
@@ -540,7 +539,6 @@ export default function Dashboard() {
               <div className="min-w-0 flex-1">
                 <BRCGLogo className="h-12 w-auto max-w-[min(100%,24rem)] sm:h-14 md:h-16 md:max-w-[min(100%,28rem)]" />
                 <div className="mt-4 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-                  <span className={dashPill}>Live</span>
                   <p className="text-base font-medium text-muted-foreground sm:text-lg">
                     CRM Copilot — Lifecycle marketing command center
                   </p>
@@ -587,19 +585,14 @@ export default function Dashboard() {
         <Card className={cn(dashboardSurfaceCard, 'shadow-md')}>
           <div className={dashboardTopAccentClass} aria-hidden />
           <CardHeader className={cn('pb-2 pt-6 bg-gradient-to-r from-primary/[0.07] via-card to-transparent', dashSectionTitleBorder)}>
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h2 className={cn(dashboardSectionHeadingClass, 'text-2xl sm:text-3xl font-bold tracking-tight')}>
-                  <span className={dashboardSectionDotClass} aria-hidden />
-                  Performance &amp; connections
-                </h2>
-                <p className={cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule)}>
-                  Key health metrics your team sees at a glance
-                </p>
-              </div>
-              <Badge variant="secondary" className={cn(dashPill, 'border-0')}>
-                Live data
-              </Badge>
+            <div>
+              <h2 className={cn(dashboardSectionHeadingClass, 'text-2xl sm:text-3xl font-bold tracking-tight')}>
+                <span className={dashboardSectionDotClass} aria-hidden />
+                Performance &amp; connections
+              </h2>
+              <p className={cn('text-xs text-muted-foreground mt-1.5 pl-3 ml-0.5', dashSubtitleRule)}>
+                Key health metrics your team sees at a glance
+              </p>
             </div>
           </CardHeader>
           <CardContent className="pt-5 sm:pt-6 pb-5 space-y-4 bg-muted/10">

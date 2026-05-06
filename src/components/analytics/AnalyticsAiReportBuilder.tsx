@@ -89,6 +89,10 @@ async function describeAiReportInvokeFailure(
 
   const status = httpStatusFromInvokeError(invokeError);
 
+  if (status === 546) {
+    return 'The AI report hit server resource limits (memory or compute). Try a shorter or more focused question, wait a minute, and try again. If it keeps happening, ask your admin to redeploy the latest ai-analytics-report function or check Supabase → Edge Functions → Logs.';
+  }
+
   if (invokeError instanceof Error) {
     const m = invokeError.message?.trim() ?? '';
     if (m && !/Edge Function returned a non-2xx/i.test(m)) return m;

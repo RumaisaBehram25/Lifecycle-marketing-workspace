@@ -10,11 +10,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const ROW_CAP = 200;
+/** Keep samples small — large prompts blow Edge memory and return HTTP 546 (resource limit). */
+const ROW_CAP = 100;
 /** More rows for time-series tables used in month-over-month math */
-const SERIES_ROW_CAP = 500;
-const JSONB_MAX = 1200;
-const MAX_TOKENS = 4000;
+const SERIES_ROW_CAP = 200;
+const JSONB_MAX = 800;
+const MAX_TOKENS = 3500;
 
 function clipJson(v: unknown, maxLen: number): unknown {
   if (v == null) return v;
@@ -44,7 +45,7 @@ function mapTouchpointFromCanvas(r: Record<string, unknown>) {
     canvas_id: r.braze_canvas_id,
     name: r.name,
     total_steps: r.total_steps,
-    raw_steps: clipJson(steps, 4000),
+    raw_steps: clipJson(steps, 1200),
   };
 }
 
@@ -300,11 +301,17 @@ serve(async (req) => {
           .order("created_at", { ascending: false })
           .limit(50)),
       q("lifecycle_overrides", () =>
-        supabase.from("lifecycle_overrides").select("*").eq("client_id", clientId).limit(ROW_CAP)),
+        supabase
+          .from("lifecycle_overrides")
+          .select("id, braze_canvas_id, trigger_event_override, audience_override, notes, updated_at")
+          .eq("client_id", clientId)
+          .limit(ROW_CAP)),
       q("braze_usage_analytics", () =>
         supabase
           .from("braze_usage_analytics")
-          .select("*")
+          .select(
+            "id, date, sessions, dau, mau, new_users, emails_sent, emails_delivered, emails_opened, email_clicks, email_bounces, emails_reported_spam, push_sent, push_total_opens, push_direct_opens, push_bounces, in_app_sent, in_app_impressions, in_app_clicks, created_at",
+          )
           .eq("client_id", clientId)
           .order("date", { ascending: false })
           .limit(SERIES_ROW_CAP)),
@@ -380,7 +387,7 @@ serve(async (req) => {
         event_type: x.event_type,
         category: x.category,
         synced_at: x.synced_at,
-        raw: clipJson(x.raw, 800),
+        raw: clipJson(x.raw, 600),
       };
     });
     const campaignAnalyticsRaw = campaignAnalyticsRes as Record<string, unknown>[];
@@ -396,7 +403,7 @@ serve(async (req) => {
         platform: x.platform,
         is_connected: x.is_connected,
         last_sync_at: x.last_sync_at,
-        schema_cache: clipJson(x.schema_cache, 2000),
+        schema_cache: clipJson(x.schema_cache, 1200),
       };
     });
     const briefs = briefsRes;
@@ -480,11 +487,9 @@ STRUCTURED DATA (authoritative):
 
 ${JSON.stringify(context, null, 0)}
 
-PREVIOUS REPORT PROMPTS: ${JSON.stringify(previousReports, null, 0)}
-
 Respond in clean markdown: headings, bullet lists, and markdown tables when comparing periods. End with a short bullet summary.`;
 
-    const MAX_SYSTEM_CHARS = 175_000;
+    const MAX_SYSTEM_CHARS = 95_000;
     const systemFinal =
       system.length > MAX_SYSTEM_CHARS
         ? system.slice(0, MAX_SYSTEM_CHARS) +

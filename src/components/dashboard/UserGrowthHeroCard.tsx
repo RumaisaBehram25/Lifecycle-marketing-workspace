@@ -33,7 +33,6 @@ import {
   dashIconChip,
   dashIconChipAccent,
   dashIconChipSuccess,
-  dashLivePillSoft,
   dashSectionTitleBorder,
   dashSheetHeaderAccent,
   dashSkeletonCard,
@@ -49,7 +48,6 @@ import {
   dashboardEmptyWarningCard,
   dashboardSectionDotClass,
   dashboardTopAccentClass,
-  dashPill,
 } from '@/lib/dashboard-surface';
 import { format } from 'date-fns';
 import { ArrowRight, TrendingDown, TrendingUp, Users, Activity, UserPlus } from 'lucide-react';
@@ -525,7 +523,6 @@ export function UserGrowthHeroCard() {
                     User Growth
                   </h2>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={dashPill}>Live</span>
                     <span className="text-xs text-muted-foreground">Braze KPI sync</span>
                   </div>
                 </div>
@@ -611,7 +608,6 @@ export function UserGrowthHeroCard() {
                 <div className="p-6 pb-4 space-y-2">
                   <SheetTitle className="text-xl font-heading tracking-tight">User Growth</SheetTitle>
                   <SheetDescription className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className={dashLivePillSoft}>Live</span>
                     <span>Braze usage analytics (synced)</span>
                   </SheetDescription>
                 </div>
