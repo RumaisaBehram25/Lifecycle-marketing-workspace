@@ -21,7 +21,6 @@ dist-ssr
 
 .claude
 # Editor directories and files
-.vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
@@ -33,8 +32,6 @@ dist-ssr
 config.bat
 
 # Secrets — never commit real values; use .env locally (not tracked)
-.env
-.env.*
 !.env.example
 
 # Supabase CLI local state
